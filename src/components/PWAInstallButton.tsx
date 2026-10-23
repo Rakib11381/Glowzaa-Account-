@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Smartphone, CheckCircle2, Copy, ExternalLink, X, Sparkles, ShieldCheck } from 'lucide-react';
+import { Download, Smartphone, CheckCircle2, Copy, X, Sparkles, ShieldCheck, Github, AlertCircle } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -120,7 +120,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
           <div
             className="modal-card"
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: '600px', width: '95%' }}
+            style={{ maxWidth: '620px', width: '95%' }}
           >
             <div className="modal-header" style={{ background: 'linear-gradient(135deg, #091e32, #0d3251)', color: '#fff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -140,10 +140,10 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '17px', color: '#fff' }}>
-                    ওয়েব থেকে Android অ্যাপ বানানোর ও ইনস্টল করার উপায়
+                    ১০০% ফ্রি-তে Android অ্যাপ ও APK ডাউনলোড গাইড
                   </h3>
                   <small style={{ color: '#94a3b8', fontSize: '12px' }}>
-                    Glowzaa Shop ইতিমধ্যে পূর্ণাঙ্গ PWA (Progressive Web App) হিসেবে কনফিগার করা হয়েছে
+                    কোনো পেইড ওয়েবসাইট ছাড়াই সরাসরি ফোনে ইনস্টল অথবা GitHub থেকে ফ্রি APK ডাউনলোড করুন
                   </small>
                 </div>
               </div>
@@ -158,7 +158,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
             </div>
 
             <div className="modal-body" style={{ display: 'grid', gap: '16px', maxHeight: '75vh', overflowY: 'auto' }}>
-              {/* Direct 1-Click PWA Install Banner */}
+              {/* Method 1: Direct 1-Click Chrome Install (No third party website needed) */}
               <div
                 style={{
                   background: 'linear-gradient(135deg, #f0fdfa, #ccfbf1)',
@@ -172,7 +172,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f766e', fontWeight: 700, fontSize: '14.5px' }}>
                     <Sparkles size={18} />
-                    <span>পদ্ধতি ১: সরাসরি ফোনে অ্যাপ হিসেবে ইনস্টল (সবচেয়ে সহজ)</span>
+                    <span>পদ্ধতি ১: কোনো ওয়েবসাইট ছাড়াই ফোনে সরাসরি ইনস্টল (১০০% ফ্রি)</span>
                   </div>
                   <span
                     style={{
@@ -184,12 +184,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
                       fontWeight: 700,
                     }}
                   >
-                    ১০০% রেডি
+                    ০ টাকা / ১ মিনিট
                   </span>
                 </div>
 
                 <p style={{ margin: 0, fontSize: '13px', color: '#134e4a', lineHeight: 1.55 }}>
-                  এই ওয়েবসাইটটিতে <b>PWA (Progressive Web App)</b> প্রযুক্তি যুক্ত করা হয়েছে। কোনো কোডিং ছাড়াই আপনার Android ফোনের <b>Chrome ব্রাউজার</b> থেকে সরাসরি অ্যাপ হিসেবে হোমস্ক্রিনে ইনস্টল করতে পারবেন:
+                  কোনো থার্ড-পার্টি ওয়েবসাইটে যাওয়ার প্রয়োজন নেই! আপনার ফোনের <b>Google Chrome</b> ব্রাউজার নিজেই এটিকে আসল Android অ্যাপ হিসেবে ইনস্টল করে দেবে:
                 </p>
 
                 {deferredPrompt ? (
@@ -209,7 +209,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
                     }}
                   >
                     <Download size={18} />
-                    <span>এখনই ১-ক্লিকে অ্যাপ ইনস্টল করুন</span>
+                    <span>এখনই ১-ক্লিকে ফোনে অ্যাপ ইনস্টল করুন</span>
                   </button>
                 ) : (
                   <div
@@ -222,14 +222,92 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
                       border: '1px solid #99f6e4',
                     }}
                   >
-                    <div><b>মোবাইলে ইনস্টল করার ধাপ:</b></div>
+                    <div><b>মোবাইলে সরাসরি ইনস্টল করার ধাপ:</b></div>
                     <ol style={{ margin: '6px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
-                      <li>ফোনের <b>Google Chrome</b> ব্রাউজারে নিচের অ্যাপ লিংকটি ওপেন করুন।</li>
-                      <li>উপরের ডান পাশের <b>৩-ডট (⋮) মেনুতে</b> ট্যাপ করুন।</li>
-                      <li><b>"Install app"</b> অথবা <b>"Add to Home screen"</b>-এ ক্লিক করুন।</li>
+                      <li>ফোনের <b>Google Chrome</b> ব্রাউজারে আপনার অ্যাপের লিংকটি ওপেন করুন।</li>
+                      <li>উপরের ডান কোণায় <b>৩-ডট (⋮) মেনুতে</b> ট্যাপ করুন।</li>
+                      <li><b>"Install app"</b> অথবা <b>"Add to Home screen"</b>-এ চাপ দিন—সাথে সাথে ফোনে <b>Glowzaa Shop</b> অ্যাপ ইনস্টল হয়ে যাবে!</li>
                     </ol>
                   </div>
                 )}
+              </div>
+
+              {/* Method 2: Built-in GitHub Actions Free APK Generator */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '12px',
+                  padding: '14px 16px',
+                  display: 'grid',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f2438', fontWeight: 700, fontSize: '14.5px' }}>
+                    <Github size={18} style={{ color: '#0f172a' }} />
+                    <span>পদ্ধতি ২: GitHub থেকে অটোমেটিক `.apk` ফাইল ডাউনলোড (১০০% ফ্রি)</span>
+                  </div>
+                  <span
+                    style={{
+                      background: '#2563eb',
+                      color: '#fff',
+                      fontSize: '11px',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    প্রজেক্টে সেটআপ করা আছে
+                  </span>
+                </div>
+
+                <p style={{ margin: 0, fontSize: '12.5px', color: '#334155', lineHeight: 1.55 }}>
+                  থার্ড-পার্টি সাইটগুলো (যেমন WebIntoApp) এখন টাকা চায়। তাই আপনার এই প্রজেক্টের ভেতরেই আমরা একটি স্বয়ংক্রিয় <b>Android APK Builder</b> (<code>.github/workflows/build-apk.yml</code>) যুক্ত করে দিয়েছি!
+                </p>
+
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    background: '#f8fafc',
+                    borderRadius: '8px',
+                    borderLeft: '3px solid #2563eb',
+                    fontSize: '12.5px',
+                  }}
+                >
+                  <b>ফ্রি-তে `.apk` ফাইল পাওয়ার ৪টি সহজ ধাপ:</b>
+                  <ol style={{ margin: '6px 0 0', paddingLeft: '18px', color: '#334155', lineHeight: 1.65 }}>
+                    <li>উপরের ডান দিক থেকে প্রজেক্টটি আপনার <b>GitHub</b> অ্যাকাউন্টে এক্সপোর্ট/আপলোড করুন (Repository-টি <b>Public</b> রাখলে আজীবন সম্পূর্ণ ফ্রি)।</li>
+                    <li>আপনার GitHub Repository-তে গিয়ে উপরের <b>"Actions"</b> ট্যাবে ক্লিক করুন।</li>
+                    <li>সেখানে <b>"Build Android APK (Glowzaa Shop)"</b> অটোমেটিক চালু হবে (২-৩ মিনিট সময় নেবে)।</li>
+                    <li>সবুজ টিক চিহ্ন আসলে নিচে স্ক্রল করে <b>Artifacts</b> সেকশন থেকে <b><code>Glowzaa-Shop-Android-APK</code></b> ক্লিক করলেই আসল <code>.apk</code> ফাইল ডাউনলোড হয়ে যাবে!</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Note on why third-party sites failed */}
+              <div
+                style={{
+                  background: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  borderRadius: '10px',
+                  padding: '11px 14px',
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'flex-start',
+                  fontSize: '12px',
+                  color: '#92400e',
+                  lineHeight: 1.55,
+                }}
+              >
+                <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '2px', color: '#d97706' }} />
+                <div>
+                  <b>কেন অন্য ওয়েবসাইটগুলো কাজ করেনি?</b>
+                  <div>
+                    ১. <b>WebIntoApp</b>-এর মতো সাইটগুলো এখন ফ্রি-তে APK ডাউনলোড বন্ধ করে পেইড করে ফেলেছে।<br />
+                    ২. <b>PWABuilder.com</b> ১০০% ফ্রি (মাইক্রোসফটের), কিন্তু এটি AI Studio-এর টেম্পোরারি প্রিভিউ লিংকে কাজ করে না—আগে GitHub থেকে <b>Vercel.com</b> বা <b>Netlify.com</b>-এ ফ্রি হোস্ট করে সেই লিংকটি দিলে কাজ করে।
+                  </div>
+                </div>
               </div>
 
               {/* Copy App Link Box */}
@@ -242,7 +320,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
                 }}
               >
                 <div style={{ fontSize: '12.5px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  আপনার লাইভ অ্যাপ লিংক (APK বানানোর জন্য এই লিংকটি কপি করুন):
+                  আপনার বর্তমান অ্যাপ লিংক (মোবাইল Chrome-এ ওপেন করার জন্য):
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
@@ -276,60 +354,6 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
                     {copiedUrl ? <CheckCircle2 size={15} /> : <Copy size={15} />}
                     <span>{copiedUrl ? 'কপি হয়েছে!' : 'লিংক কপি'}</span>
                   </button>
-                </div>
-              </div>
-
-              {/* Method 2: Generate Installable APK via PWABuilder / WebIntoApp */}
-              <div
-                style={{
-                  background: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '12px',
-                  padding: '14px 16px',
-                  display: 'grid',
-                  gap: '10px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f2438', fontWeight: 700, fontSize: '14.5px' }}>
-                  <ShieldCheck size={18} style={{ color: '#2563eb' }} />
-                  <span>পদ্ধতি ২: সরাসরি Android `.apk` ফাইল তৈরি (২ মিনিটে ফ্রিতে)</span>
-                </div>
-
-                <p style={{ margin: 0, fontSize: '12.5px', color: '#475569', lineHeight: 1.55 }}>
-                  আপনি যদি মেমোরি কার্ড বা হোয়াটসঅ্যাপে শেয়ার করার মতো <b>.apk ফাইল</b> চান, তাহলে নিচের যেকোনো একটি ফ্রি ওয়েবসাইটে গিয়ে উপরের কপি করা লিংকটি পেস্ট করলেই <b>Glowzaa Shop.apk</b> ডাউনলোড হয়ে যাবে:
-                </p>
-
-                <div style={{ display: 'grid', gap: '8px', fontSize: '12.5px' }}>
-                  <div
-                    style={{
-                      padding: '10px 12px',
-                      background: '#f8fafc',
-                      borderRadius: '8px',
-                      borderLeft: '3px solid #2563eb',
-                    }}
-                  >
-                    <b>১. PWABuilder.com (Microsoft-এর অফিসিয়াল টুল - সেরা):</b>
-                    <ol style={{ margin: '4px 0 0', paddingLeft: '18px', color: '#334155', lineHeight: 1.55 }}>
-                      <li><b>pwabuilder.com</b> ওয়েবসাইটে যান।</li>
-                      <li>বক্সে আপনার অ্যাপ লিংকটি পেস্ট করে <b>Start</b> বাটনে চাপুন।</li>
-                      <li><b>Package for Stores</b> → <b>Android</b> → <b>Download Package</b> ক্লিক করলে সাথে সাথে <code>.apk</code> এবং Play Store-এর <code>.aab</code> ফাইল পেয়ে যাবেন!</li>
-                    </ol>
-                  </div>
-
-                  <div
-                    style={{
-                      padding: '10px 12px',
-                      background: '#f8fafc',
-                      borderRadius: '8px',
-                      borderLeft: '3px solid #0d9488',
-                    }}
-                  >
-                    <b>২. WebIntoApp.com (সরাসরি APK জেনারেটর):</b>
-                    <ol style={{ margin: '4px 0 0', paddingLeft: '18px', color: '#334155', lineHeight: 1.55 }}>
-                      <li><b>webintoapp.com</b>-এ গিয়ে আপনার অ্যাপ লিংক ও নাম <b>Glowzaa Shop</b> দিন।</li>
-                      <li><b>Make App</b> ক্লিক করলেই রেডিমেড Android APK ফাইল ডাউনলোড হয়ে যাবে।</li>
-                    </ol>
-                  </div>
                 </div>
               </div>
             </div>

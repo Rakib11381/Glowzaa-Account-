@@ -103,7 +103,7 @@ import {
   type PartnerAccountBalance,
   type DailyFinancialBreakdown,
 } from './accounting';
-import { generateBengaliPdf } from './pdfReport';
+import { generateBengaliPdf, generateMonthlyBengaliPdf, formatMonthLabelBn } from './pdfReport';
 import { runAutomatedTests } from './accounting.test';
 import type { Entry, Investor, Product, ProfitDistribution, AuditLog, RecordType, Role, BusinessSettings, EntryStatus, ApprovalRequest } from './types';
 
@@ -257,6 +257,8 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [reportMonth, setReportMonth] = useState<string>(() => today().slice(0, 7));
+  const [isMonthlyPdfLoading, setIsMonthlyPdfLoading] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Dashboard Daily & Historical Filter states
@@ -289,8 +291,12 @@ export default function App() {
   const [demoPreview, setDemoPreview] = useState<DemoCleanupPreview | null>(null);
   const [testResults, setTestResults] = useState<{ passed: boolean; message: string; timestamp: string } | null>(null);
 
-  // Dual-Admin Approval states
+  // Dual-Admin Approval & Notification Modal states
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [notifTab, setNotifTab] = useState<'pending_for_me' | 'my_sent' | 'recent_activity'>('pending_for_me');
+  const [notifRejectingId, setNotifRejectingId] = useState<string | null>(null);
+  const [notifRejectReason, setNotifRejectReason] = useState('');
   const [entryReason, setEntryReason] = useState('');
   const [productReason, setProductReason] = useState('');
   const [deleteReasonInput, setDeleteReasonInput] = useState('');
@@ -413,6 +419,29 @@ export default function App() {
   const stats = useMemo(() => summary(entries, products), [entries, products]);
   const cashSummary = useMemo(() => calculateCashBalance(entries, products), [entries, products]);
   const partnerAccounts = useMemo(() => calculatePartnerAccountBalances(investors, entries, products), [investors, entries, products]);
+
+  // Dedicated Monthly Report Computations
+  const monthlyReportEntries = useMemo(
+    () => entries.filter((e) => e.date && e.date.startsWith(reportMonth)),
+    [entries, reportMonth]
+  );
+  const monthlyReportStats = useMemo(
+    () => summary(monthlyReportEntries, products),
+    [monthlyReportEntries, products]
+  );
+  const availableReportMonths = useMemo(() => {
+    const curMonth = today().slice(0, 7);
+    const dPrev = new Date();
+    dPrev.setMonth(dPrev.getMonth() - 1);
+    const prevMonth = dPrev.toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' }).slice(0, 7);
+    const monthSet = new Set<string>([curMonth, prevMonth]);
+    for (const e of entries) {
+      if (e.date && e.date.length >= 7) {
+        monthSet.add(e.date.slice(0, 7));
+      }
+    }
+    return [...monthSet].sort((a, b) => b.localeCompare(a)).slice(0, 6);
+  }, [entries]);
 
   // Day-by-Day Financial Breakdown (Today + All Past Days)
   const todayStr = today();
@@ -1559,6 +1588,30 @@ export default function App() {
     }
   }
 
+  async function handleDownloadMonthlyPdf() {
+    setIsMonthlyPdfLoading(true);
+    try {
+      await generateMonthlyBengaliPdf(
+        {
+          settings,
+          yearMonth: reportMonth,
+          stats: monthlyReportStats,
+          investors,
+          products,
+          monthEntries: monthlyReportEntries,
+          allEntries: entries,
+        },
+        `monthly-report-${reportMonth}.pdf`
+      );
+      setMessage(`${formatMonthLabelBn(reportMonth)} মাসের পিডিএফ রিপোর্ট সফলভাবে ডাউনলোড হয়েছে`);
+    } catch (e: any) {
+      console.error(e);
+      setError('মাসিক PDF তৈরি করার সময় সমস্যা হয়েছে: ' + (e?.message || String(e)));
+    } finally {
+      setIsMonthlyPdfLoading(false);
+    }
+  }
+
   if (!authReady) {
     return <div className="center">সিস্টেম প্রস্তুত হচ্ছে…</div>;
   }
@@ -1834,49 +1887,20 @@ export default function App() {
             </div>
           </div>
           <div className="top-actions">
-            {admin && (
-              <button
-                type="button"
-                className="topbar-quick-add-btn"
-                onClick={() => {
-                  setEditingEntry(null);
-                  setEntryForm({
-                    type: 'sale',
-                    title: '',
-                    amount: '',
-                    profit: '',
-                    cost: '',
-                    date: today(),
-                    status: 'posted',
-                    investorId: '',
-                    productId: '',
-                    quantity: '',
-                    unitPrice: '',
-                    unitCost: '',
-                    category: '',
-                    notes: '',
-                  });
-                  setShowEntryModal(true);
-                }}
-                title="নতুন হিসাব যোগ করুন"
-              >
-                <Plus size={16} />
-                <span>নতুন হিসাব</span>
-              </button>
-            )}
-
-            {/* Android App / PWA Install & APK Guide Button */}
-            <PWAInstallButton compact />
-
-            {/* Compact Bell Notification Icon for Dual Approval Requests */}
+            {/* Compact Bell Notification Icon — Opens Dedicated Notification & Approval Modal */}
             <button
               type="button"
               className={`topbar-bell-btn ${pendingForMeCount > 0 ? 'has-pending' : ''}`}
-              onClick={() => setTab('profile')}
+              onClick={() => {
+                setNotifRejectingId(null);
+                setNotifRejectReason('');
+                setNotifTab(pendingForMeCount > 0 ? 'pending_for_me' : 'recent_activity');
+                setShowNotificationModal(true);
+              }}
               title={
                 pendingForMeCount > 0
                   ? `${otherPartner.displayName}-এর ${pendingForMeCount}টি অনুমোদন অপেক্ষমান!`
-                  : 'অনুমোদন ও নোটিফিকেশন কেন্দ্র'
+                  : 'নোটিফিকেশন ও অনুমোদন তালিকা দেখুন'
               }
               aria-label="নোটিফিকেশন ও অনুমোদন"
             >
@@ -1891,7 +1915,7 @@ export default function App() {
               type="button"
               className={`topbar-profile-btn ${tab === 'profile' ? 'active' : ''}`}
               onClick={() => setTab('profile')}
-              title="আমার প্রোফাইল ও অনুমোদন কেন্দ্র"
+              title="আমার প্রোফাইল"
               aria-label="আমার প্রোফাইল"
             >
               <div className="topbar-avatar-icon">
@@ -1905,15 +1929,10 @@ export default function App() {
                 ) : (
                   <UserIcon size={16} />
                 )}
-                {pendingForMeCount > 0 && (
-                  <span className="avatar-notify-dot" title={`${pendingForMeCount}টি অনুমোদন বাকি`} />
-                )}
               </div>
               <div className="topbar-profile-meta">
                 <span className="topbar-profile-name">{currentAdmin.username}</span>
-                <span className="topbar-profile-tag">
-                  {pendingForMeCount > 0 ? `${pendingForMeCount}টি অনুরোধ` : 'প্রোফাইল'}
-                </span>
+                <span className="topbar-profile-tag">প্রোফাইল</span>
               </div>
             </button>
           </div>
@@ -3131,17 +3150,254 @@ export default function App() {
             <div className="panel-head">
               <div className="panel-head-info">
                 <h2>আর্থিক প্রতিবেদন ও পূর্ণাঙ্গ স্টেটমেন্ট</h2>
-                <p>ব্যবসায়িক লাভ-ক্ষতি বিবরণী, ক্যাশ ফ্লো এবং পার্টনার লেজার ডাউনলোড ও পর্যালোচনা করুন</p>
+                <p>মাসিক ও সার্বিক ব্যবসায়িক লাভ-ক্ষতি বিবরণী, ক্যাশ ফ্লো এবং পার্টনার লেজার ডাউনলোড ও পর্যালোচনা করুন</p>
               </div>
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <button className="primary" onClick={handleDownloadPdf} disabled={isPdfLoading}>
-                  <FileText size={17} /> {isPdfLoading ? 'পিডিএফ প্রস্তুত হচ্ছে…' : 'বাংলা PDF ডাউনলোড'}
+                  <FileText size={17} /> {isPdfLoading ? 'পিডিএফ প্রস্তুত হচ্ছে…' : 'সার্বিক বাংলা PDF ডাউনলোড'}
                 </button>
                 <button className="secondary" onClick={exportCsv}>
                   <FileSpreadsheet size={17} /> CSV এক্সপোর্ট
                 </button>
               </div>
             </div>
+
+            {/* DEDICATED MONTHLY PDF REPORT GENERATOR */}
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #f0fdfa 0%, #f8fafc 100%)',
+                border: '1.5px solid #99f6e4',
+                borderRadius: '14px',
+                padding: '20px',
+                marginBottom: '26px',
+                boxShadow: '0 4px 14px rgba(13, 148, 136, 0.06)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: '16px',
+                  flexWrap: 'wrap',
+                  marginBottom: '16px',
+                  paddingBottom: '14px',
+                  borderBottom: '1px solid #ccfbf1',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <Calendar size={19} style={{ color: '#0d9488' }} />
+                    <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#0f172a' }}>
+                      মাসিক আর্থিক প্রতিবেদন ও PDF জেনারেটর ({formatMonthLabelBn(reportMonth)})
+                    </h3>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#475569' }}>
+                    যেকোনো ক্যালেন্ডার মাস নির্বাচন করে সেই মাসের মোট বিক্রয়, মোট খরচ এবং নিট লাভের পূর্ণাঙ্গ PDF রিপোর্ট ডাউনলোড করুন
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      padding: '6px 12px',
+                    }}
+                  >
+                    <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>মাস নির্বাচন:</span>
+                    <input
+                      type="month"
+                      value={reportMonth}
+                      onChange={(e) => {
+                        if (e.target.value) setReportMonth(e.target.value);
+                      }}
+                      style={{
+                        border: 'none',
+                        outline: 'none',
+                        fontSize: '13.5px',
+                        fontWeight: 700,
+                        color: '#0f766e',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                      }}
+                      title="ক্যালেন্ডার মাস নির্বাচন করুন"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={handleDownloadMonthlyPdf}
+                    disabled={isMonthlyPdfLoading}
+                    style={{
+                      background: '#0f766e',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 16px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <Download size={16} />
+                    {isMonthlyPdfLoading
+                      ? 'মাসিক PDF তৈরি হচ্ছে…'
+                      : `${formatMonthLabelBn(reportMonth)}-এর PDF ডাউনলোড`}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Month Selector Buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>দ্রুত মাস নির্বাচন:</span>
+                {availableReportMonths.map((ym) => {
+                  const isCurrent = ym === today().slice(0, 7);
+                  const isSelected = ym === reportMonth;
+                  return (
+                    <button
+                      key={ym}
+                      type="button"
+                      onClick={() => setReportMonth(ym)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: '6px',
+                        fontSize: '12.5px',
+                        fontWeight: isSelected ? 700 : 600,
+                        border: isSelected ? '1.5px solid #0d9488' : '1px solid #cbd5e1',
+                        background: isSelected ? '#0d9488' : '#ffffff',
+                        color: isSelected ? '#ffffff' : '#334155',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {formatMonthLabelBn(ym)} {isCurrent ? '(চলতি মাস)' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Monthly Summary KPI Cards */}
+              <div className="card-grid" style={{ marginBottom: '16px' }}>
+                <div className="info-card" style={{ background: '#ffffff', borderColor: '#bbf7d0' }}>
+                  <h4>মাসিক মোট বিক্রয় (Total Sales)</h4>
+                  <p style={{ fontSize: '20px', fontWeight: 700, color: '#15803d', margin: '4px 0' }}>
+                    {money(monthlyReportStats.sales)}
+                  </p>
+                  <small style={{ color: '#059669', fontWeight: 600 }}>
+                    মাসিক গ্রস লাভ: +{money(monthlyReportStats.grossProfit)}
+                  </small>
+                </div>
+
+                <div className="info-card" style={{ background: '#ffffff', borderColor: '#fde68a' }}>
+                  <h4>মাসিক মোট খরচ (Total Expenses)</h4>
+                  <p style={{ fontSize: '20px', fontWeight: 700, color: '#b45309', margin: '4px 0' }}>
+                    {money(monthlyReportStats.cogs + monthlyReportStats.expenses)}
+                  </p>
+                  <small style={{ color: '#78350f' }}>
+                    ক্রয় খরচ (COGS): {money(monthlyReportStats.cogs)} | পরিচালন ব্যয়: {money(monthlyReportStats.expenses)}
+                  </small>
+                </div>
+
+                <div
+                  className="info-card"
+                  style={{
+                    background: monthlyReportStats.netProfit >= 0 ? '#f0fdf4' : '#fef2f2',
+                    borderColor: monthlyReportStats.netProfit >= 0 ? '#86efac' : '#fecaca',
+                  }}
+                >
+                  <h4>মাসিক নিট লাভ / ক্ষতি (Net Profit)</h4>
+                  <p
+                    style={{
+                      fontSize: '20px',
+                      fontWeight: 800,
+                      color: monthlyReportStats.netProfit >= 0 ? '#059669' : '#dc2626',
+                      margin: '4px 0',
+                    }}
+                  >
+                    {monthlyReportStats.netProfit >= 0 ? '+' : ''}
+                    {money(monthlyReportStats.netProfit)}
+                  </p>
+                  <small style={{ color: '#475569', fontWeight: 600 }}>
+                    বিক্রয় ({money(monthlyReportStats.sales)}) − মোট খরচ ({money(monthlyReportStats.cogs + monthlyReportStats.expenses)})
+                  </small>
+                </div>
+
+                <div className="info-card" style={{ background: '#ffffff', borderColor: '#e2e8f0' }}>
+                  <h4>মাসের লেনদেন সংখ্যা</h4>
+                  <p style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>
+                    {toBengaliNumerals(monthlyReportStats.postedCount)}টি রেকর্ড
+                  </p>
+                  <small style={{ color: '#64748b' }}>
+                    মাল ক্রয়: {money(monthlyReportStats.purchases)} | উত্তোলন: {money(monthlyReportStats.withdrawals)}
+                  </small>
+                </div>
+              </div>
+
+              {/* Selected Month Quick Breakdown Table */}
+              <div className="table-wrap" style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{formatMonthLabelBn(reportMonth)} মাসের হিসাব খাত</th>
+                      <th>হিসাবের ধরন</th>
+                      <th>টাকার পরিমাণ (৳)</th>
+                      <th>বিবরণ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><b>মাসিক মোট বিক্রয় (Monthly Sales)</b></td>
+                      <td>আয় (Revenue)</td>
+                      <td style={{ color: '#059669', fontWeight: 700 }}>{money(monthlyReportStats.sales)}</td>
+                      <td>নির্বাচিত মাসের মোট বিক্রয় রাজস্ব</td>
+                    </tr>
+                    <tr>
+                      <td><b>বিক্রিত পণ্যের ক্রয়মূল্য (Monthly COGS)</b></td>
+                      <td>প্রত্যক্ষ পণ্য খরচ</td>
+                      <td style={{ color: '#b45309', fontWeight: 600 }}>-{money(monthlyReportStats.cogs)}</td>
+                      <td>বিক্রিত পণ্যের আসল কেনা খরচ</td>
+                    </tr>
+                    <tr>
+                      <td><b>মাসিক পরিচালন খরচ (Operating Expenses)</b></td>
+                      <td>পরিচালন ব্যয়</td>
+                      <td style={{ color: '#dc2626', fontWeight: 600 }}>-{money(monthlyReportStats.expenses)}</td>
+                      <td>নির্বাচিত মাসের দোকান, পরিবহন ও অন্যান্য খরচ</td>
+                    </tr>
+                    <tr style={{ background: '#fffbeb' }}>
+                      <td><b>মাসের সর্বমোট খরচ (Total Monthly Expenses)</b></td>
+                      <td>মোট ব্যয় (COGS + Expense)</td>
+                      <td style={{ color: '#b45309', fontWeight: 700 }}>
+                        -{money(monthlyReportStats.cogs + monthlyReportStats.expenses)}
+                      </td>
+                      <td>পণ্য ক্রয় খরচ ও পরিচালন ব্যয়ের যোগফল</td>
+                    </tr>
+                    <tr style={{ background: monthlyReportStats.netProfit >= 0 ? '#f0fdf4' : '#fef2f2' }}>
+                      <td><b>মাসিক প্রকৃত নিট মুনাফা / ক্ষতি (Monthly Net Profit)</b></td>
+                      <td>মাসিক চূড়ান্ত ফলাফল</td>
+                      <td
+                        style={{
+                          color: monthlyReportStats.netProfit >= 0 ? '#059669' : '#dc2626',
+                          fontWeight: 800,
+                          fontSize: '14.5px',
+                        }}
+                      >
+                        {monthlyReportStats.netProfit >= 0 ? '+' : ''}
+                        {money(monthlyReportStats.netProfit)}
+                      </td>
+                      <td>{formatMonthLabelBn(reportMonth)} মাসের নিট অর্জিত লাভ বা ক্ষতি</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 12px 0' }}>
+              সার্বিক ব্যবসায়িক আর্থিক সারাংশ (শুরু থেকে বর্তমান)
+            </h3>
 
             <div className="card-grid" style={{ marginBottom: '20px' }}>
               <div className="info-card">
@@ -4581,6 +4837,472 @@ export default function App() {
           </div>
         </Modal>
       )}
+
+      {/* MODAL: DEDICATED NOTIFICATIONS & DUAL-APPROVAL CENTER */}
+      {showNotificationModal && currentAdmin && (() => {
+        const pendingForMeList = approvalRequests.filter(
+          (r) => r.status === 'pending' && r.targetApprover === currentAdmin.username
+        );
+        const mySentPendingList = approvalRequests.filter(
+          (r) => r.status === 'pending' && r.requestedBy === currentAdmin.username
+        );
+        const completedRequestsList = approvalRequests.filter((r) => r.status !== 'pending').slice(0, 12);
+
+        const actionLabelMap: Record<string, { label: string; isDelete?: boolean }> = {
+          create_entry: { label: 'নতুন লেনদেন যুক্ত' },
+          edit_entry: { label: 'লেনদেন সংশোধন' },
+          delete_entry: { label: 'লেনদেন ডিলিট', isDelete: true },
+          create_product: { label: 'নতুন পণ্য যুক্ত' },
+          edit_product: { label: 'পণ্য/স্টক আপডেট' },
+          delete_product: { label: 'পণ্য ডিলিট', isDelete: true },
+          create_investor: { label: 'নতুন অংশীদার যুক্ত' },
+          edit_investor: { label: 'অংশীদার আপডেট' },
+          delete_investor: { label: 'অংশীদার ডিলিট', isDelete: true },
+          distribute_profit: { label: 'মুনাফা বণ্টন' },
+        };
+
+        return (
+          <Modal
+            title="🔔 নোটিফিকেশন ও অনুমোদন কেন্দ্র"
+            close={() => {
+              setShowNotificationModal(false);
+              setNotifRejectingId(null);
+              setNotifRejectReason('');
+            }}
+          >
+            <div className="modal-body" style={{ display: 'grid', gap: '14px' }}>
+              {/* Sub-Navigation Pills */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '6px',
+                  background: '#f1f5f9',
+                  padding: '5px',
+                  borderRadius: '10px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setNotifTab('pending_for_me')}
+                  style={{
+                    padding: '8px 6px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: notifTab === 'pending_for_me' ? '#0d9488' : 'transparent',
+                    color: notifTab === 'pending_for_me' ? '#ffffff' : '#475569',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <span>অনুমোদন বাকি</span>
+                  <span
+                    style={{
+                      background: notifTab === 'pending_for_me' ? '#ffffff' : pendingForMeList.length > 0 ? '#ef4444' : '#cbd5e1',
+                      color: notifTab === 'pending_for_me' ? '#0d9488' : pendingForMeList.length > 0 ? '#ffffff' : '#334155',
+                      borderRadius: '999px',
+                      padding: '1px 6px',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {pendingForMeList.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNotifTab('recent_activity')}
+                  style={{
+                    padding: '8px 6px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: notifTab === 'recent_activity' ? '#0d9488' : 'transparent',
+                    color: notifTab === 'recent_activity' ? '#ffffff' : '#475569',
+                  }}
+                >
+                  সাম্প্রতিক নোটিফিকেশন
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNotifTab('my_sent')}
+                  style={{
+                    padding: '8px 6px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: notifTab === 'my_sent' ? '#0d9488' : 'transparent',
+                    color: notifTab === 'my_sent' ? '#ffffff' : '#475569',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <span>পাঠানো অনুরোধ</span>
+                  {mySentPendingList.length > 0 && (
+                    <span
+                      style={{
+                        background: notifTab === 'my_sent' ? '#ffffff' : '#f59e0b',
+                        color: notifTab === 'my_sent' ? '#0d9488' : '#ffffff',
+                        borderRadius: '999px',
+                        padding: '1px 6px',
+                        fontSize: '11px',
+                        fontWeight: 800,
+                      }}
+                    >
+                      {mySentPendingList.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* TAB 1: PENDING APPROVALS FOR CURRENT ADMIN */}
+              {notifTab === 'pending_for_me' && (
+                <div style={{ display: 'grid', gap: '12px', maxHeight: '62vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  {pendingForMeList.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '28px 16px',
+                        textAlign: 'center',
+                        background: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1px dashed #cbd5e1',
+                      }}
+                    >
+                      <CheckCircle2 size={34} style={{ color: '#10b981', margin: '0 auto 8px', display: 'block' }} />
+                      <h4 style={{ margin: '0 0 4px', color: '#0f172a', fontSize: '15px' }}>
+                        আপনার অনুমোদনের জন্য কোনো অপেক্ষমান অনুরোধ নেই
+                      </h4>
+                      <p style={{ margin: 0, color: '#64748b', fontSize: '12.5px', lineHeight: 1.5 }}>
+                        {otherPartner.displayName} যখন নতুন কোনো হিসাব, উত্তোলন বা পণ্য যোগ/ডিলিট করার অনুরোধ পাঠাবেন, তা সাথে সাথে এখানে দেখা যাবে।
+                      </p>
+                    </div>
+                  ) : (
+                    pendingForMeList.map((req) => {
+                      const meta = actionLabelMap[req.actionType] || { label: req.actionType };
+                      const isRejectingThis = notifRejectingId === req.id;
+
+                      return (
+                        <div
+                          key={req.id}
+                          style={{
+                            border: `1.5px solid ${meta.isDelete ? '#fca5a5' : '#99f6e4'}`,
+                            background: meta.isDelete ? '#fff1f2' : '#f0fdfa',
+                            borderRadius: '12px',
+                            padding: '14px',
+                            display: 'grid',
+                            gap: '10px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
+                            <div>
+                              <span
+                                className="badge"
+                                style={{
+                                  background: meta.isDelete ? '#fee2e2' : '#ccfbf1',
+                                  color: meta.isDelete ? '#b91c1c' : '#0f766e',
+                                  marginBottom: '4px',
+                                  display: 'inline-block',
+                                }}
+                              >
+                                {meta.label}
+                              </span>
+                              <h4 style={{ margin: 0, fontSize: '14.5px', color: '#0f172a', fontWeight: 700 }}>
+                                {req.title}
+                              </h4>
+                            </div>
+                            <small style={{ color: '#64748b', fontSize: '11.5px' }}>
+                              {req.requestedAtFormatted}
+                            </small>
+                          </div>
+
+                          <div
+                            style={{
+                              background: '#ffffff',
+                              borderRadius: '8px',
+                              padding: '10px 12px',
+                              border: '1px solid #e2e8f0',
+                              fontSize: '12.5px',
+                              color: '#334155',
+                              display: 'grid',
+                              gap: '4px',
+                            }}
+                          >
+                            <div>
+                              <b>অনুরোধকারী:</b> {req.requestedByName}
+                            </div>
+                            <div>
+                              <b>বিবরণ:</b> {req.description}
+                            </div>
+                            {req.reason && (
+                              <div style={{ color: '#047857' }}>
+                                <b>কারণ / নোট:</b> "{req.reason}"
+                              </div>
+                            )}
+                          </div>
+
+                          {isRejectingThis ? (
+                            <div style={{ display: 'grid', gap: '8px', background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                              <input
+                                placeholder="বাতিল করার কারণ লিখুন..."
+                                value={notifRejectReason}
+                                onChange={(e) => setNotifRejectReason(e.target.value)}
+                                style={{ fontSize: '12.5px', padding: '8px 10px' }}
+                              />
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                                  onClick={() => {
+                                    setNotifRejectingId(null);
+                                    setNotifRejectReason('');
+                                  }}
+                                >
+                                  ফিরে যান
+                                </button>
+                                <button
+                                  type="button"
+                                  className="danger"
+                                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                                  disabled={busy || !notifRejectReason.trim()}
+                                  onClick={async () => {
+                                    await handleRejectRequest(req, notifRejectReason.trim());
+                                    setNotifRejectingId(null);
+                                    setNotifRejectReason('');
+                                  }}
+                                >
+                                  নিশ্চিত বাতিল করুন
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                className="primary"
+                                style={{ flex: 1, justifyContent: 'center', padding: '9px 12px', fontSize: '12.5px' }}
+                                disabled={busy}
+                                onClick={() => handleApproveRequest(req)}
+                              >
+                                <CheckCircle2 size={15} /> অনুমোদন করুন
+                              </button>
+                              <button
+                                type="button"
+                                className="danger"
+                                style={{ padding: '9px 14px', fontSize: '12.5px' }}
+                                disabled={busy}
+                                onClick={() => {
+                                  setNotifRejectingId(req.id);
+                                  setNotifRejectReason('');
+                                }}
+                              >
+                                <XCircle size={15} /> বাতিল করুন
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: RECENT NOTIFICATIONS & ACTIVITY FEED */}
+              {notifTab === 'recent_activity' && (
+                <div style={{ display: 'grid', gap: '10px', maxHeight: '62vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  {completedRequestsList.length === 0 && auditLogs.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '28px 16px',
+                        textAlign: 'center',
+                        background: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1px dashed #cbd5e1',
+                      }}
+                    >
+                      <Bell size={32} style={{ color: '#94a3b8', margin: '0 auto 8px', display: 'block' }} />
+                      <h4 style={{ margin: '0 0 4px', color: '#0f172a', fontSize: '15px' }}>
+                        এখনো কোনো নোটিফিকেশন নেই
+                      </h4>
+                      <p style={{ margin: 0, color: '#64748b', fontSize: '12.5px' }}>
+                        সিস্টেমের সকল অনুমোদন ও লেনদেনের নোটিফিকেশন এখানে প্রদর্শিত হবে।
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {completedRequestsList.map((req) => {
+                        const isApproved = req.status === 'approved';
+                        return (
+                          <div
+                            key={req.id}
+                            style={{
+                              padding: '12px',
+                              borderRadius: '10px',
+                              border: `1px solid ${isApproved ? '#bbf7d0' : '#fecaca'}`,
+                              background: isApproved ? '#f0fdf4' : '#fef2f2',
+                              display: 'grid',
+                              gap: '4px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <span
+                                className={`status ${isApproved ? 'posted' : 'void'}`}
+                                style={{ fontSize: '11px' }}
+                              >
+                                {isApproved ? '✓ অনুমোদিত' : '✕ বাতিলকৃত'}
+                              </span>
+                              <small style={{ color: '#64748b', fontSize: '11px' }}>
+                                {req.reviewedAtFormatted || req.requestedAtFormatted}
+                              </small>
+                            </div>
+                            <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{req.title}</strong>
+                            <div style={{ fontSize: '12px', color: '#475569' }}>
+                              অনুরোধকারী: <b>{req.requestedByName}</b> • সিদ্ধান্ত: <b>{req.reviewedByName || '—'}</b>
+                            </div>
+                            {req.reviewNote && (
+                              <div style={{ fontSize: '11.5px', color: isApproved ? '#047857' : '#b91c1c' }}>
+                                নোট: "{req.reviewNote}"
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {auditLogs.slice(0, 10).map((log) => {
+                        const timeStr =
+                          log.formattedTime ||
+                          (log.createdAt?.toDate ? formatBengaliDateTime(log.createdAt.toDate()) : 'এইমাত্র');
+                        const makerName =
+                          log.makerName ||
+                          log.maker ||
+                          (log.actorEmail?.includes('rakib')
+                            ? 'Rakib'
+                            : log.actorEmail?.includes('limon')
+                            ? 'Limon'
+                            : log.actor);
+
+                        return (
+                          <div
+                            key={log.id}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: '10px',
+                              border: '1px solid #e2e8f0',
+                              background: '#ffffff',
+                              display: 'grid',
+                              gap: '3px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <span className="badge demo" style={{ fontSize: '10.5px' }}>
+                                {log.action}
+                              </span>
+                              <small style={{ color: '#64748b', fontSize: '11px' }}>{timeStr}</small>
+                            </div>
+                            <div style={{ fontSize: '12.5px', color: '#1e293b', fontWeight: 600 }}>
+                              {log.reason || log.details?.title || 'সিস্টেম কার্যকলাপ'}
+                            </div>
+                            <small style={{ color: '#64748b', fontSize: '11.5px' }}>
+                              সম্পাদনকারী: <b>{makerName}</b>
+                              {log.approverName ? ` • অনুমোদনকারী: ${log.approverName}` : ''}
+                            </small>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: MY SENT PENDING REQUESTS */}
+              {notifTab === 'my_sent' && (
+                <div style={{ display: 'grid', gap: '10px', maxHeight: '62vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  {mySentPendingList.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '28px 16px',
+                        textAlign: 'center',
+                        background: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1px dashed #cbd5e1',
+                      }}
+                    >
+                      <CheckCircle2 size={32} style={{ color: '#0d9488', margin: '0 auto 8px', display: 'block' }} />
+                      <h4 style={{ margin: '0 0 4px', color: '#0f172a', fontSize: '15px' }}>
+                        আপনার পাঠানো কোনো অপেক্ষমান অনুরোধ নেই
+                      </h4>
+                      <p style={{ margin: 0, color: '#64748b', fontSize: '12.5px' }}>
+                        আপনি কোনো এন্ট্রি বা পরিবর্তনের অনুরোধ পাঠালে তা {otherPartner.displayName}-এর অনুমোদনের অপেক্ষায় এখানে দেখাবে।
+                      </p>
+                    </div>
+                  ) : (
+                    mySentPendingList.map((req) => (
+                      <div
+                        key={req.id}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: '10px',
+                          border: '1px solid #fde68a',
+                          background: '#fffbeb',
+                          display: 'grid',
+                          gap: '5px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                            ⏳ {otherPartner.displayName}-এর অনুমোদনের অপেক্ষায়
+                          </span>
+                          <small style={{ color: '#64748b', fontSize: '11px' }}>{req.requestedAtFormatted}</small>
+                        </div>
+                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{req.title}</strong>
+                        <div style={{ fontSize: '12.5px', color: '#475569' }}>{req.description}</div>
+                        {req.reason && (
+                          <div style={{ fontSize: '12px', color: '#047857' }}>
+                            কারণ: "{req.reason}"
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              <div className="modal-actions" style={{ marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setShowNotificationModal(false);
+                    setTab('audit');
+                  }}
+                >
+                  <History size={15} /> সম্পূর্ণ অডিট লগ দেখুন
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => setShowNotificationModal(false)}
+                >
+                  বন্ধ করুন
+                </button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }

@@ -1,0 +1,59 @@
+name: Build Android APK (Glowzaa Shop)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Generate Free Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java JDK 17 for Android Build
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Dependencies & Build Web App
+        run: |
+          npm install --legacy-peer-deps
+          npm run build
+
+      - name: Initialize Capacitor Android Project
+        run: |
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --no-save --legacy-peer-deps
+          npx cap init "Glowzaa Shop" "com.glowzaa.shop" --web-dir dist
+          npx cap add android
+          npx cap sync android
+
+      - name: Set Glowzaa Shop App Icon & Splash Screen
+        run: |
+          mkdir -p assets
+          cp public/pwa-512x512.png assets/icon.png
+          cp public/pwa-512x512.png assets/splash.png
+          npx --yes @capacitor/assets generate --android --iconBackgroundColor '#091e32' --splashBackgroundColor '#091e32' || true
+
+      - name: Build Installable Android APK (.apk)
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../Glowzaa-Shop.apk
+
+      - name: Upload Glowzaa-Shop.apk for Download
+        uses: actions/upload-artifact@v4
+        with:
+          name: Glowzaa-Shop-Android-APK
+          path: Glowzaa-Shop.apk
+          if-no-files-found: error
