@@ -23,15 +23,34 @@ const requireDb = () => {
   return db;
 };
 
-// Helper to remove undefined fields before writing to Firestore
-function cleanObject<T extends Record<string, any>>(obj: T): Record<string, any> {
-  const cleaned: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value !== undefined) {
-      cleaned[key] = value;
+// Recursively remove undefined fields so Firestore NEVER fails with "Unsupported field value: undefined"
+export function deepClean<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return null as any;
+  }
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+  // Preserve Firestore FieldValues (like serverTimestamp()) or Date objects
+  if (obj instanceof Date || (obj as any)?._methodName || typeof (obj as any)?.toMillis === 'function') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => deepClean(item)) as any;
+  }
+  const result: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      result[key] = deepClean(val);
     }
   }
-  return cleaned;
+  return result as any;
+}
+
+function cleanObject<T extends Record<string, any>>(obj: T): Record<string, any> {
+  return deepClean(obj);
 }
 
 // Entries listener
@@ -1131,7 +1150,7 @@ export async function createApprovalRequest(
         formattedTime,
         reason: data.reason || 'অনুরোধ তৈরি করা হয়েছে',
         createdAt: serverTimestamp(),
-        details: {
+        details: cleanObject({
           title: data.title,
           description: data.description,
           actionType: data.actionType,
@@ -1139,12 +1158,12 @@ export async function createApprovalRequest(
           targetId: data.targetId || null,
           payload: data.payload,
           previousData: data.previousData || null,
-        },
+        }),
       }));
 
       await batch.commit();
     } catch (e) {
-      console.warn('Error saving approval request to Firestore, saved locally:', e);
+      console.error('Error saving approval request to Firestore:', e);
     }
   }
 
@@ -1259,6 +1278,41 @@ export async function approveApprovalRequest(
         req.requestedBy
       );
       break;
+
+    case 'record_waste': {
+      const { productId, quantity, lossAmount, reason, productName, unit, date, notes } = req.payload || {};
+      const d = requireDb();
+      if (productId && quantity > 0) {
+        const prodRef = doc(d, 'products', productId);
+        const prodSnap = await getDoc(prodRef);
+        if (prodSnap.exists()) {
+          const curStock = (prodSnap.data() as Product).currentStock || 0;
+          const newStock = Math.max(0, curStock - Number(quantity));
+          await updateDoc(prodRef, cleanObject({
+            currentStock: newStock,
+            updatedAt: serverTimestamp(),
+          }));
+        }
+      }
+      // Record expense entry for the spoiled/broken item so net profit reflects this loss accurately
+      await addEntry(
+        {
+          type: 'expense',
+          title: `নষ্ট পণ্য ক্ষতি: ${productName || 'পণ্য'} (${quantity} ${unit || 'পিস'})`,
+          amount: Number(lossAmount) || 0,
+          date: date || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' }),
+          status: 'posted',
+          productId: productId || undefined,
+          quantity: Number(quantity) || undefined,
+          category: 'নষ্ট/ক্ষতিগ্রস্থ পণ্য',
+          notes: `নষ্টের কারণ: ${reason || 'ক্ষতিগ্রস্থ'}${notes ? ` | নোট: ${notes}` : ''} (অনুমোদনকারী: ${reviewerName})`,
+          demo: false,
+        },
+        req.requestedBy,
+        `${req.requestedBy.toLowerCase()}@glowzaa.shop`
+      );
+      break;
+    }
   }
 
   // 2. Mark the approval request as approved in Firestore and Audit Logs

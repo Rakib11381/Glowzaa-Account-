@@ -112,7 +112,8 @@ export type ApprovalActionType =
   | 'create_investor'
   | 'edit_investor'
   | 'delete_investor'
-  | 'distribute_profit';
+  | 'distribute_profit'
+  | 'record_waste';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 

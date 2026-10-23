@@ -233,14 +233,19 @@ export default function AdminProfile({
 
   // Filter approval requests
   const pendingForMe = useMemo(() => {
+    const myUname = adminUser.username.toLowerCase();
     return approvalRequests.filter(
-      (r) => r.status === 'pending' && r.targetApprover === adminUser.username
+      (r) =>
+        r.status === 'pending' &&
+        (r.targetApprover?.toLowerCase() === myUname ||
+          (r.requestedBy?.toLowerCase() !== myUname && !r.targetApprover))
     );
   }, [approvalRequests, adminUser.username]);
 
   const myOutgoingRequests = useMemo(() => {
+    const myUname = adminUser.username.toLowerCase();
     return approvalRequests.filter(
-      (r) => r.status === 'pending' && r.requestedBy === adminUser.username
+      (r) => r.status === 'pending' && r.requestedBy?.toLowerCase() === myUname
     );
   }, [approvalRequests, adminUser.username]);
 
@@ -478,6 +483,7 @@ export default function AdminProfile({
     edit_investor: { label: 'অংশীদার তথ্য আপডেট', color: '#d97706' },
     delete_investor: { label: 'অংশীদার ডিলিট', color: '#dc2626' },
     distribute_profit: { label: 'মুনাফা বণ্টন রেকর্ড', color: '#7c3aed' },
+    record_waste: { label: 'নষ্ট/ক্ষতিগ্রস্থ পণ্য রেকর্ড', color: '#e11d48' },
   };
 
   return (

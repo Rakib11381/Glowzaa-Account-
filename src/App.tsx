@@ -382,6 +382,17 @@ export default function App() {
     status: 'posted' as EntryStatus,
   });
 
+  // Waste / Damaged Goods state (নষ্ট বা ক্ষতিগ্রস্থ পণ্য)
+  const [showWasteModal, setShowWasteModal] = useState(false);
+  const [wasteForm, setWasteForm] = useState({
+    productId: '',
+    quantity: '',
+    reason: 'মেয়াদোত্তীর্ণ (Expired)',
+    lossAmount: '',
+    date: today(),
+    notes: '',
+  });
+
   // 1. Initial Auth Setup & Connection Test
   useEffect(() => {
     testConnection();
@@ -567,8 +578,12 @@ export default function App() {
 
   const pendingForMeCount = useMemo(() => {
     if (!currentAdmin) return 0;
+    const myUname = currentAdmin.username.toLowerCase();
     return approvalRequests.filter(
-      (r) => r.status === 'pending' && r.targetApprover === currentAdmin.username
+      (r) =>
+        r.status === 'pending' &&
+        (r.targetApprover?.toLowerCase() === myUname ||
+          (r.requestedBy?.toLowerCase() !== myUname && (!r.targetApprover || r.targetApprover.trim() === '')))
     ).length;
   }, [approvalRequests, currentAdmin]);
 
@@ -1378,6 +1393,81 @@ export default function App() {
       setShowProfitModal(false);
     } catch (err: any) {
       setError(err?.message || 'মুনাফা বণ্টন ব্যর্থ হয়েছে');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Handle Recording Waste / Damaged Goods (নষ্ট বা ক্ষতিগ্রস্থ পণ্য)
+  async function handleSaveWaste(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentAdmin) return;
+    setError('');
+    setBusyTone('default');
+    setBusyText('নষ্ট পণ্যের হিসাব প্রসেস করা হচ্ছে…');
+    setBusy(true);
+    try {
+      await new Promise((r) => setTimeout(r, 380));
+      const qty = Number(wasteForm.quantity);
+      if (!wasteForm.productId) {
+        throw new Error('দয়া করে নষ্ট হওয়া পণ্যটি নির্বাচন করুন');
+      }
+      if (!Number.isFinite(qty) || qty <= 0) {
+        throw new Error('দয়া করে ০ এর অধিক নষ্ট পণ্যের পরিমাণ লিখুন');
+      }
+      const product = products.find((p) => p.id === wasteForm.productId);
+      if (!product) {
+        throw new Error('নির্বাচিত পণ্য পাওয়া যায়নি');
+      }
+      if (qty > product.currentStock) {
+        throw new Error(`বর্তমানে স্টকে ${product.currentStock} ${product.unit} পণ্য রয়েছে। এর বেশি নষ্ট রেকর্ড করা যাবে না।`);
+      }
+
+      const lossAmt = wasteForm.lossAmount !== ''
+        ? Number(wasteForm.lossAmount)
+        : Math.round(qty * (product.averageCost || 0) * 100) / 100;
+
+      const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
+      const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+
+      await createApprovalRequest({
+        actionType: 'record_waste',
+        targetCollection: 'products',
+        targetId: product.id,
+        title: `নষ্ট/ক্ষতিগ্রস্থ পণ্য: ${product.name} (${qty} ${product.unit}, ক্ষতি ${money(lossAmt)})`,
+        description: `পণ্যের নাম: ${product.name}, নষ্ট পরিমাণ: ${qty} ${product.unit}, আর্থিক ক্ষতি: ${money(lossAmt)}, কারণ: ${wasteForm.reason}${wasteForm.notes ? ` (নোট: ${wasteForm.notes})` : ''}`,
+        reason: `নষ্ট/ভাঙা পণ্য স্টক থেকে কর্তন (${wasteForm.reason})`,
+        requestedBy: currentAdmin.username,
+        requestedByName: currentAdmin.displayName,
+        requestedAt: new Date().toISOString(),
+        requestedAtFormatted: formatBengaliDateTime(new Date()),
+        targetApprover,
+        targetApproverName,
+        status: 'pending',
+        payload: {
+          productId: product.id,
+          productName: product.name,
+          unit: product.unit,
+          quantity: qty,
+          lossAmount: lossAmt,
+          reason: wasteForm.reason,
+          date: wasteForm.date || today(),
+          notes: wasteForm.notes.trim() || undefined,
+        },
+      });
+
+      setMessage(`নষ্ট পণ্যের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে স্টক থেকে স্বয়ংক্রিয়ভাবে বাদ দেওয়া হবে এবং খরচে যুক্ত হবে।`);
+      setShowWasteModal(false);
+      setWasteForm({
+        productId: '',
+        quantity: '',
+        reason: 'মেয়াদোত্তীর্ণ (Expired)',
+        lossAmount: '',
+        date: today(),
+        notes: '',
+      });
+    } catch (err: any) {
+      setError(err?.message || 'নষ্ট পণ্যের এন্ট্রি ব্যর্থ হয়েছে');
     } finally {
       setBusy(false);
     }
@@ -2266,6 +2356,72 @@ export default function App() {
           </div>
         )}
 
+        {/* PROMINENT DUAL-ADMIN APPROVAL NOTIFICATION BANNER */}
+        {currentAdmin && pendingForMeCount > 0 && (
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #fff1f2, #fff7ed)',
+              border: '2px solid #f87171',
+              borderRadius: '12px',
+              padding: '13px 18px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
+              boxShadow: '0 4px 16px rgba(220, 38, 38, 0.12)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '240px' }}>
+              <div
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Bell size={20} />
+              </div>
+              <div>
+                <h4 style={{ margin: '0 0 2px', color: '#991b1b', fontSize: '14.5px', fontWeight: 800 }}>
+                  🔔 {otherPartner.displayName}-এর {toBengaliNumerals(pendingForMeCount)}টি অনুমতি বার্তা আপনার সিদ্ধান্তের অপেক্ষায়!
+                </h4>
+                <p style={{ margin: 0, color: '#7f1d1d', fontSize: '12px', lineHeight: 1.4 }}>
+                  শর্তাবলী অনুযায়ী অপর অংশীদারের অনুমতি ছাড়া কোনো নতুন তথ্য, পণ্য বা ডিলিট কার্যকর হবে না।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="primary"
+              style={{
+                background: '#dc2626',
+                borderColor: '#dc2626',
+                padding: '8px 16px',
+                fontSize: '12.5px',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+              }}
+              onClick={() => {
+                setNotifRejectingId(null);
+                setNotifRejectReason('');
+                setNotifTab('pending_for_me');
+                setShowNotificationModal(true);
+              }}
+            >
+              <ShieldCheck size={15} />
+              <span>অনুমোদন দিন ({toBengaliNumerals(pendingForMeCount)}) →</span>
+            </button>
+          </div>
+        )}
+
         {/* TAB 0: ADMIN PROFILE & DUAL APPROVAL CENTER */}
         {tab === 'profile' && currentAdmin && (
           <AdminProfile
@@ -2374,14 +2530,6 @@ export default function App() {
                 )}
                 <button className="secondary" onClick={handleDownloadPdf} disabled={isPdfLoading}>
                   <Download size={17} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setTab('terms')}
-                  style={{ borderColor: '#99f6e4', background: '#f0fdfa', color: '#0f766e', fontWeight: 700 }}
-                >
-                  <ShieldCheck size={16} /> শর্তাবলী ও নীতিমালা
                 </button>
               </div>
             </div>
@@ -3289,6 +3437,29 @@ export default function App() {
                     <Boxes size={16} />
                     <span>৫-৬টি পণ্য গড় হিসাবে যোগ</span>
                   </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    style={{
+                      background: 'linear-gradient(135deg, #e11d48, #be123c)',
+                      borderColor: '#e11d48',
+                      boxShadow: '0 2px 8px rgba(225, 29, 72, 0.25)',
+                    }}
+                    onClick={() => {
+                      setWasteForm({
+                        productId: products[0]?.id || '',
+                        quantity: '',
+                        reason: 'মেয়াদোত্তীর্ণ (Expired)',
+                        lossAmount: '',
+                        date: today(),
+                        notes: '',
+                      });
+                      setShowWasteModal(true);
+                    }}
+                  >
+                    <AlertTriangle size={16} />
+                    <span>নষ্ট / ক্ষতিগ্রস্থ পণ্য এন্ট্রি</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -3377,6 +3548,152 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+
+            {/* Damaged & Waste Goods Audit Trail and History */}
+            {(() => {
+              const wasteRequests = approvalRequests.filter(
+                (r) => r.actionType === 'record_waste'
+              );
+              const approvedWaste = wasteRequests.filter((r) => r.status === 'approved');
+              const pendingWaste = wasteRequests.filter((r) => r.status === 'pending');
+              const totalLossAmount = approvedWaste.reduce(
+                (acc, r) => acc + (Number(r.payload?.lossAmount) || 0),
+                0
+              );
+
+              return (
+                <div style={{ marginTop: '28px', borderTop: '1px solid #e2e8f0', paddingTop: '20px' }}>
+                  <div
+                    style={{
+                      background: '#fff1f2',
+                      border: '1.5px solid #fecaca',
+                      borderRadius: '12px',
+                      padding: '16px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '14px',
+                      marginBottom: '16px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div
+                        style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '10px',
+                          background: '#fee2e2',
+                          color: '#e11d48',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <AlertTriangle size={20} />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '15.5px', color: '#9f1239', fontWeight: 800 }}>
+                          নষ্ট বা ক্ষতিগ্রস্থ পণ্যের অডিট ট্রেইল (Waste / Damaged Goods Log)
+                        </h3>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#be123c' }}>
+                          শর্তাবলী অনুযায়ী পণ্য নষ্ট হলে অপর অংশীদারের অনুমোদনে স্টক থেকে কর্তন ও ক্ষতি সমন্বয় হয়
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <div style={{ background: '#ffffff', padding: '6px 14px', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                        <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>অনুমোদিত মোট ক্ষতি:</span>
+                        <b style={{ color: '#e11d48', fontSize: '15px' }}>{money(totalLossAmount)}</b>
+                      </div>
+                      <div style={{ background: '#ffffff', padding: '6px 14px', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                        <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>মোট নষ্ট রেকর্ড:</span>
+                        <b style={{ color: '#0f172a', fontSize: '15px' }}>{toBengaliNumerals(approvedWaste.length)}টি</b>
+                      </div>
+                      {pendingWaste.length > 0 && (
+                        <div style={{ background: '#fef3c7', padding: '6px 14px', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                          <span style={{ fontSize: '11px', color: '#92400e', display: 'block' }}>অপেক্ষমান অনুমোদন:</span>
+                          <b style={{ color: '#b45309', fontSize: '15px' }}>{toBengaliNumerals(pendingWaste.length)}টি</b>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {wasteRequests.length > 0 ? (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>তারিখ</th>
+                            <th>পণ্যের নাম</th>
+                            <th>নষ্টের পরিমাণ</th>
+                            <th>আর্থিক ক্ষতি</th>
+                            <th>কারণ ও নোট</th>
+                            <th>অনুরোধকারী (Maker)</th>
+                            <th>অনুমোদনকারী (Checker)</th>
+                            <th>স্ট্যাটাস</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {wasteRequests.map((w) => {
+                            const isAppr = w.status === 'approved';
+                            const isRej = w.status === 'rejected';
+                            return (
+                              <tr key={w.id}>
+                                <td>{dateLabel(w.payload?.date || w.requestedAt?.slice(0, 10))}</td>
+                                <td><b>{w.payload?.productName || 'পণ্য'}</b></td>
+                                <td style={{ color: '#dc2626', fontWeight: 700 }}>
+                                  -{w.payload?.quantity} {w.payload?.unit || 'পিস'}
+                                </td>
+                                <td style={{ color: '#e11d48', fontWeight: 700 }}>
+                                  {money(w.payload?.lossAmount || 0)}
+                                </td>
+                                <td>
+                                  <div><b>{w.payload?.reason || w.reason}</b></div>
+                                  {w.payload?.notes && <small style={{ color: '#64748b' }}>{w.payload.notes}</small>}
+                                </td>
+                                <td>
+                                  <b>{w.requestedByName}</b>
+                                  <span className="cell-sub">{w.requestedAtFormatted}</span>
+                                </td>
+                                <td>
+                                  {isAppr ? (
+                                    <div>
+                                      <b style={{ color: '#059669' }}>{w.reviewedByName || w.targetApproverName}</b>
+                                      <span className="cell-sub">{w.reviewedAtFormatted}</span>
+                                    </div>
+                                  ) : isRej ? (
+                                    <div>
+                                      <b style={{ color: '#dc2626' }}>{w.reviewedByName || w.targetApproverName} (বাতিল)</b>
+                                      <span className="cell-sub">কারণ: {w.reviewNote}</span>
+                                    </div>
+                                  ) : (
+                                    <span style={{ color: '#d97706', fontWeight: 600 }}>
+                                      {w.targetApproverName}-এর অনুমোদন অপেক্ষমান
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  <span className={`badge ${isAppr ? 'posted' : isRej ? 'void' : 'draft'}`}>
+                                    {isAppr ? 'অনুমোদিত ও স্টক কর্তনকৃত' : isRej ? 'প্রত্যাখ্যাত' : 'অপেক্ষমান'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '24px', background: '#f8fafc', borderRadius: '10px', color: '#64748b', fontSize: '13px' }}>
+                      এখনও কোনো নষ্ট বা ক্ষতিগ্রস্থ পণ্যের রেকর্ড নেই। কোনো পণ্য নষ্ট বা ভাঙা হলে উপরের "নষ্ট / ক্ষতিগ্রস্থ পণ্য এন্ট্রি" বাটনে ক্লিক করে এন্ট্রি দিন।
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -5970,15 +6287,172 @@ export default function App() {
         </Modal>
       )}
 
+      {/* MODAL: RECORD WASTE / DAMAGED GOODS (নষ্ট বা ক্ষতিগ্রস্থ পণ্য) */}
+      {showWasteModal && currentAdmin && (
+        <Modal title="📦 নষ্ট বা ক্ষতিগ্রস্থ পণ্য রেকর্ড (Waste / Damaged Goods)" close={() => setShowWasteModal(false)}>
+          <form className="modal-body" onSubmit={handleSaveWaste}>
+            <div
+              style={{
+                background: '#fff1f2',
+                border: '1.5px solid #fecaca',
+                borderRadius: '10px',
+                padding: '12px 14px',
+                fontSize: '12.5px',
+                color: '#991b1b',
+                display: 'flex',
+                gap: '10px',
+                alignItems: 'flex-start',
+              }}
+            >
+              <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <b>দ্বৈত-অনুমোদন শর্ত:</b> নষ্ট বা ক্ষতিগ্রস্থ পণ্য এন্ট্রি দিলে {otherPartner.displayName}-এর কাছে অনুমোদনের অনুরোধ যাবে। তিনি অনুমোদন দিলে স্বয়ংক্রিয়ভাবে স্টক থেকে মাইনাস হবে এবং ব্যবসায়িক খরচে যুক্ত হবে।
+              </div>
+            </div>
+
+            <div className="modal-field" style={{ marginTop: '12px' }}>
+              <label htmlFor="waste-product-select">পণ্য নির্বাচন করুন (আবশ্যক):</label>
+              <select
+                id="waste-product-select"
+                required
+                value={wasteForm.productId}
+                onChange={(e) => {
+                  const selId = e.target.value;
+                  const p = products.find((prod) => prod.id === selId);
+                  const qty = Number(wasteForm.quantity) || 0;
+                  setWasteForm((prev) => ({
+                    ...prev,
+                    productId: selId,
+                    lossAmount: p && qty > 0 ? String(Math.round(qty * (p.averageCost || 0) * 100) / 100) : prev.lossAmount,
+                  }));
+                }}
+              >
+                <option value="">-- পণ্য বেছে নিন --</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (বর্তমান স্টক: {p.currentStock} {p.unit} | গড় ক্রয়মূল্য: ৳{p.averageCost})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid-2">
+              <div className="modal-field">
+                <label htmlFor="waste-qty">নষ্টের পরিমাণ (আবশ্যক):</label>
+                <input
+                  id="waste-qty"
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  required
+                  placeholder="উদাঃ 5"
+                  value={wasteForm.quantity}
+                  onChange={(e) => {
+                    const qVal = e.target.value;
+                    const qNum = Number(qVal) || 0;
+                    const p = products.find((prod) => prod.id === wasteForm.productId);
+                    const calculatedLoss = p && qNum > 0 ? String(Math.round(qNum * (p.averageCost || 0) * 100) / 100) : '';
+                    setWasteForm((prev) => ({
+                      ...prev,
+                      quantity: qVal,
+                      lossAmount: calculatedLoss,
+                    }));
+                  }}
+                />
+              </div>
+
+              <div className="modal-field">
+                <label htmlFor="waste-reason">নষ্ট হওয়ার কারণ:</label>
+                <select
+                  id="waste-reason"
+                  value={wasteForm.reason}
+                  onChange={(e) => setWasteForm({ ...wasteForm, reason: e.target.value })}
+                >
+                  <option value="মেয়াদোত্তীর্ণ (Expired)">মেয়াদোত্তীর্ণ (Expired)</option>
+                  <option value="ভাঙা / ত্রুটিপূর্ণ (Broken/Defective)">ভাঙা / ত্রুটিপূর্ণ (Broken/Defective)</option>
+                  <option value="পচে যাওয়া / নষ্ট (Spoiled/Rotten)">পচে যাওয়া / নষ্ট (Spoiled/Rotten)</option>
+                  <option value="পরিবহনে ক্ষতিগ্রস্থ (Transit Damage)">পরিবহনে ক্ষতিগ্রস্থ (Transit Damage)</option>
+                  <option value="অন্যান্য কারণ (Other)">অন্যান্য কারণ (Other)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="modal-field">
+                <label htmlFor="waste-loss-amount">আনুমানিক আর্থিক ক্ষতি (৳):</label>
+                <input
+                  id="waste-loss-amount"
+                  type="number"
+                  step="any"
+                  placeholder="গড় ক্রয়মূল্য অনুযায়ী স্বয়ংক্রিয়"
+                  value={wasteForm.lossAmount}
+                  onChange={(e) => setWasteForm({ ...wasteForm, lossAmount: e.target.value })}
+                />
+                <small style={{ color: '#64748b', fontSize: '11px' }}>
+                  গড় ক্রয়মূল্য × পরিমাণের ভিত্তিতে স্বয়ংক্রিয়ভাবে হিসাবকৃত
+                </small>
+              </div>
+
+              <div className="modal-field">
+                <label htmlFor="waste-date">তারিখ:</label>
+                <input
+                  id="waste-date"
+                  type="date"
+                  value={wasteForm.date}
+                  onChange={(e) => setWasteForm({ ...wasteForm, date: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="modal-field">
+              <label htmlFor="waste-notes">বিস্তারিত নোট / কারণ ব্যাখ্যা:</label>
+              <textarea
+                id="waste-notes"
+                rows={2}
+                placeholder="যেমন: কার্টনে পানি লেগে পণ্য নষ্ট হয়েছে..."
+                value={wasteForm.notes}
+                onChange={(e) => setWasteForm({ ...wasteForm, notes: e.target.value })}
+              />
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="submit"
+                className="primary"
+                style={{ background: '#e11d48', borderColor: '#e11d48' }}
+                disabled={busy || !wasteForm.productId || !wasteForm.quantity}
+              >
+                {busy ? <span className="btn-spinner" /> : <AlertTriangle size={16} />}
+                <span>
+                  {busy ? 'অনুরোধ পাঠানো হচ্ছে…' : `নষ্ট পণ্যের অনুমোদন পাঠান (${otherPartner.displayName})`}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setShowWasteModal(false)}
+                disabled={busy}
+              >
+                বাতিল করুন
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {/* MODAL: DEDICATED NOTIFICATIONS & DUAL-APPROVAL CENTER */}
       {showNotificationModal && currentAdmin && (() => {
+        const myUname = currentAdmin.username.toLowerCase();
         const pendingForMeList = approvalRequests.filter(
-          (r) => r.status === 'pending' && r.targetApprover === currentAdmin.username
+          (r) =>
+            r.status === 'pending' &&
+            (r.targetApprover?.toLowerCase() === myUname ||
+              (r.requestedBy?.toLowerCase() !== myUname && (!r.targetApprover || r.targetApprover.trim() === '')))
         );
         const mySentPendingList = approvalRequests.filter(
-          (r) => r.status === 'pending' && r.requestedBy === currentAdmin.username
+          (r) => r.status === 'pending' && r.requestedBy?.toLowerCase() === myUname
         );
-        const completedRequestsList = approvalRequests.filter((r) => r.status !== 'pending').slice(0, 12);
+        const completedRequestsList = approvalRequests.filter((r) => r.status !== 'pending').slice(0, 15);
 
         const actionLabelMap: Record<string, { label: string; isDelete?: boolean }> = {
           create_entry: { label: 'নতুন লেনদেন যুক্ত' },
@@ -5991,6 +6465,7 @@ export default function App() {
           edit_investor: { label: 'অংশীদার আপডেট' },
           delete_investor: { label: 'অংশীদার ডিলিট', isDelete: true },
           distribute_profit: { label: 'মুনাফা বণ্টন' },
+          record_waste: { label: 'নষ্ট/ক্ষতিগ্রস্থ পণ্য', isDelete: true },
         };
 
         return (
