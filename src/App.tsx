@@ -125,7 +125,7 @@ const getStartOfMonth = () => {
 const typeLabels: Record<RecordType, string> = {
   sale: 'বিক্রয়',
   purchase: 'মাল ক্রয় (স্টক)',
-  expense: 'পরিচালন খরচ',
+  expense: 'অতিরিক্ত / পরিচালন খরচ',
   investment: 'মূলধন বিনিয়োগ',
   withdrawal: 'পার্টনার উত্তোলন',
   loan: 'পার্টনার লোন',
@@ -135,7 +135,7 @@ const typeLabels: Record<RecordType, string> = {
 const filterPills: { key: RecordType; label: string }[] = [
   { key: 'sale', label: 'বিক্রয়' },
   { key: 'purchase', label: 'মাল ক্রয়' },
-  { key: 'expense', label: 'পরিচালন খরচ' },
+  { key: 'expense', label: 'অতিরিক্ত খরচ' },
   { key: 'investment', label: 'মূলধন বিনিয়োগ' },
   { key: 'withdrawal', label: 'উত্তোলন' },
   { key: 'loan', label: 'পার্টনার লোন' },
@@ -550,6 +550,33 @@ export default function App() {
     () => summary(dashPeriodEntries, products),
     [dashPeriodEntries, products]
   );
+
+  const dashPeriodCash = useMemo(
+    () => calculateCashBalance(dashPeriodEntries, products),
+    [dashPeriodEntries, products]
+  );
+
+  // Total purchase cost (combines sold items' purchase cost COGS + any separate stock purchase entries without double counting)
+  const periodTotalPurchase = useMemo(() => {
+    const cogs = dashPeriodStats.cogs || 0;
+    const pur = dashPeriodStats.purchases || 0;
+    if (pur > 0 && cogs !== pur) return Math.round((cogs + pur) * 100) / 100;
+    return Math.max(cogs, pur);
+  }, [dashPeriodStats]);
+
+  const overallTotalPurchase = useMemo(() => {
+    const cogs = stats.cogs || 0;
+    const pur = stats.purchases || 0;
+    if (pur > 0 && cogs !== pur) return Math.round((cogs + pur) * 100) / 100;
+    return Math.max(cogs, pur);
+  }, [stats]);
+
+  const todayTotalPurchase = useMemo(() => {
+    const cogs = todayBreakdown.cogs || 0;
+    const pur = todayBreakdown.purchases || 0;
+    if (pur > 0 && cogs !== pur) return Math.round((cogs + pur) * 100) / 100;
+    return Math.max(cogs, pur);
+  }, [todayBreakdown]);
 
   const dashDisplayEntries = useMemo(() => {
     if (dashTypeFilter === 'all') return dashPeriodEntries;
@@ -2536,18 +2563,33 @@ export default function App() {
 
             {/* TODAY'S INSTANT SNAPSHOT BAR */}
             <div className="today-highlight-banner">
-              <div className="today-banner-head">
+              <div className="today-banner-head" style={{ flexWrap: 'wrap', gap: '8px' }}>
                 <div className="today-banner-title">
                   <Calendar size={16} />
                   <span>আজকের তাৎক্ষণিক হিসাব ({dateLabel(todayStr)})</span>
                 </div>
-                <button
-                  type="button"
-                  className={`today-inspect-btn ${dashPreset === 'today' ? 'active' : ''}`}
-                  onClick={() => setDashPreset(dashPreset === 'today' ? 'all' : 'today')}
-                >
-                  {dashPreset === 'today' ? 'সব দিনের হিসাবে ফিরুন' : 'শুধু আজকের বিস্তারিত দেখুন →'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span
+                    style={{
+                      background: 'rgba(16, 185, 129, 0.18)',
+                      border: '1px solid rgba(52, 211, 153, 0.45)',
+                      color: '#ecfdf5',
+                      padding: '4px 10px',
+                      borderRadius: '999px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    মূলধন সহ বর্তমান ব্যালান্স: {money(cashSummary.availableCash)}
+                  </span>
+                  <button
+                    type="button"
+                    className={`today-inspect-btn ${dashPreset === 'today' ? 'active' : ''}`}
+                    onClick={() => setDashPreset(dashPreset === 'today' ? 'all' : 'today')}
+                  >
+                    {dashPreset === 'today' ? 'সব দিনের হিসাবে ফিরুন' : 'শুধু আজকের বিস্তারিত দেখুন →'}
+                  </button>
+                </div>
               </div>
               <div className="today-metrics-strip">
                 <div className="today-metric-item">
@@ -2555,11 +2597,11 @@ export default function App() {
                   <strong className="text-blue">{money(todayBreakdown.sales)}</strong>
                 </div>
                 <div className="today-metric-item">
-                  <span>আজকের ক্রয় খরচ (COGS)</span>
-                  <strong className="text-amber">{money(todayBreakdown.cogs)}</strong>
+                  <span>আজকের মোট ক্রয়</span>
+                  <strong className="text-amber">{money(todayTotalPurchase)}</strong>
                 </div>
                 <div className="today-metric-item">
-                  <span>আজকের পরিচালন খরচ</span>
+                  <span>আজকের অতিরিক্ত খরচ</span>
                   <strong className="text-red">{money(todayBreakdown.expenses)}</strong>
                 </div>
                 <div className="today-metric-item highlight">
@@ -2730,8 +2772,8 @@ export default function App() {
                   </strong>
                   <small className="stat-sub-meta">
                     {dashPeriodStats.sales > 0
-                      ? `লাভের হার: ${((dashPeriodStats.netProfit / dashPeriodStats.sales) * 100).toFixed(1)}%`
-                      : 'বিক্রয় লাভ − পরিচালন খরচ'}
+                      ? `লাভের হার: ${((dashPeriodStats.netProfit / dashPeriodStats.sales) * 100).toFixed(1)}% · অতিরিক্ত খরচ বাদে`
+                      : 'বিক্রয় লাভ − অতিরিক্ত খরচ'}
                   </small>
                 </div>
               </div>
@@ -2739,22 +2781,103 @@ export default function App() {
               <div className="stat-card">
                 <div className="stat-icon orange"><ArrowDownLeft /></div>
                 <div className="stat-content">
-                  <span>ক্রয় খরচ (COGS) ও ব্যয়</span>
-                  <strong>{money(dashPeriodStats.cogs + dashPeriodStats.expenses)}</strong>
-                  <small className="stat-sub-meta">
-                    COGS: {money(dashPeriodStats.cogs)} · খরচ: {money(dashPeriodStats.expenses)}
+                  <span>মোট ক্রয় ও অতিরিক্ত খরচ</span>
+                  <strong>{money(periodTotalPurchase + dashPeriodStats.expenses)}</strong>
+                  <small className="stat-sub-meta" style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
+                    <span>মোট ক্রয়: <b style={{ color: '#b45309' }}>{money(periodTotalPurchase)}</b></span>
+                    <span>অতিরিক্ত খরচ: <b style={{ color: '#dc2626' }}>{money(dashPeriodStats.expenses)}</b></span>
                   </small>
                 </div>
               </div>
 
-              <div className="stat-card">
+              <div className="stat-card" style={{ borderColor: '#c4b5fd', background: 'linear-gradient(180deg, #ffffff 0%, #faf5ff 100%)' }}>
                 <div className="stat-icon purple"><Wallet /></div>
                 <div className="stat-content">
-                  <span>বিনিয়োগ ও উত্তোলন</span>
-                  <strong>{money(dashPeriodStats.investments)}</strong>
-                  <small className="stat-sub-meta">
-                    উত্তোলন: <b style={{ color: '#b91c1c' }}>{money(dashPeriodStats.withdrawals)}</b> · মাল ক্রয়: {money(dashPeriodStats.purchases)}
+                  <span style={{ color: '#5b21b6', fontWeight: 700 }}>মূলধন সহ বর্তমান ব্যালান্স</span>
+                  <strong style={{ color: '#0f766e' }}>
+                    {money(dashPreset === 'all' ? cashSummary.availableCash : dashPeriodCash.availableCash)}
+                  </strong>
+                  <small className="stat-sub-meta" style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
+                    <span>
+                      মূলধন: <b style={{ color: '#6d28d9' }}>{money(dashPreset === 'all' ? cashSummary.totalInvestments : dashPeriodStats.investments)}</b> · লাভ: <b style={{ color: '#059669' }}>+{money(dashPreset === 'all' ? cashSummary.netProfit : dashPeriodStats.netProfit)}</b>
+                    </span>
+                    <span>
+                      উত্তোলন: <b style={{ color: '#b91c1c' }}>-{money(dashPreset === 'all' ? cashSummary.totalWithdrawals + cashSummary.totalLoans : dashPeriodStats.withdrawals + dashPeriodStats.loans)}</b>
+                    </span>
                   </small>
+                </div>
+              </div>
+            </div>
+
+            {/* LIVE CAPITAL + BALANCE + PURCHASE & EXTRA EXPENSE SUMMARY STRIP */}
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #f0fdfa 0%, #f8fafc 100%)',
+                border: '1.5px solid #99f6e4',
+                borderRadius: '14px',
+                padding: '14px 16px',
+                marginBottom: '18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+                boxShadow: '0 2px 10px rgba(13, 148, 136, 0.06)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Wallet size={17} style={{ color: '#0d9488' }} />
+                  <strong style={{ fontSize: '14px', color: '#0f172a' }}>
+                    মূলধন সহ বর্তমান ব্যালান্স ও খরচের পূর্ণাঙ্গ হিসাব (উত্তোলন করলে ব্যালেন্স অটোমেটিক কমবে)
+                  </strong>
+                </div>
+                <span
+                  style={{
+                    background: '#0d9488',
+                    color: '#ffffff',
+                    padding: '4px 12px',
+                    borderRadius: '999px',
+                    fontSize: '12.5px',
+                    fontWeight: 800,
+                  }}
+                >
+                  বর্তমান ব্যালান্স: {money(cashSummary.availableCash)}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 11px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block' }}>মোট মূলধন (বিনিয়োগ)</span>
+                  <strong style={{ fontSize: '14.5px', color: '#6d28d9' }}>{money(cashSummary.totalInvestments)}</strong>
+                </div>
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 11px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block' }}>সর্বমোট নিট মুনাফা (+)</span>
+                  <strong style={{ fontSize: '14.5px', color: '#059669' }}>
+                    {cashSummary.netProfit >= 0 ? '+' : ''}{money(cashSummary.netProfit)}
+                  </strong>
+                </div>
+                <div style={{ background: '#ffffff', border: '1px solid #fecaca', borderRadius: '10px', padding: '8px 11px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#991b1b', display: 'block' }}>মোট উত্তোলন ও লোন (−)</span>
+                  <strong style={{ fontSize: '14.5px', color: '#dc2626' }}>
+                    -{money(cashSummary.totalWithdrawals + cashSummary.totalLoans)}
+                  </strong>
+                </div>
+                <div style={{ background: '#ecfdf5', border: '1.5px solid #34d399', borderRadius: '10px', padding: '8px 11px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#065f46', fontWeight: 700, display: 'block' }}>মূলধন সহ বর্তমান ব্যালান্স (=)</span>
+                  <strong style={{ fontSize: '15.5px', color: '#047857' }}>{money(cashSummary.availableCash)}</strong>
+                </div>
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '8px 11px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#92400e', display: 'block' }}>সর্বমোট ক্রয় (মাল কেনা)</span>
+                  <strong style={{ fontSize: '14.5px', color: '#b45309' }}>{money(overallTotalPurchase)}</strong>
+                </div>
+                <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '10px', padding: '8px 11px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#9f1239', display: 'block' }}>সর্বমোট অতিরিক্ত খরচ</span>
+                  <strong style={{ fontSize: '14.5px', color: '#e11d48' }}>{money(cashSummary.totalExpenses)}</strong>
                 </div>
               </div>
             </div>
@@ -2793,8 +2916,8 @@ export default function App() {
                     <tr>
                       <th>তারিখ ও দিন</th>
                       <th>মোট বিক্রয় (Sales)</th>
-                      <th>ক্রয় খরচ (COGS)</th>
-                      <th>পরিচালন খরচ</th>
+                      <th>মোট ক্রয় (COGS)</th>
+                      <th>অতিরিক্ত খরচ</th>
                       <th>নিট লাভ / ক্ষতি</th>
                       <th>বিনিয়োগ / উত্তোলন</th>
                       <th>বিস্তারিত</th>
@@ -2806,6 +2929,11 @@ export default function App() {
                         (dashPreset === 'today' && day.isToday) ||
                         (dashPreset === 'yesterday' && day.isYesterday) ||
                         (dashPreset === 'single_day' && dashSingleDate === day.date);
+
+                      const dayTotalPurchase =
+                        day.purchases > 0 && day.cogs !== day.purchases
+                          ? Math.round((day.cogs + day.purchases) * 100) / 100
+                          : Math.max(day.cogs, day.purchases);
 
                       return (
                         <tr
@@ -2840,7 +2968,7 @@ export default function App() {
                             <span className="cell-sub">{day.salesCount}টি বিক্রয়</span>
                           </td>
                           <td>
-                            <span style={{ color: '#b45309', fontWeight: 600 }}>{money(day.cogs)}</span>
+                            <span style={{ color: '#b45309', fontWeight: 600 }}>{money(dayTotalPurchase)}</span>
                           </td>
                           <td>
                             <span style={{ color: day.expenses > 0 ? '#dc2626' : '#64748b', fontWeight: day.expenses > 0 ? 600 : 400 }}>
