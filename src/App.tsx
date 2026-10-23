@@ -287,6 +287,9 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showDistributionDeleteModal, setShowDistributionDeleteModal] = useState<ProfitDistribution | null>(null);
   const [showResetDataModal, setShowResetDataModal] = useState(false);
+  const [resetPasswordInput, setResetPasswordInput] = useState('');
+  const [showResetPass, setShowResetPass] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState('');
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [demoPreview, setDemoPreview] = useState<DemoCleanupPreview | null>(null);
   const [testResults, setTestResults] = useState<{ passed: boolean; message: string; timestamp: string } | null>(null);
@@ -325,7 +328,8 @@ export default function App() {
   const [investorPhone, setInvestorPhone] = useState('');
   const [investorEmail, setInvestorEmail] = useState('');
 
-  // Product Form
+  // Product Form (Single Upload)
+  const [productUploadMode, setProductUploadMode] = useState<'single' | 'batch_avg'>('single');
   const [productForm, setProductForm] = useState({
     name: '',
     sku: '',
@@ -335,6 +339,37 @@ export default function App() {
     sellingPrice: '',
     imageUrl: '',
   });
+
+  // Batch (5-6 Products) Average Cost & Selling Price Upload State
+  const createDefaultBatchRows = (count = 5) =>
+    Array.from({ length: count }, (_, idx) => ({
+      id: `row-${Date.now()}-${idx}`,
+      name: '',
+      sku: '',
+      unit: 'কেজি',
+      currentStock: '',
+      averageCost: '',
+      sellingPrice: '',
+      imageUrl: '',
+    }));
+
+  const [batchProductsForm, setBatchProductsForm] = useState<
+    {
+      id: string;
+      name: string;
+      sku: string;
+      unit: string;
+      currentStock: string;
+      averageCost: string;
+      sellingPrice: string;
+      imageUrl: string;
+    }[]
+  >(() => createDefaultBatchRows(5));
+  const [useCalculatedAvgForAll, setUseCalculatedAvgForAll] = useState<boolean>(true);
+  const [quickTotalLotCost, setQuickTotalLotCost] = useState<string>('');
+  const [quickTotalLotSell, setQuickTotalLotSell] = useState<string>('');
+  const [quickDirectAvgCost, setQuickDirectAvgCost] = useState<string>('');
+  const [quickDirectAvgSell, setQuickDirectAvgSell] = useState<string>('');
 
   // Profit Distribution Form
   const [distributionForm, setDistributionForm] = useState({
@@ -1124,8 +1159,138 @@ export default function App() {
     }
   }
 
+  // Live Average Cost & Selling Price Summary across the 5-6 Batch Products
+  const batchAverageSummary = useMemo(() => {
+    const validNamedRows = batchProductsForm.filter((r) => r.name.trim().length > 0);
+    const rowsForCalc = validNamedRows.length > 0 ? validNamedRows : batchProductsForm;
+
+    const costValues = rowsForCalc
+      .map((r) => Number(r.averageCost))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    const sellValues = rowsForCalc
+      .map((r) => Number(r.sellingPrice))
+      .filter((v) => Number.isFinite(v) && v > 0);
+
+    const totalCostSum = costValues.reduce((acc, v) => acc + v, 0);
+    const totalSellSum = sellValues.reduce((acc, v) => acc + v, 0);
+
+    const avgCost = costValues.length > 0 ? Math.round((totalCostSum / costValues.length) * 100) / 100 : 0;
+    const avgSellingPrice = sellValues.length > 0 ? Math.round((totalSellSum / sellValues.length) * 100) / 100 : 0;
+    const totalStock = validNamedRows.reduce((acc, r) => acc + (Number(r.currentStock) || 0), 0);
+    const avgProfitPerUnit = Math.round((avgSellingPrice - avgCost) * 100) / 100;
+
+    return {
+      totalRows: batchProductsForm.length,
+      validCount: validNamedRows.length,
+      costEnteredCount: costValues.length,
+      sellEnteredCount: sellValues.length,
+      totalCostSum: Math.round(totalCostSum * 100) / 100,
+      totalSellSum: Math.round(totalSellSum * 100) / 100,
+      avgCost,
+      avgSellingPrice,
+      avgProfitPerUnit,
+      totalStock,
+    };
+  }, [batchProductsForm]);
+
+  async function handleSaveBatchProducts(e: React.FormEvent) {
+    e.preventDefault();
+    if (!admin) return;
+    setError('');
+    setBusy(true);
+    try {
+      const filledRows = batchProductsForm.filter((r) => r.name.trim().length > 0);
+      if (filledRows.length === 0) {
+        throw new Error('কমপক্ষে ১টি বা ৫-৬টি পণ্যের নাম লিখুন');
+      }
+
+      const calculatedAvgCost = batchAverageSummary.avgCost;
+      const calculatedAvgSell = batchAverageSummary.avgSellingPrice;
+
+      const payloads = filledRows.map((row) => {
+        const rowCost = Number(row.averageCost) || 0;
+        const rowSell = Number(row.sellingPrice) || 0;
+        const finalCost = useCalculatedAvgForAll
+          ? calculatedAvgCost > 0
+            ? calculatedAvgCost
+            : rowCost
+          : rowCost > 0
+          ? rowCost
+          : calculatedAvgCost;
+        const finalSell = useCalculatedAvgForAll
+          ? calculatedAvgSell > 0
+            ? calculatedAvgSell
+            : rowSell
+          : rowSell > 0
+          ? rowSell
+          : calculatedAvgSell;
+
+        return {
+          name: row.name.trim(),
+          sku: row.sku.trim() || undefined,
+          unit: row.unit.trim() || 'কেজি',
+          currentStock: Number(row.currentStock) || 0,
+          averageCost: finalCost,
+          sellingPrice: finalSell,
+          imageUrl: row.imageUrl.trim() || undefined,
+        };
+      });
+
+      if (currentAdmin) {
+        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
+        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+        const namesList = payloads.map((p) => p.name).join(', ');
+
+        await createApprovalRequest({
+          actionType: 'create_product',
+          targetCollection: 'products',
+          title: `গড় হিসাবে ${toBengaliNumerals(payloads.length)}টি পণ্য আপলোড: ${namesList}`,
+          description: `পণ্য সংখ্যা: ${toBengaliNumerals(payloads.length)}টি | গড় ক্রয়মূল্য: ${money(calculatedAvgCost)} | গড় বিক্রয়মূল্য: ${money(calculatedAvgSell)}`,
+          reason:
+            productReason.trim() ||
+            `একসাথে ${toBengaliNumerals(payloads.length)}টি পণ্য গড় ক্রয়মূল্য (${money(calculatedAvgCost)}) ও গড় বিক্রয়মূল্যে (${money(calculatedAvgSell)}) যুক্ত করার অনুরোধ`,
+          requestedBy: currentAdmin.username,
+          requestedByName: currentAdmin.displayName,
+          requestedAt: new Date().toISOString(),
+          requestedAtFormatted: formatBengaliDateTime(new Date()),
+          targetApprover,
+          targetApproverName,
+          status: 'pending',
+          payload: {
+            batchProducts: payloads,
+          },
+          previousData: null,
+        });
+
+        setMessage(
+          `গড় হিসাবে ${toBengaliNumerals(payloads.length)}টি পণ্যের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে সবগুলো ইনভেন্টরিতে যুক্ত হবে।`
+        );
+        setProductReason('');
+      } else {
+        for (const item of payloads) {
+          await addProduct(item);
+        }
+        setMessage(
+          `সফলভাবে ${toBengaliNumerals(payloads.length)}টি পণ্য গড় ক্রয়মূল্য (${money(calculatedAvgCost)}) ও বিক্রয়মূল্যে (${money(calculatedAvgSell)}) ইনভেন্টরিতে যোগ করা হয়েছে!`
+        );
+      }
+
+      setBatchProductsForm(createDefaultBatchRows(5));
+      setQuickTotalLotCost('');
+      setQuickTotalLotSell('');
+      setQuickDirectAvgCost('');
+      setQuickDirectAvgSell('');
+      setShowProductModal(false);
+    } catch (err: any) {
+      setError(err?.message || 'একাধিক পণ্য সংরক্ষণ ব্যর্থ হয়েছে');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleOpenEditProduct(p: Product) {
     setEditingProduct(p);
+    setProductUploadMode('single');
     setProductForm({
       name: p.name,
       sku: p.sku || '',
@@ -1426,14 +1591,23 @@ export default function App() {
     }
   }
 
-  async function handleConfirmResetWebsiteData() {
+  async function handleConfirmResetWebsiteData(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     if (!admin || (!currentAdmin && !user)) return;
+    const normalizedPass = resetPasswordInput.trim();
+    if (normalizedPass !== '11381' && normalizedPass !== '১১৩৮১') {
+      setResetPasswordError('ভুল পাসওয়ার্ড! ডেটা রিসেট করার জন্য সঠিক সিকিউরিটি পাসওয়ার্ড দিন।');
+      return;
+    }
+    setResetPasswordError('');
     setBusy(true);
     try {
       const actorUid = user?.uid || currentAdmin?.username || 'admin';
       await resetAllWebsiteData(actorUid, user?.email || currentAdmin?.displayName);
       setMessage('ওয়েবসাইটের সমস্ত লেনদেন, অংশীদার, পণ্য ইনভেন্টরি, মুনাফা বণ্টন ও অডিট লগ সফলভাবে রিসেট করা হয়েছে।');
       setShowResetDataModal(false);
+      setResetPasswordInput('');
+      setShowResetPass(false);
     } catch (err: any) {
       setError(err?.message || 'ডেটা রিসেট ব্যর্থ হয়েছে');
     } finally {
@@ -1829,17 +2003,6 @@ export default function App() {
             onClick={() => { setTab('profile'); setIsMobileMenuOpen(false); }}
           >
             <UserIcon size={18} /> আমার প্রোফাইল
-          </button>
-          <PWAInstallButton />
-          <button
-            type="button"
-            className="nav nav-logout-item"
-            onClick={() => {
-              setIsMobileMenuOpen(false);
-              handleAdminLogout();
-            }}
-          >
-            <LogOut size={18} /> লগআউট করুন (Logout)
           </button>
         </nav>
 
@@ -2974,15 +3137,44 @@ export default function App() {
         {/* TAB 4: INVENTORY */}
         {tab === 'inventory' && (
           <div className="panel">
-            <div className="panel-head">
+            <div className="panel-head" style={{ flexWrap: 'wrap', gap: '12px' }}>
               <div className="panel-head-info">
                 <h2>মজুদ পণ্য ও ইনভেন্টরি কস্টিং (COGS)</h2>
-                <p>পণ্যের তালিকা, একক, বর্তমান স্টক ও গড় ক্রয়মূল্য ব্যবস্থাপনা</p>
+                <p>একটা করে পণ্য আপলোড অথবা একসাথে ৫-৬টি পণ্যের গড় ক্রয়মূল্য ও বিক্রয়মূল্য সংযোজন</p>
               </div>
               {admin && (
-                <button className="primary" onClick={() => setShowProductModal(true)}>
-                  <Plus size={17} /> নতুন পণ্য যোগ
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => {
+                      setEditingProduct(null);
+                      setProductUploadMode('single');
+                      setShowProductModal(true);
+                    }}
+                  >
+                    <Plus size={17} /> একটা করে পণ্য যোগ
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    style={{
+                      background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                      borderColor: '#0284c7',
+                      boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)',
+                    }}
+                    onClick={() => {
+                      setEditingProduct(null);
+                      setProductUploadMode('batch_avg');
+                      if (batchProductsForm.length < 5) {
+                        setBatchProductsForm(createDefaultBatchRows(5));
+                      }
+                      setShowProductModal(true);
+                    }}
+                  >
+                    <Boxes size={17} /> ৫-৬টি পণ্য গড় হিসাবে যোগ
+                  </button>
+                </div>
               )}
             </div>
             <div className="table-wrap">
@@ -3632,7 +3824,12 @@ export default function App() {
                   <button
                     className="danger"
                     disabled={busy}
-                    onClick={() => setShowResetDataModal(true)}
+                    onClick={() => {
+                      setResetPasswordInput('');
+                      setResetPasswordError('');
+                      setShowResetPass(false);
+                      setShowResetDataModal(true);
+                    }}
                   >
                     <Trash2 size={16} /> সমস্ত ডেটা রিসেট করুন
                   </button>
@@ -4127,238 +4324,930 @@ export default function App() {
         </Modal>
       )}
 
-      {/* MODAL: ADD / EDIT PRODUCT */}
+      {/* MODAL: ADD / EDIT PRODUCT (SINGLE OR 5-6 PRODUCTS AVERAGE UPLOAD) */}
       {showProductModal && (
-        <Modal title={editingProduct ? 'পণ্য সম্পাদনা ও ছবি' : 'নতুন পণ্য যোগ'} close={() => setShowProductModal(false)}>
-          <form className="form-grid" onSubmit={handleSaveProduct}>
-            {/* PRODUCT PHOTO SECTION */}
-            <div className="full" style={{
-              background: '#f8fafc',
-              border: '1px dashed #cbd5e1',
-              borderRadius: '10px',
-              padding: '14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: '13px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <ImageIcon size={16} color="#0d9488" /> পণ্যের ছবি (Product Photo)
-                </span>
-                {productForm.imageUrl && (
-                  <button
-                    type="button"
-                    style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
-                    onClick={() => setProductForm({ ...productForm, imageUrl: '' })}
-                  >
-                    ছবি মুছুন
-                  </button>
-                )}
-              </div>
+        <Modal
+          title={
+            editingProduct
+              ? 'পণ্য সম্পাদনা ও ছবি'
+              : productUploadMode === 'batch_avg'
+              ? '৫-৬টি পণ্য গড় হিসাবে ক্রয়মূল্য ও বিক্রয়মূল্য আপলোড'
+              : 'নতুন পণ্য যোগ (একটা করে আপলোড)'
+          }
+          close={() => setShowProductModal(false)}
+        >
+          {/* MODE SWITCHER TAB BAR (Only when adding new products) */}
+          {!editingProduct && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '8px',
+                background: '#f1f5f9',
+                padding: '6px',
+                borderRadius: '12px',
+                marginBottom: '16px',
+                border: '1px solid #cbd5e1',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setProductUploadMode('single')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '10px 12px',
+                  borderRadius: '9px',
+                  border: productUploadMode === 'single' ? '1.5px solid #0d9488' : '1px solid transparent',
+                  background: productUploadMode === 'single' ? '#ffffff' : 'transparent',
+                  color: productUploadMode === 'single' ? '#0f766e' : '#475569',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  boxShadow: productUploadMode === 'single' ? '0 2px 6px rgba(13, 148, 136, 0.15)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Plus size={16} /> একটা করে আপলোড (Single)
+              </button>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-                {productForm.imageUrl ? (
-                  <div style={{ position: 'relative' }}>
-                    <img
-                      src={productForm.imageUrl}
-                      alt="Product preview"
-                      style={{
-                        width: '74px',
-                        height: '74px',
-                        borderRadius: '10px',
-                        objectFit: 'cover',
-                        border: '2px solid #0d9488',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div style={{
-                    width: '74px',
-                    height: '74px',
-                    borderRadius: '10px',
-                    background: '#e2e8f0',
-                    border: '1px solid #cbd5e1',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#64748b',
-                    fontSize: '11px',
-                    gap: '4px'
-                  }}>
-                    <Camera size={22} />
-                    <span>ছবি নেই</span>
-                  </div>
-                )}
+              <button
+                type="button"
+                onClick={() => {
+                  setProductUploadMode('batch_avg');
+                  if (batchProductsForm.length < 5) {
+                    setBatchProductsForm(createDefaultBatchRows(5));
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '10px 12px',
+                  borderRadius: '9px',
+                  border: productUploadMode === 'batch_avg' ? '1.5px solid #0284c7' : '1px solid transparent',
+                  background: productUploadMode === 'batch_avg' ? '#ffffff' : 'transparent',
+                  color: productUploadMode === 'batch_avg' ? '#0369a1' : '#475569',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  boxShadow: productUploadMode === 'batch_avg' ? '0 2px 6px rgba(2, 132, 199, 0.15)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Boxes size={16} /> ৫-৬টি পণ্য গড় হিসাবে আপলোড
+              </button>
+            </div>
+          )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: '200px' }}>
-                  <label
-                    style={{
-                      display: 'inline-flex',
+          {editingProduct || productUploadMode === 'single' ? (
+            <form className="form-grid" onSubmit={handleSaveProduct}>
+              {/* PRODUCT PHOTO SECTION */}
+              <div className="full" style={{
+                background: '#f8fafc',
+                border: '1px dashed #cbd5e1',
+                borderRadius: '10px',
+                padding: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, fontSize: '13px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <ImageIcon size={16} color="#0d9488" /> পণ্যের ছবি (Product Photo)
+                  </span>
+                  {productForm.imageUrl && (
+                    <button
+                      type="button"
+                      style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                      onClick={() => setProductForm({ ...productForm, imageUrl: '' })}
+                    >
+                      ছবি মুছুন
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                  {productForm.imageUrl ? (
+                    <div style={{ position: 'relative' }}>
+                      <img
+                        src={productForm.imageUrl}
+                        alt="Product preview"
+                        style={{
+                          width: '74px',
+                          height: '74px',
+                          borderRadius: '10px',
+                          objectFit: 'cover',
+                          border: '2px solid #0d9488',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{
+                      width: '74px',
+                      height: '74px',
+                      borderRadius: '10px',
+                      background: '#e2e8f0',
+                      border: '1px solid #cbd5e1',
+                      display: 'flex',
+                      flexDirection: 'column',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '8px',
-                      background: '#0d9488',
-                      color: '#ffffff',
-                      padding: '8px 14px',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      width: 'fit-content'
-                    }}
-                  >
-                    <Camera size={16} /> ক্যামেরা / ডিভাইস থেকে ছবি আপলোড
-                    <input
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          try {
-                            const compressed = await compressImage(file);
-                            setProductForm((prev) => ({ ...prev, imageUrl: compressed }));
-                          } catch (err) {
-                            setError('ছবি প্রসেস করতে সমস্যা হয়েছে');
-                          }
-                        }
-                      }}
-                    />
-                  </label>
+                      color: '#64748b',
+                      fontSize: '11px',
+                      gap: '4px'
+                    }}>
+                      <Camera size={22} />
+                      <span>ছবি নেই</span>
+                    </div>
+                  )}
 
-                  <input
-                    type="url"
-                    placeholder="অথবা ছবির সরাসরি ওয়েব লিঙ্ক (URL) পেস্ট করুন..."
-                    value={productForm.imageUrl.startsWith('data:') ? '' : productForm.imageUrl}
-                    onChange={(e) => setProductForm({ ...productForm, imageUrl: e.target.value })}
-                    style={{ fontSize: '12px', padding: '6px 10px' }}
-                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: '200px' }}>
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        background: '#0d9488',
+                        color: '#ffffff',
+                        padding: '8px 14px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        width: 'fit-content'
+                      }}
+                    >
+                      <Camera size={16} /> ক্যামেরা / ডিভাইস থেকে ছবি আপলোড
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            try {
+                              const compressed = await compressImage(file);
+                              setProductForm((prev) => ({ ...prev, imageUrl: compressed }));
+                            } catch (err) {
+                              setError('ছবি প্রসেস করতে সমস্যা হয়েছে');
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+
+                    <input
+                      type="url"
+                      placeholder="অথবা ছবির সরাসরি ওয়েব লিঙ্ক (URL) পেস্ট করুন..."
+                      value={productForm.imageUrl.startsWith('data:') ? '' : productForm.imageUrl}
+                      onChange={(e) => setProductForm({ ...productForm, imageUrl: e.target.value })}
+                      style={{ fontSize: '12px', padding: '6px 10px' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Preset Badges */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '12px', color: '#64748b' }}>
+                  <span>দ্রুত আইকন ছবি:</span>
+                  {[
+                    { label: '🦀 কাকড়া', url: 'https://images.unsplash.com/photo-1548811579-017cf2a4268b?w=300&auto=format&fit=crop&q=80' },
+                    { label: '🐟 মাছ', url: 'https://images.unsplash.com/photo-1534043464124-3be32fe00099?w=300&auto=format&fit=crop&q=80' },
+                    { label: '🦐 চিংড়ি', url: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?w=300&auto=format&fit=crop&q=80' },
+                    { label: '🥩 মাংস', url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=300&auto=format&fit=crop&q=80' },
+                    { label: '🥚 ডিম', url: 'https://images.unsplash.com/photo-1582722872445-44dc5f7e3c8f?w=300&auto=format&fit=crop&q=80' },
+                    { label: '🥬 সবজি', url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300&auto=format&fit=crop&q=80' },
+                    { label: '📦 পণ্য', url: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => setProductForm({ ...productForm, imageUrl: preset.url })}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Quick Preset Badges */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '12px', color: '#64748b' }}>
-                <span>দ্রুত আইকন ছবি:</span>
-                {[
-                  { label: '🦀 কাকড়া', url: 'https://images.unsplash.com/photo-1548811579-017cf2a4268b?w=300&auto=format&fit=crop&q=80' },
-                  { label: '🐟 মাছ', url: 'https://images.unsplash.com/photo-1534043464124-3be32fe00099?w=300&auto=format&fit=crop&q=80' },
-                  { label: '🦐 চিংড়ি', url: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?w=300&auto=format&fit=crop&q=80' },
-                  { label: '🥩 মাংস', url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=300&auto=format&fit=crop&q=80' },
-                  { label: '🥚 ডিম', url: 'https://images.unsplash.com/photo-1582722872445-44dc5f7e3c8f?w=300&auto=format&fit=crop&q=80' },
-                  { label: '🥬 সবজি', url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300&auto=format&fit=crop&q=80' },
-                  { label: '📦 পণ্য', url: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80' },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
+              <label>
+                পণ্যের নাম *
+                <input
+                  required
+                  value={productForm.name}
+                  placeholder="যেমন: কাকড়া"
+                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                />
+              </label>
+
+              <label>
+                SKU / কোড (ঐচ্ছিক)
+                <input
+                  value={productForm.sku}
+                  placeholder="যেমন: CRAB-01"
+                  onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })}
+                />
+              </label>
+
+              <label>
+                একক (Unit)
+                <input
+                  value={productForm.unit}
+                  placeholder="যেমন: পিস বা কেজি"
+                  onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })}
+                />
+              </label>
+
+              <label>
+                বর্তমান স্টক
+                <input
+                  type="number"
+                  value={productForm.currentStock}
+                  placeholder="0"
+                  onChange={(e) => setProductForm({ ...productForm, currentStock: e.target.value })}
+                />
+              </label>
+
+              <label>
+                গড় ক্রয়মূল্য (৳)
+                <input
+                  type="number"
+                  step="0.01"
+                  value={productForm.averageCost}
+                  placeholder="0.00"
+                  onChange={(e) => setProductForm({ ...productForm, averageCost: e.target.value })}
+                />
+              </label>
+
+              <label>
+                বিক্রয়মূল্য (৳)
+                <input
+                  type="number"
+                  step="0.01"
+                  value={productForm.sellingPrice}
+                  placeholder="0.00"
+                  onChange={(e) => setProductForm({ ...productForm, sellingPrice: e.target.value })}
+                />
+              </label>
+
+              {currentAdmin && (
+                <div className="full" style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
+                  <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', fontWeight: 600, color: '#0f766e' }}>
+                    🛡️ দ্বৈত-অনুমোদনের কারণ / নোট (Reason for Approval):
+                    <input
+                      placeholder="উদাঃ নতুন স্টক ক্রয় / পণ্যের মূল্য পরিবর্তন..."
+                      value={productReason}
+                      onChange={(e) => setProductReason(e.target.value)}
+                      style={{ background: '#ffffff' }}
+                    />
+                  </label>
+                  <small style={{ color: '#0d9488', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                    জালিয়াতি রোধে এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর ইনভেন্টরিতে যুক্ত হবে।
+                  </small>
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setShowProductModal(false)}>বাতিল</button>
+                <button className="primary" type="submit" disabled={busy}>
+                  {busy
+                    ? 'প্রক্রিয়াধীন…'
+                    : currentAdmin
+                    ? `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
+                    : editingProduct
+                    ? 'আপডেট করুন'
+                    : 'পণ্য সংরক্ষণ করুন'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            /* SEPARATE FEATURE: 5-6 PRODUCTS AVERAGE COST & SELLING PRICE UPLOAD */
+            <form onSubmit={handleSaveBatchProducts} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* LIVE AVERAGE COST & SELLING PRICE DASHBOARD */}
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                  border: '1.5px solid #7dd3fc',
+                  borderRadius: '12px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Boxes size={18} color="#0284c7" />
+                    <span style={{ fontWeight: 800, fontSize: '13.5px', color: '#0c4a6e' }}>
+                      📊 ৫-৬টি পণ্যের স্বয়ংক্রিয় গড় ক্রয়মূল্য ও গড় বিক্রয়মূল্য হিসাব
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setBatchProductsForm(createDefaultBatchRows(5))}
+                      style={{
+                        background: batchProductsForm.length === 5 ? '#0284c7' : '#ffffff',
+                        color: batchProductsForm.length === 5 ? '#ffffff' : '#0369a1',
+                        border: '1px solid #7dd3fc',
+                        borderRadius: '6px',
+                        padding: '4px 10px',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ৫টি পণ্য সারি
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (batchProductsForm.length < 6) {
+                          const extra = createDefaultBatchRows(6 - batchProductsForm.length);
+                          setBatchProductsForm([...batchProductsForm, ...extra]);
+                        } else {
+                          setBatchProductsForm(batchProductsForm.slice(0, 6));
+                        }
+                      }}
+                      style={{
+                        background: batchProductsForm.length === 6 ? '#0284c7' : '#ffffff',
+                        color: batchProductsForm.length === 6 ? '#ffffff' : '#0369a1',
+                        border: '1px solid #7dd3fc',
+                        borderRadius: '6px',
+                        padding: '4px 10px',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ৬টি পণ্য সারি
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Calculated Average Cards */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                    gap: '8px',
+                  }}
+                >
+                  <div
                     style={{
                       background: '#ffffff',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '6px',
-                      padding: '3px 8px',
-                      fontSize: '11px',
-                      cursor: 'pointer'
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      border: '1px solid #bae6fd',
+                      textAlign: 'center',
                     }}
-                    onClick={() => setProductForm({ ...productForm, imageUrl: preset.url })}
                   >
-                    {preset.label}
-                  </button>
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>পূরণকৃত পণ্য</span>
+                    <b style={{ fontSize: '15px', color: '#0f172a' }}>
+                      {toBengaliNumerals(batchAverageSummary.validCount)} / {toBengaliNumerals(batchAverageSummary.totalRows)} টি
+                    </b>
+                  </div>
+
+                  <div
+                    style={{
+                      background: '#ffffff',
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      border: '1px solid #bae6fd',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, display: 'block' }}>
+                      গড় ক্রয়মূল্য (Avg Cost)
+                    </span>
+                    <b style={{ fontSize: '15px', color: '#b45309' }}>{money(batchAverageSummary.avgCost)}</b>
+                  </div>
+
+                  <div
+                    style={{
+                      background: '#ffffff',
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      border: '1px solid #bae6fd',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', color: '#0f766e', fontWeight: 600, display: 'block' }}>
+                      গড় বিক্রয়মূল্য (Avg Sell)
+                    </span>
+                    <b style={{ fontSize: '15px', color: '#0f766e' }}>{money(batchAverageSummary.avgSellingPrice)}</b>
+                  </div>
+
+                  <div
+                    style={{
+                      background: '#ffffff',
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      border: '1px solid #bae6fd',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 600, display: 'block' }}>
+                      গড় সম্ভাব্য লাভ (প্রতি একক)
+                    </span>
+                    <b
+                      style={{
+                        fontSize: '15px',
+                        color: batchAverageSummary.avgProfitPerUnit >= 0 ? '#15803d' : '#dc2626',
+                      }}
+                    >
+                      {batchAverageSummary.avgProfitPerUnit >= 0 ? '+' : ''}
+                      {money(batchAverageSummary.avgProfitPerUnit)}
+                    </b>
+                  </div>
+                </div>
+
+                {/* Quick Lot Total OR Direct Average Price Input Helper */}
+                <div
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: '9px',
+                    padding: '10px 12px',
+                    border: '1px dashed #38bdf8',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#0369a1' }}>
+                    ⚡ দ্রুত গড় হিসাব টুল: (মোট দাম থেকে গড় বের করুন অথবা সব সারিতে এক ক্লিকে গড় দাম বসান)
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                      gap: '8px',
+                      alignItems: 'end',
+                    }}
+                  >
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155', margin: 0 }}>
+                      সব পণ্যের মোট কেনা দাম (৳)
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="যেমন: ১৫০০"
+                        value={quickTotalLotCost}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setQuickTotalLotCost(val);
+                          const count = Math.max(
+                            1,
+                            batchProductsForm.filter((r) => r.name.trim()).length || batchProductsForm.length
+                          );
+                          const num = Number(val);
+                          if (num > 0) {
+                            const avg = String(Math.round((num / count) * 100) / 100);
+                            setQuickDirectAvgCost(avg);
+                            setBatchProductsForm((prev) => prev.map((row) => ({ ...row, averageCost: avg })));
+                          }
+                        }}
+                        style={{ padding: '6px 8px', fontSize: '12.5px' }}
+                      />
+                    </label>
+
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155', margin: 0 }}>
+                      সব পণ্যের মোট বিক্রয় দাম (৳)
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="যেমন: ২১০০"
+                        value={quickTotalLotSell}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setQuickTotalLotSell(val);
+                          const count = Math.max(
+                            1,
+                            batchProductsForm.filter((r) => r.name.trim()).length || batchProductsForm.length
+                          );
+                          const num = Number(val);
+                          if (num > 0) {
+                            const avg = String(Math.round((num / count) * 100) / 100);
+                            setQuickDirectAvgSell(avg);
+                            setBatchProductsForm((prev) => prev.map((row) => ({ ...row, sellingPrice: avg })));
+                          }
+                        }}
+                        style={{ padding: '6px 8px', fontSize: '12.5px' }}
+                      />
+                    </label>
+
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#b45309', margin: 0 }}>
+                      গড় ক্রয়মূল্য (৳) সব সারিতে
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="যেমন: ৩০০"
+                        value={quickDirectAvgCost}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setQuickDirectAvgCost(val);
+                          setBatchProductsForm((prev) => prev.map((row) => ({ ...row, averageCost: val })));
+                        }}
+                        style={{ padding: '6px 8px', fontSize: '12.5px', borderColor: '#fcd34d' }}
+                      />
+                    </label>
+
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#0f766e', margin: 0 }}>
+                      গড় বিক্রয়মূল্য (৳) সব সারিতে
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="যেমন: ৪২০"
+                        value={quickDirectAvgSell}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setQuickDirectAvgSell(val);
+                          setBatchProductsForm((prev) => prev.map((row) => ({ ...row, sellingPrice: val })));
+                        }}
+                        style={{ padding: '6px 8px', fontSize: '12.5px', borderColor: '#5eead4' }}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Checkbox & One-Click Apply Calculated Average */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '8px',
+                      paddingTop: '6px',
+                      borderTop: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12.5px',
+                        fontWeight: 700,
+                        color: '#0f172a',
+                        cursor: 'pointer',
+                        margin: 0,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={useCalculatedAvgForAll}
+                        onChange={(e) => setUseCalculatedAvgForAll(e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#0284c7' }}
+                      />
+                      <span>
+                        আপলোডের সময় সব পণ্যে গড় ক্রয়মূল্য ({money(batchAverageSummary.avgCost)}) ও গড় বিক্রয়মূল্য (
+                        {money(batchAverageSummary.avgSellingPrice)}) সেট করুন
+                      </span>
+                    </label>
+
+                    {(batchAverageSummary.avgCost > 0 || batchAverageSummary.avgSellingPrice > 0) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBatchProductsForm((prev) =>
+                            prev.map((row) => ({
+                              ...row,
+                              averageCost:
+                                batchAverageSummary.avgCost > 0
+                                  ? String(batchAverageSummary.avgCost)
+                                  : row.averageCost,
+                              sellingPrice:
+                                batchAverageSummary.avgSellingPrice > 0
+                                  ? String(batchAverageSummary.avgSellingPrice)
+                                  : row.sellingPrice,
+                            }))
+                          );
+                        }}
+                        style={{
+                          background: '#0284c7',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '5px 10px',
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        সব সারিতে এই গড় মূল্য বসান
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 5-6 PRODUCT ROWS LIST */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
+                {batchProductsForm.map((row, index) => (
+                  <div
+                    key={row.id}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '10px',
+                      padding: '10px 12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            background: '#0284c7',
+                            color: '#ffffff',
+                            borderRadius: '6px',
+                            padding: '2px 8px',
+                            fontSize: '11.5px',
+                            fontWeight: 700,
+                          }}
+                        >
+                          পণ্য #{toBengaliNumerals(index + 1)}
+                        </span>
+
+                        {/* Mini Photo Preview & Quick Icons for this row */}
+                        {row.imageUrl ? (
+                          <img
+                            src={row.imageUrl}
+                            alt=""
+                            style={{
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '6px',
+                              objectFit: 'cover',
+                              border: '1.5px solid #0284c7',
+                            }}
+                          />
+                        ) : null}
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                          {[
+                            { label: '🦀', url: 'https://images.unsplash.com/photo-1548811579-017cf2a4268b?w=300&auto=format&fit=crop&q=80', title: 'কাকড়া' },
+                            { label: '🐟', url: 'https://images.unsplash.com/photo-1534043464124-3be32fe00099?w=300&auto=format&fit=crop&q=80', title: 'মাছ' },
+                            { label: '🦐', url: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?w=300&auto=format&fit=crop&q=80', title: 'চিংড়ি' },
+                            { label: '🥩', url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=300&auto=format&fit=crop&q=80', title: 'মাংস' },
+                            { label: '📦', url: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80', title: 'পণ্য' },
+                          ].map((preset) => (
+                            <button
+                              key={preset.label}
+                              type="button"
+                              title={`${preset.title} ছবি সেট করুন`}
+                              onClick={() =>
+                                setBatchProductsForm((prev) =>
+                                  prev.map((r, i) => (i === index ? { ...r, imageUrl: preset.url } : r))
+                                )
+                              }
+                              style={{
+                                background: row.imageUrl === preset.url ? '#e0f2fe' : '#ffffff',
+                                border: row.imageUrl === preset.url ? '1px solid #0284c7' : '1px solid #cbd5e1',
+                                borderRadius: '5px',
+                                padding: '2px 5px',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+
+                          <label
+                            title="গ্যালারি থেকে ছবি দিন"
+                            style={{
+                              background: '#ffffff',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '5px',
+                              padding: '2px 6px',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              color: '#0f766e',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <Camera size={12} /> ছবি
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  try {
+                                    const compressed = await compressImage(file);
+                                    setBatchProductsForm((prev) =>
+                                      prev.map((r, i) => (i === index ? { ...r, imageUrl: compressed } : r))
+                                    );
+                                  } catch {
+                                    setError('ছবি প্রসেস করতে সমস্যা হয়েছে');
+                                  }
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {batchProductsForm.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBatchProductsForm((prev) => prev.filter((_, i) => i !== index))
+                          }
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#dc2626',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                          }}
+                        >
+                          <Trash2 size={13} /> মুছুন
+                        </button>
+                      )}
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))',
+                        gap: '8px',
+                      }}
+                    >
+                      <label style={{ fontSize: '11.5px', margin: 0 }}>
+                        পণ্যের নাম *
+                        <input
+                          placeholder={`যেমন: পণ্য ${toBengaliNumerals(index + 1)}`}
+                          value={row.name}
+                          onChange={(e) =>
+                            setBatchProductsForm((prev) =>
+                              prev.map((r, i) => (i === index ? { ...r, name: e.target.value } : r))
+                            )
+                          }
+                          style={{ padding: '6px 8px', fontSize: '12.5px' }}
+                        />
+                      </label>
+
+                      <label style={{ fontSize: '11.5px', margin: 0 }}>
+                        একক (Unit)
+                        <input
+                          placeholder="কেজি / পিস"
+                          value={row.unit}
+                          onChange={(e) =>
+                            setBatchProductsForm((prev) =>
+                              prev.map((r, i) => (i === index ? { ...r, unit: e.target.value } : r))
+                            )
+                          }
+                          style={{ padding: '6px 8px', fontSize: '12.5px' }}
+                        />
+                      </label>
+
+                      <label style={{ fontSize: '11.5px', margin: 0 }}>
+                        বর্তমান স্টক
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="0"
+                          value={row.currentStock}
+                          onChange={(e) =>
+                            setBatchProductsForm((prev) =>
+                              prev.map((r, i) => (i === index ? { ...r, currentStock: e.target.value } : r))
+                            )
+                          }
+                          style={{ padding: '6px 8px', fontSize: '12.5px' }}
+                        />
+                      </label>
+
+                      <label style={{ fontSize: '11.5px', margin: 0, color: '#b45309', fontWeight: 600 }}>
+                        ক্রয়মূল্য (৳)
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={row.averageCost}
+                          onChange={(e) =>
+                            setBatchProductsForm((prev) =>
+                              prev.map((r, i) => (i === index ? { ...r, averageCost: e.target.value } : r))
+                            )
+                          }
+                          style={{ padding: '6px 8px', fontSize: '12.5px' }}
+                        />
+                      </label>
+
+                      <label style={{ fontSize: '11.5px', margin: 0, color: '#0f766e', fontWeight: 600 }}>
+                        বিক্রয়মূল্য (৳)
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={row.sellingPrice}
+                          onChange={(e) =>
+                            setBatchProductsForm((prev) =>
+                              prev.map((r, i) => (i === index ? { ...r, sellingPrice: e.target.value } : r))
+                            )
+                          }
+                          style={{ padding: '6px 8px', fontSize: '12.5px' }}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
 
-            <label>
-              পণ্যের নাম *
-              <input
-                required
-                value={productForm.name}
-                placeholder="যেমন: কাকড়া"
-                onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-              />
-            </label>
-
-            <label>
-              SKU / কোড (ঐচ্ছিক)
-              <input
-                value={productForm.sku}
-                placeholder="যেমন: CRAB-01"
-                onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })}
-              />
-            </label>
-
-            <label>
-              একক (Unit)
-              <input
-                value={productForm.unit}
-                placeholder="যেমন: পিস বা কেজি"
-                onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })}
-              />
-            </label>
-
-            <label>
-              বর্তমান স্টক
-              <input
-                type="number"
-                value={productForm.currentStock}
-                placeholder="0"
-                onChange={(e) => setProductForm({ ...productForm, currentStock: e.target.value })}
-              />
-            </label>
-
-            <label>
-              গড় ক্রয়মূল্য (৳)
-              <input
-                type="number"
-                step="0.01"
-                value={productForm.averageCost}
-                placeholder="0.00"
-                onChange={(e) => setProductForm({ ...productForm, averageCost: e.target.value })}
-              />
-            </label>
-
-            <label>
-              বিক্রয়মূল্য (৳)
-              <input
-                type="number"
-                step="0.01"
-                value={productForm.sellingPrice}
-                placeholder="0.00"
-                onChange={(e) => setProductForm({ ...productForm, sellingPrice: e.target.value })}
-              />
-            </label>
-
-            {currentAdmin && (
-              <div className="full" style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
-                <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', fontWeight: 600, color: '#0f766e' }}>
-                  🛡️ দ্বৈত-অনুমোদনের কারণ / নোট (Reason for Approval):
-                  <input
-                    placeholder="উদাঃ নতুন স্টক ক্রয় / পণ্যের মূল্য পরিবর্তন..."
-                    value={productReason}
-                    onChange={(e) => setProductReason(e.target.value)}
-                    style={{ background: '#ffffff' }}
-                  />
-                </label>
-                <small style={{ color: '#0d9488', fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                  জালিয়াতি রোধে এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর ইনভেন্টরিতে যুক্ত হবে।
-                </small>
-              </div>
-            )}
-
-            <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setShowProductModal(false)}>বাতিল</button>
-              <button className="primary" type="submit" disabled={busy}>
-                {busy
-                  ? 'প্রক্রিয়াধীন…'
-                  : currentAdmin
-                  ? `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
-                  : editingProduct
-                  ? 'আপডেট করুন'
-                  : 'পণ্য সংরক্ষণ করুন'}
+              <button
+                type="button"
+                onClick={() =>
+                  setBatchProductsForm((prev) => [
+                    ...prev,
+                    {
+                      id: `row-${Date.now()}-${prev.length}`,
+                      name: '',
+                      sku: '',
+                      unit: 'কেজি',
+                      currentStock: '',
+                      averageCost:
+                        batchAverageSummary.avgCost > 0 ? String(batchAverageSummary.avgCost) : '',
+                      sellingPrice:
+                        batchAverageSummary.avgSellingPrice > 0
+                          ? String(batchAverageSummary.avgSellingPrice)
+                          : '',
+                      imageUrl: '',
+                    },
+                  ])
+                }
+                style={{
+                  background: '#f8fafc',
+                  border: '1.5px dashed #0284c7',
+                  color: '#0284c7',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  fontSize: '12.5px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Plus size={15} /> আরও একটি পণ্যের সারি যোগ করুন (বর্তমানে {toBengaliNumerals(batchProductsForm.length)}টি)
               </button>
-            </div>
-          </form>
+
+              {currentAdmin && (
+                <div style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
+                  <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', fontWeight: 600, color: '#0f766e' }}>
+                    🛡️ দ্বৈত-অনুমোদনের কারণ / নোট (Reason for Approval):
+                    <input
+                      placeholder="উদাঃ ৫-৬টি পণ্য গড় হিসাবে নতুন স্টক আপলোড..."
+                      value={productReason}
+                      onChange={(e) => setProductReason(e.target.value)}
+                      style={{ background: '#ffffff' }}
+                    />
+                  </label>
+                  <small style={{ color: '#0d9488', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                    জালিয়াতি রোধে এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর একসাথে সবগুলো পণ্য ইনভেন্টরিতে যুক্ত হবে।
+                  </small>
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setShowProductModal(false)}>
+                  বাতিল
+                </button>
+                <button className="primary" type="submit" disabled={busy}>
+                  {busy
+                    ? 'প্রক্রিয়াধীন…'
+                    : currentAdmin
+                    ? `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য অনুমোদনের জন্য পাঠান`
+                    : `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য সংরক্ষণ করুন`}
+                </button>
+              </div>
+            </form>
+          )}
         </Modal>
       )}
 
@@ -4781,23 +5670,96 @@ export default function App() {
 
       {/* MODAL: FULL WEBSITE DATA RESET */}
       {showResetDataModal && (
-        <Modal title="সতর্কবার্তা: সম্পূর্ণ ওয়েবসাইট ডেটা রিসেট" close={() => setShowResetDataModal(false)}>
-          <div className="modal-body">
+        <Modal
+          title="সতর্কবার্তা: সম্পূর্ণ ওয়েবসাইট ডেটা রিসেট"
+          close={() => {
+            setShowResetDataModal(false);
+            setResetPasswordInput('');
+            setResetPasswordError('');
+            setShowResetPass(false);
+          }}
+        >
+          <form className="modal-body" onSubmit={handleConfirmResetWebsiteData}>
             <div className="preview-box modal-danger-box">
               <h3 className="modal-danger-title" style={{ marginTop: 0 }}>আপনি কি সম্পূর্ণ ওয়েবসাইট রিসেট করতে চান?</h3>
               <p style={{ margin: 0, fontSize: '13px', color: '#7f1d1d', lineHeight: 1.6 }}>
                 সতর্কবার্তা: এই অপশনটি নিশ্চিত করলে সিস্টেমের সমস্ত লেনদেন, বিনিয়োগকারী/অংশীদার, পণ্য তালিকা, ইনভেন্টরি স্টক, মুনাফা বণ্টন এবং অডিট লগ চিরতরে মুছে যাবে। এই প্রক্রিয়াটি অপরিবর্তনীয়।
               </p>
             </div>
-            <div className="modal-actions">
-              <button type="button" className="danger" onClick={handleConfirmResetWebsiteData} disabled={busy}>
+
+            <div style={{ marginTop: '14px', display: 'grid', gap: '8px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Lock size={15} color="#dc2626" /> রিসেট নিশ্চিত করতে সিকিউরিটি পাসওয়ার্ড দিন:
+              </label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  type={showResetPass ? 'text' : 'password'}
+                  value={resetPasswordInput}
+                  onChange={(e) => {
+                    setResetPasswordInput(e.target.value);
+                    if (resetPasswordError) setResetPasswordError('');
+                  }}
+                  placeholder="সিকিউরিটি পাসওয়ার্ড লিখুন..."
+                  autoFocus
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '10px 40px 10px 12px',
+                    borderRadius: '8px',
+                    border: resetPasswordError ? '1.5px solid #dc2626' : '1px solid #cbd5e1',
+                    fontSize: '14px',
+                    outline: 'none'
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPass((prev) => !prev)}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#64748b',
+                    padding: '4px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title={showResetPass ? 'পাসওয়ার্ড লুকান' : 'পাসওয়ার্ড দেখুন'}
+                >
+                  {showResetPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {resetPasswordError && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#dc2626', fontSize: '12.5px', fontWeight: 600 }}>
+                  <AlertTriangle size={14} /> {resetPasswordError}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: '16px' }}>
+              <button
+                type="submit"
+                className="danger"
+                disabled={busy || !resetPasswordInput.trim()}
+              >
                 <Trash2 size={16} /> হ্যাঁ, সমস্ত ডেটা স্থায়ীভাবে রিসেট করুন
               </button>
-              <button type="button" className="secondary" onClick={() => setShowResetDataModal(false)} disabled={busy}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setShowResetDataModal(false);
+                  setResetPasswordInput('');
+                  setResetPasswordError('');
+                  setShowResetPass(false);
+                }}
+                disabled={busy}
+              >
                 বাতিল করুন
               </button>
             </div>
-          </div>
+          </form>
         </Modal>
       )}
 

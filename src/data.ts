@@ -1198,7 +1198,13 @@ export async function approveApprovalRequest(
       break;
 
     case 'create_product':
-      await addProduct(req.payload);
+      if (Array.isArray(req.payload?.batchProducts)) {
+        for (const item of req.payload.batchProducts) {
+          await addProduct(item);
+        }
+      } else {
+        await addProduct(req.payload);
+      }
       break;
 
     case 'edit_product':
