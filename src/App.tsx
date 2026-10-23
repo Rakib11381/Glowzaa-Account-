@@ -86,6 +86,7 @@ import {
   type DemoCleanupPreview,
 } from './data';
 import AdminProfile from './components/AdminProfile';
+import TermsConditionsCard from './components/TermsConditionsCard';
 import PWAInstallButton from './components/PWAInstallButton';
 import {
   money,
@@ -247,7 +248,7 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tab, setTab] = useState<
-    'dashboard' | 'transactions' | 'investors' | 'inventory' | 'profit' | 'reports' | 'audit' | 'settings' | 'profile'
+    'dashboard' | 'transactions' | 'investors' | 'inventory' | 'profit' | 'reports' | 'audit' | 'settings' | 'profile' | 'terms'
   >('dashboard');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -256,6 +257,8 @@ export default function App() {
   const [endDateFilter, setEndDateFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [busyText, setBusyText] = useState<string>('সংরক্ষণ করা হচ্ছে…');
+  const [busyTone, setBusyTone] = useState<'default' | 'danger'>('default');
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const [reportMonth, setReportMonth] = useState<string>(() => today().slice(0, 7));
   const [isMonthlyPdfLoading, setIsMonthlyPdfLoading] = useState(false);
@@ -916,9 +919,12 @@ export default function App() {
     e.preventDefault();
     if (!currentAdmin && !user) return;
     setError('');
+    setBusyTone('default');
+    setBusyText(editingEntry ? 'হিসাব আপডেট করা হচ্ছে…' : 'নতুন হিসাব সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
 
     try {
+      await new Promise((r) => setTimeout(r, 380));
       const amount = Number(entryForm.amount);
       if (!entryForm.title.trim() || !Number.isFinite(amount) || amount <= 0) {
         throw new Error('দয়া করে সঠিক বিবরণ এবং ০ এর অধিক টাকার পরিমাণ দিন।');
@@ -1050,8 +1056,11 @@ export default function App() {
     e.preventDefault();
     if (!admin) return;
     setError('');
+    setBusyTone('default');
+    setBusyText('অংশীদারের তথ্য সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 380));
       if (!investorName.trim()) throw new Error('ইনভেস্টরের নাম আবশ্যক');
       const payload = {
         name: investorName.trim(),
@@ -1101,8 +1110,11 @@ export default function App() {
     e.preventDefault();
     if (!admin) return;
     setError('');
+    setBusyTone('default');
+    setBusyText(editingProduct ? 'পণ্যের তথ্য আপডেট হচ্ছে…' : 'নতুন পণ্য সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 380));
       if (!productForm.name.trim()) throw new Error('পণ্যের নাম আবশ্যক');
       const payload = {
         name: productForm.name.trim(),
@@ -1197,8 +1209,11 @@ export default function App() {
     e.preventDefault();
     if (!admin) return;
     setError('');
+    setBusyTone('default');
+    setBusyText('গড় হিসাবে পণ্যগুলো আপলোড ও সংরক্ষণ হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 420));
       const filledRows = batchProductsForm.filter((r) => r.name.trim().length > 0);
       if (filledRows.length === 0) {
         throw new Error('কমপক্ষে ১টি বা ৫-৬টি পণ্যের নাম লিখুন');
@@ -1307,9 +1322,12 @@ export default function App() {
     e.preventDefault();
     if (!admin || (!currentAdmin && !user)) return;
     setError('');
+    setBusyTone('default');
+    setBusyText('মুনাফা বণ্টন হিসাব সংরক্ষণ হচ্ছে…');
     setBusy(true);
 
     try {
+      await new Promise((r) => setTimeout(r, 380));
       const distAmount = Number(distributionForm.distributableAmount);
       if (!Number.isFinite(distAmount) || distAmount <= 0) {
         throw new Error('বণ্টনযোগ্য টাকার পরিমাণ ০ এর বেশি দিন');
@@ -1379,8 +1397,11 @@ export default function App() {
 
   async function handleConfirmDelete() {
     if (!showDeleteModal) return;
+    setBusyTone('danger');
+    setBusyText('লেনদেন ডিলিট প্রসেস করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 400));
       if (currentAdmin) {
         const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
         const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
@@ -1425,8 +1446,11 @@ export default function App() {
       return;
     }
 
+    setBusyTone('danger');
+    setBusyText('হিসাব রিভার্স (Void) করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 380));
       if (currentAdmin) {
         const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
         const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
@@ -1470,8 +1494,11 @@ export default function App() {
 
   async function handleConfirmDeleteInvestor() {
     if (!showInvestorDeleteModal) return;
+    setBusyTone('danger');
+    setBusyText('অংশীদার ডিলিট প্রসেস করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 400));
       if (currentAdmin) {
         const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
         const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
@@ -1511,8 +1538,11 @@ export default function App() {
 
   async function handleConfirmDeleteProduct() {
     if (!showProductDeleteModal) return;
+    setBusyTone('danger');
+    setBusyText('পণ্য ডিলিট প্রসেস করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 400));
       if (currentAdmin) {
         const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
         const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
@@ -1552,8 +1582,11 @@ export default function App() {
 
   async function handleApproveRequest(req: ApprovalRequest, note?: string) {
     if (!currentAdmin) return;
+    setBusyTone(req.actionType.includes('delete') ? 'danger' : 'default');
+    setBusyText('অনুরোধ অনুমোদন ও কার্যকর করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 380));
       await approveApprovalRequest(req, currentAdmin.username, currentAdmin.displayName, note);
       setMessage(`অনুরোধ "${req.title}" সফলভাবে অনুমোদিত এবং মূল ওয়েবসাইটে কার্যকর করা হয়েছে!`);
     } catch (err: any) {
@@ -1565,8 +1598,11 @@ export default function App() {
 
   async function handleRejectRequest(req: ApprovalRequest, reason: string) {
     if (!currentAdmin) return;
+    setBusyTone('danger');
+    setBusyText('অনুরোধ বাতিল করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 380));
       await rejectApprovalRequest(req, currentAdmin.username, currentAdmin.displayName, reason);
       setMessage(`অনুরোধ "${req.title}" বাতিল করা হয়েছে।`);
     } catch (err: any) {
@@ -1578,8 +1614,11 @@ export default function App() {
 
   async function handleConfirmDeleteDistribution() {
     if (!showDistributionDeleteModal || (!currentAdmin && !user)) return;
+    setBusyTone('danger');
+    setBusyText('মুনাফা বণ্টন রেকর্ড ডিলিট হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 380));
       const actorUid = user?.uid || currentAdmin?.username || 'admin';
       await removeProfitDistribution(showDistributionDeleteModal.id, actorUid, user?.email || currentAdmin?.displayName);
       setMessage(`মুনাফা বণ্টন "${showDistributionDeleteModal.periodName}" সফলভাবে ডিলিট করা হয়েছে।`);
@@ -1600,8 +1639,11 @@ export default function App() {
       return;
     }
     setResetPasswordError('');
+    setBusyTone('danger');
+    setBusyText('সম্পূর্ণ ওয়েবসাইট ডেটা রিসেট করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 450));
       const actorUid = user?.uid || currentAdmin?.username || 'admin';
       await resetAllWebsiteData(actorUid, user?.email || currentAdmin?.displayName);
       setMessage('ওয়েবসাইটের সমস্ত লেনদেন, অংশীদার, পণ্য ইনভেন্টরি, মুনাফা বণ্টন ও অডিট লগ সফলভাবে রিসেট করা হয়েছে।');
@@ -1624,8 +1666,11 @@ export default function App() {
       return;
     }
 
+    setBusyTone('danger');
+    setBusyText('নির্বাচিত রেকর্ডগুলো ডিলিট করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 400));
       const actorUid = user?.uid || currentAdmin?.username || 'admin';
       await bulkRemoveDraftEntries(
         draftsToDelete.map((d) => d.id),
@@ -1706,8 +1751,11 @@ export default function App() {
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
     if (!admin || !db) return;
+    setBusyTone('default');
+    setBusyText('ব্যবসার সেটিংস সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
     try {
+      await new Promise((r) => setTimeout(r, 380));
       await setDoc(doc(db, 'businessSettings', 'main'), {
         ...settings,
         updatedAt: serverTimestamp(),
@@ -1889,7 +1937,14 @@ export default function App() {
             </label>
 
             <button className="primary wide" type="submit" disabled={busy} style={{ padding: '12px', fontSize: '14.5px', fontWeight: 700 }}>
-              {busy ? 'যাচাই হচ্ছে…' : 'প্রবেশ করুন (লগইন)'}
+              {busy ? (
+                <>
+                  <span className="btn-spinner" />
+                  <span>যাচাই হচ্ছে…</span>
+                </>
+              ) : (
+                'প্রবেশ করুন (লগইন)'
+              )}
             </button>
           </form>
 
@@ -1903,6 +1958,23 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {/* Global Save / Add Product / Delete Loading Animation Overlay */}
+      {busy && (
+        <div className="action-loading-overlay" role="status" aria-live="polite">
+          <div className={`action-loading-card ${busyTone === 'danger' ? 'danger-tone' : ''}`}>
+            <div className="action-loading-ring-wrap">
+              <div className="action-loading-ring-bg" />
+              <div className="action-loading-ring" />
+            </div>
+            <h4 className="action-loading-title">{busyText || 'সংরক্ষণ করা হচ্ছে…'}</h4>
+            <p className="action-loading-sub">অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন</p>
+            <div className="action-loading-bar-track">
+              <div className="action-loading-bar-fill" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mobile Drawer Backdrop */}
       {isMobileMenuOpen && (
         <div
@@ -1995,6 +2067,13 @@ export default function App() {
             onClick={() => { setTab('settings'); setIsMobileMenuOpen(false); }}
           >
             <Settings /> সেটিংস ও ডেটা
+          </button>
+          <button
+            type="button"
+            className={tab === 'terms' ? 'nav active' : 'nav'}
+            onClick={() => { setTab('terms'); setIsMobileMenuOpen(false); }}
+          >
+            <ShieldCheck /> শর্তাবলী ও নীতিমালা
           </button>
           <span className="nav-section-title">ব্যক্তিগত প্রোফাইল ও সেশন</span>
           <button
@@ -2154,6 +2233,13 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={`mobile-strip-pill ${tab === 'terms' ? 'active' : ''}`}
+            onClick={() => setTab('terms')}
+          >
+            <ShieldCheck size={14} /> শর্তাবলী
+          </button>
+          <button
+            type="button"
             className={`mobile-strip-pill ${tab === 'settings' ? 'active' : ''}`}
             onClick={() => setTab('settings')}
           >
@@ -2197,28 +2283,35 @@ export default function App() {
             products={products}
             partnerAccounts={partnerAccounts}
             availableBusinessCash={cashSummary.availableCash}
-            onSubmitWithdrawal={async ({ amount, date, method, reason, investorId, investorName }) => {
+            onSubmitWithdrawal={async ({ amount, date, method, reason, investorId, investorName, entryType = 'withdrawal' }) => {
               const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
               const targetApproverName =
                 currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
-              const titleText = `${currentAdmin.displayName}-এর ব্যক্তিগত উত্তোলন (${method})`;
+              const isLoan = entryType === 'loan';
+              const titleText = isLoan
+                ? `${currentAdmin.displayName}-এর বিশেষ লোন (${method} — পরবর্তী লাভাংশ থেকে অটো কর্তন)`
+                : `${currentAdmin.displayName}-এর লাভাংশ উত্তোলন (${method})`;
               const entryPayload = {
-                type: 'withdrawal' as RecordType,
+                type: (isLoan ? 'loan' : 'withdrawal') as RecordType,
                 title: titleText,
                 amount,
                 date: date || today(),
                 status: 'posted' as EntryStatus,
                 investorId: investorId || undefined,
                 category: method,
-                notes: `${reason} (মাধ্যম: ${method})`,
+                notes: isLoan
+                  ? `বিশেষ লোন (পরবর্তী লাভাংশ থেকে অটোমেটিক কর্তনযোগ্য): ${reason} (মাধ্যম: ${method})`
+                  : `লাভাংশ উত্তোলন: ${reason} (মাধ্যম: ${method})`,
                 demo: false,
               };
 
               await createApprovalRequest({
                 actionType: 'create_entry',
                 targetCollection: 'entries',
-                title: `পার্টনার উত্তোলন: ${investorName} (${money(amount)})`,
-                description: `উত্তোলনকারী: ${currentAdmin.displayName}, পরিমাণ: ${money(amount)}, মাধ্যম: ${method}, তারিখ: ${dateLabel(date || today())}`,
+                title: isLoan
+                  ? `বিশেষ লোন আবেদন: ${investorName} (${money(amount)})`
+                  : `লাভাংশ উত্তোলন: ${investorName} (${money(amount)})`,
+                description: `${isLoan ? 'লোন গ্রহণকারী' : 'উত্তোলনকারী'}: ${currentAdmin.displayName}, পরিমাণ: ${money(amount)}, মাধ্যম: ${method}, তারিখ: ${dateLabel(date || today())}${isLoan ? ' [শর্ত: পরবর্তী লাভাংশ থেকে অটোমেটিক কেটে নেওয়া হবে]' : ''}`,
                 reason,
                 requestedBy: currentAdmin.username,
                 requestedByName: currentAdmin.displayName,
@@ -2281,6 +2374,14 @@ export default function App() {
                 )}
                 <button className="secondary" onClick={handleDownloadPdf} disabled={isPdfLoading}>
                   <Download size={17} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setTab('terms')}
+                  style={{ borderColor: '#99f6e4', background: '#f0fdfa', color: '#0f766e', fontWeight: 700 }}
+                >
+                  <ShieldCheck size={16} /> শর্তাবলী ও নীতিমালা
                 </button>
               </div>
             </div>
@@ -2800,18 +2901,6 @@ export default function App() {
                 </table>
               </div>
             </div>
-
-            {entries.length === 0 && (
-              <div className="preview-box" style={{ textAlign: 'center', padding: '28px' }}>
-                <Boxes size={36} style={{ color: '#087f70', margin: '0 auto 12px' }} />
-                <h3 style={{ margin: '0 0 6px 0' }}>ডেটাবেসে এখনো কোনো লেনদেন নেই</h3>
-                {admin && (
-                  <button className="primary" onClick={handleSeedDemo} disabled={busy}>
-                    <PlayCircle size={16} /> ডেমো ডেটা লোড করুন
-                  </button>
-                )}
-              </div>
-            )}
           </>
         )}
 
@@ -3064,74 +3153,98 @@ export default function App() {
 
         {/* TAB 3: INVESTORS */}
         {tab === 'investors' && (
-          <div className="panel">
-            <div className="panel-head">
-              <div className="panel-head-info">
-                <h2>অংশীদারদের লেজার ও অ্যাকাউন্ট ব্যালেন্স</h2>
-                <p>বিনিয়োগ, মালিকানার শেয়ার %, এবং বর্তমান অ্যাকাউন্ট ব্যালেন্স</p>
+          <div style={{ display: 'grid', gap: '20px' }}>
+            <div className="panel" style={{ marginBottom: 0 }}>
+              <div className="panel-head">
+                <div className="panel-head-info">
+                  <h2>অংশীদারদের লেজার ও অ্যাকাউন্ট ব্যালেন্স</h2>
+                  <p>বিনিয়োগ (উত্তোলনযোগ্য নয়), মালিকানার শেয়ার %, লাভাংশ উত্তোলন, বিশেষ লোন সমন্বয় ও বর্তমান ব্যালেন্স</p>
+                </div>
+                {admin && (
+                  <button className="primary" onClick={() => setShowInvestorModal(true)}>
+                    <Plus size={17} /> নতুন অংশীদার যোগ
+                  </button>
+                )}
               </div>
-              {admin && (
-                <button className="primary" onClick={() => setShowInvestorModal(true)}>
-                  <Plus size={17} /> নতুন অংশীদার যোগ
-                </button>
-              )}
-            </div>
 
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>অংশীদারের নাম</th>
-                    <th>ফোন নম্বর</th>
-                    <th>স্থির মূলধন (উত্তোলনযোগ্য নয়)</th>
-                    <th>শেয়ার %</th>
-                    <th>বরাদ্দকৃত লাভ</th>
-                    <th>মোট উত্তোলন</th>
-                    <th>উত্তোলনযোগ্য লাভ</th>
-                    <th>বিস্তারিত</th>
-                    {admin && <th>অ্যাকশন</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {partnerAccounts.map((p) => (
-                    <tr key={p.id}>
-                      <td>
-                        <b>{p.name}</b>
-                        {p.demo && <span className="badge demo" style={{ marginLeft: '6px' }}>ডেমো</span>}
-                      </td>
-                      <td>{p.phone || '—'}</td>
-                      <td>{money(p.capital)}</td>
-                      <td>
-                        <b style={{ color: '#0d9488' }}>{p.share.toFixed(2)}%</b>
-                      </td>
-                      <td style={{ color: '#16a34a' }}>{money(p.allocatedProfit)}</td>
-                      <td style={{ color: '#b91c1c' }}>{money(p.withdrawals)}</td>
-                      <td>
-                        <b style={{ color: '#0d9488' }}>{money(p.withdrawableLimit)}</b>
-                        <span className="cell-sub">মোট ইক্যুইটি: {money(p.accountBalance)}</span>
-                      </td>
-                      <td>
-                        <button className="action-btn" onClick={() => setViewPartnerModal(p)}>
-                          <Eye size={16} /> দেখুন
-                        </button>
-                      </td>
-                      {admin && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>অংশীদারের নাম</th>
+                      <th>ফোন নম্বর</th>
+                      <th>স্থির মূলধন (উত্তোলনযোগ্য নয়)</th>
+                      <th>শেয়ার %</th>
+                      <th>বরাদ্দকৃত লাভাংশ</th>
+                      <th>উত্তোলন ও বিশেষ লোন</th>
+                      <th>উত্তোলনযোগ্য লাভাংশ</th>
+                      <th>বিস্তারিত</th>
+                      {admin && <th>অ্যাকশন</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {partnerAccounts.map((p) => (
+                      <tr key={p.id}>
                         <td>
-                          <button
-                            className="action-btn danger"
-                            title="ইনভেস্টর ডিলিট"
-                            onClick={() => setShowInvestorDeleteModal(p)}
-                          >
-                            <Trash2 size={16} /> ডিলিট
+                          <b>{p.name}</b>
+                          {p.demo && <span className="badge demo" style={{ marginLeft: '6px' }}>ডেমো</span>}
+                        </td>
+                        <td>{p.phone || '—'}</td>
+                        <td>
+                          <b>{money(p.capital)}</b>
+                          <span className="cell-sub" style={{ color: '#dc2626' }}>🔒 উত্তোলনযোগ্য নয়</span>
+                        </td>
+                        <td>
+                          <b style={{ color: '#0d9488' }}>{p.share.toFixed(2)}%</b>
+                        </td>
+                        <td style={{ color: '#16a34a', fontWeight: 700 }}>{money(p.allocatedProfit)}</td>
+                        <td style={{ color: '#b91c1c' }}>
+                          <b>-{money(p.withdrawals + p.loans)}</b>
+                          <span className="cell-sub">
+                            উত্তোলন: {money(p.withdrawals)} | লোন: {money(p.loans)}
+                          </span>
+                        </td>
+                        <td>
+                          <b style={{ color: '#0d9488' }}>{money(p.withdrawableLimit)}</b>
+                          <span className="cell-sub">প্রতি শুক্রবার রাতে উত্তোলনযোগ্য</span>
+                        </td>
+                        <td>
+                          <button className="action-btn" onClick={() => setViewPartnerModal(p)}>
+                            <Eye size={16} /> দেখুন
                           </button>
                         </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        {admin && (
+                          <td>
+                            <button
+                              className="action-btn danger"
+                              title="ইনভেস্টর ডিলিট"
+                              onClick={() => setShowInvestorDeleteModal(p)}
+                            >
+                              <Trash2 size={16} /> ডিলিট
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {/* Official Partnership Terms & Conditions inside Investors Tab */}
+            <TermsConditionsCard
+              currentAdminName={currentAdmin?.displayName}
+              partnerName={otherPartner?.displayName}
+            />
           </div>
+        )}
+
+        {/* DEDICATED TAB: TERMS & CONDITIONS (শর্তাবলী ও নীতিমালা) */}
+        {tab === 'terms' && (
+          <TermsConditionsCard
+            currentAdminName={currentAdmin?.displayName}
+            partnerName={otherPartner?.displayName}
+          />
         )}
 
         {/* TAB 4: INVENTORY */}
@@ -3143,7 +3256,7 @@ export default function App() {
                 <p>একটা করে পণ্য আপলোড অথবা একসাথে ৫-৬টি পণ্যের গড় ক্রয়মূল্য ও বিক্রয়মূল্য সংযোজন</p>
               </div>
               {admin && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div className="inventory-top-actions">
                   <button
                     type="button"
                     className="primary"
@@ -3153,11 +3266,12 @@ export default function App() {
                       setShowProductModal(true);
                     }}
                   >
-                    <Plus size={17} /> একটা করে পণ্য যোগ
+                    <Plus size={16} />
+                    <span>একটা করে পণ্য যোগ</span>
                   </button>
                   <button
                     type="button"
-                    className="primary"
+                    className="primary inventory-batch-btn"
                     style={{
                       background: 'linear-gradient(135deg, #0284c7, #0369a1)',
                       borderColor: '#0284c7',
@@ -3172,7 +3286,8 @@ export default function App() {
                       setShowProductModal(true);
                     }}
                   >
-                    <Boxes size={17} /> ৫-৬টি পণ্য গড় হিসাবে যোগ
+                    <Boxes size={16} />
+                    <span>৫-৬টি পণ্য গড় হিসাবে যোগ</span>
                   </button>
                 </div>
               )}
@@ -3344,12 +3459,14 @@ export default function App() {
                 <h2>আর্থিক প্রতিবেদন ও পূর্ণাঙ্গ স্টেটমেন্ট</h2>
                 <p>মাসিক ও সার্বিক ব্যবসায়িক লাভ-ক্ষতি বিবরণী, ক্যাশ ফ্লো এবং পার্টনার লেজার ডাউনলোড ও পর্যালোচনা করুন</p>
               </div>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <div className="report-top-actions">
                 <button className="primary" onClick={handleDownloadPdf} disabled={isPdfLoading}>
-                  <FileText size={17} /> {isPdfLoading ? 'পিডিএফ প্রস্তুত হচ্ছে…' : 'সার্বিক বাংলা PDF ডাউনলোড'}
+                  <FileText size={16} />
+                  <span>{isPdfLoading ? 'পিডিএফ প্রস্তুত হচ্ছে…' : 'সার্বিক বাংলা PDF ডাউনলোড'}</span>
                 </button>
                 <button className="secondary" onClick={exportCsv}>
-                  <FileSpreadsheet size={17} /> CSV এক্সপোর্ট
+                  <FileSpreadsheet size={16} />
+                  <span>CSV এক্সপোর্ট</span>
                 </button>
               </div>
             </div>
@@ -3797,7 +3914,14 @@ export default function App() {
               </label>
               <div className="full">
                 <button type="submit" className="primary" disabled={busy}>
-                  সেটিংস সংরক্ষণ করুন
+                  {busy ? (
+                    <>
+                      <span className="btn-spinner" />
+                      <span>সংরক্ষণ হচ্ছে…</span>
+                    </>
+                  ) : (
+                    'সেটিংস সংরক্ষণ করুন'
+                  )}
                 </button>
               </div>
             </form>
@@ -4265,15 +4389,20 @@ export default function App() {
             )}
 
             <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setShowEntryModal(false)}>বাতিল</button>
+              <button type="button" className="secondary" onClick={() => setShowEntryModal(false)} disabled={busy}>বাতিল</button>
               <button className="primary" type="submit" disabled={busy}>
-                {busy
-                  ? 'প্রক্রিয়াধীন…'
-                  : currentAdmin
-                  ? `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
-                  : editingEntry
-                  ? 'আপডেট করুন'
-                  : 'সংরক্ষণ করুন'}
+                {busy ? (
+                  <>
+                    <span className="btn-spinner" />
+                    <span>সংরক্ষণ হচ্ছে…</span>
+                  </>
+                ) : currentAdmin ? (
+                  `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
+                ) : editingEntry ? (
+                  'আপডেট করুন'
+                ) : (
+                  'সংরক্ষণ করুন'
+                )}
               </button>
             </div>
           </form>
@@ -4315,9 +4444,18 @@ export default function App() {
               </div>
             )}
             <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setShowInvestorModal(false)}>বাতিল</button>
+              <button type="button" className="secondary" onClick={() => setShowInvestorModal(false)} disabled={busy}>বাতিল</button>
               <button className="primary" type="submit" disabled={busy}>
-                {currentAdmin ? `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})` : 'যোগ করুন'}
+                {busy ? (
+                  <>
+                    <span className="btn-spinner" />
+                    <span>সংরক্ষণ হচ্ছে…</span>
+                  </>
+                ) : currentAdmin ? (
+                  `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
+                ) : (
+                  'যোগ করুন'
+                )}
               </button>
             </div>
           </form>
@@ -4621,15 +4759,20 @@ export default function App() {
               )}
 
               <div className="modal-actions">
-                <button type="button" className="secondary" onClick={() => setShowProductModal(false)}>বাতিল</button>
+                <button type="button" className="secondary" onClick={() => setShowProductModal(false)} disabled={busy}>বাতিল</button>
                 <button className="primary" type="submit" disabled={busy}>
-                  {busy
-                    ? 'প্রক্রিয়াধীন…'
-                    : currentAdmin
-                    ? `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
-                    : editingProduct
-                    ? 'আপডেট করুন'
-                    : 'পণ্য সংরক্ষণ করুন'}
+                  {busy ? (
+                    <>
+                      <span className="btn-spinner" />
+                      <span>পণ্য সংরক্ষণ হচ্ছে…</span>
+                    </>
+                  ) : currentAdmin ? (
+                    `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
+                  ) : editingProduct ? (
+                    'আপডেট করুন'
+                  ) : (
+                    'পণ্য সংরক্ষণ করুন'
+                  )}
                 </button>
               </div>
             </form>
@@ -5235,15 +5378,20 @@ export default function App() {
               )}
 
               <div className="modal-actions">
-                <button type="button" className="secondary" onClick={() => setShowProductModal(false)}>
+                <button type="button" className="secondary" onClick={() => setShowProductModal(false)} disabled={busy}>
                   বাতিল
                 </button>
                 <button className="primary" type="submit" disabled={busy}>
-                  {busy
-                    ? 'প্রক্রিয়াধীন…'
-                    : currentAdmin
-                    ? `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য অনুমোদনের জন্য পাঠান`
-                    : `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য সংরক্ষণ করুন`}
+                  {busy ? (
+                    <>
+                      <span className="btn-spinner" />
+                      <span>পণ্যগুলো আপলোড হচ্ছে…</span>
+                    </>
+                  ) : currentAdmin ? (
+                    `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য অনুমোদনের জন্য পাঠান`
+                  ) : (
+                    `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য সংরক্ষণ করুন`
+                  )}
                 </button>
               </div>
             </form>
@@ -5274,8 +5422,17 @@ export default function App() {
               />
             </label>
             <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setShowProfitModal(false)}>বাতিল</button>
-              <button className="primary" type="submit" disabled={busy}>বণ্টন নিশ্চিত করুন</button>
+              <button type="button" className="secondary" onClick={() => setShowProfitModal(false)} disabled={busy}>বাতিল</button>
+              <button className="primary" type="submit" disabled={busy}>
+                {busy ? (
+                  <>
+                    <span className="btn-spinner" />
+                    <span>সংরক্ষণ হচ্ছে…</span>
+                  </>
+                ) : (
+                  'বণ্টন নিশ্চিত করুন'
+                )}
+              </button>
             </div>
           </form>
         </Modal>
@@ -5488,14 +5645,21 @@ export default function App() {
                 onClick={handleConfirmDelete}
                 disabled={busy || (Boolean(currentAdmin) && !deleteReasonInput.trim())}
               >
-                <Trash2 size={16} />
-                <span>{currentAdmin ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})` : 'স্থায়ীভাবে ডিলিট করুন'}</span>
+                {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
+                <span>
+                  {busy
+                    ? 'ডিলিট প্রসেস হচ্ছে…'
+                    : currentAdmin
+                    ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})`
+                    : 'স্থায়ীভাবে ডিলিট করুন'}
+                </span>
               </button>
 
               {showDeleteModal.status === 'posted' && (
                 <button
                   type="button"
                   className="secondary"
+                  disabled={busy}
                   onClick={() => {
                     const cur = showDeleteModal;
                     setShowDeleteModal(null);
@@ -5508,7 +5672,7 @@ export default function App() {
                 </button>
               )}
 
-              <button type="button" className="secondary" onClick={() => setShowDeleteModal(null)}>
+              <button type="button" className="secondary" onClick={() => setShowDeleteModal(null)} disabled={busy}>
                 বাতিল করুন
               </button>
             </div>
@@ -5538,10 +5702,16 @@ export default function App() {
             </div>
             <div className="modal-actions">
               <button type="button" className="danger" onClick={handleConfirmVoid} disabled={busy || !voidReasonInput.trim()}>
-                <RotateCcw size={15} />
-                <span>{currentAdmin ? `রিভার্সের অনুমোদন পাঠান (${otherPartner.displayName})` : 'রিভার্স নিশ্চিত করুন'}</span>
+                {busy ? <span className="btn-spinner" /> : <RotateCcw size={15} />}
+                <span>
+                  {busy
+                    ? 'রিভার্স প্রসেস হচ্ছে…'
+                    : currentAdmin
+                    ? `রিভার্সের অনুমোদন পাঠান (${otherPartner.displayName})`
+                    : 'রিভার্স নিশ্চিত করুন'}
+                </span>
               </button>
-              <button type="button" className="secondary" onClick={() => setShowVoidModal(null)}>ফিরে যান</button>
+              <button type="button" className="secondary" onClick={() => setShowVoidModal(null)} disabled={busy}>ফিরে যান</button>
             </div>
           </div>
         </Modal>
@@ -5582,10 +5752,16 @@ export default function App() {
                 onClick={handleConfirmDeleteInvestor}
                 disabled={busy || (Boolean(currentAdmin) && !deleteReasonInput.trim())}
               >
-                <Trash2 size={16} />
-                <span>{currentAdmin ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})` : 'অংশীদার ডিলিট নিশ্চিত করুন'}</span>
+                {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
+                <span>
+                  {busy
+                    ? 'ডিলিট প্রসেস হচ্ছে…'
+                    : currentAdmin
+                    ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})`
+                    : 'অংশীদার ডিলিট নিশ্চিত করুন'}
+                </span>
               </button>
-              <button type="button" className="secondary" onClick={() => setShowInvestorDeleteModal(null)}>বাতিল করুন</button>
+              <button type="button" className="secondary" onClick={() => setShowInvestorDeleteModal(null)} disabled={busy}>বাতিল করুন</button>
             </div>
           </div>
         </Modal>
@@ -5636,10 +5812,16 @@ export default function App() {
                 onClick={handleConfirmDeleteProduct}
                 disabled={busy || (Boolean(currentAdmin) && !deleteReasonInput.trim())}
               >
-                <Trash2 size={16} />
-                <span>{currentAdmin ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})` : 'পণ্য ডিলিট নিশ্চিত করুন'}</span>
+                {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
+                <span>
+                  {busy
+                    ? 'পণ্য ডিলিট হচ্ছে…'
+                    : currentAdmin
+                    ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})`
+                    : 'পণ্য ডিলিট নিশ্চিত করুন'}
+                </span>
               </button>
-              <button type="button" className="secondary" onClick={() => setShowProductDeleteModal(null)}>বাতিল করুন</button>
+              <button type="button" className="secondary" onClick={() => setShowProductDeleteModal(null)} disabled={busy}>বাতিল করুন</button>
             </div>
           </div>
         </Modal>
@@ -5660,9 +5842,10 @@ export default function App() {
             </div>
             <div className="modal-actions">
               <button type="button" className="danger" onClick={handleConfirmDeleteDistribution} disabled={busy}>
-                <Trash2 size={16} /> বণ্টন ডিলিট নিশ্চিত করুন
+                {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
+                <span>{busy ? 'ডিলিট হচ্ছে…' : 'বণ্টন ডিলিট নিশ্চিত করুন'}</span>
               </button>
-              <button type="button" className="secondary" onClick={() => setShowDistributionDeleteModal(null)}>বাতিল করুন</button>
+              <button type="button" className="secondary" onClick={() => setShowDistributionDeleteModal(null)} disabled={busy}>বাতিল করুন</button>
             </div>
           </div>
         </Modal>
@@ -5743,7 +5926,8 @@ export default function App() {
                 className="danger"
                 disabled={busy || !resetPasswordInput.trim()}
               >
-                <Trash2 size={16} /> হ্যাঁ, সমস্ত ডেটা স্থায়ীভাবে রিসেট করুন
+                {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
+                <span>{busy ? 'সমস্ত ডেটা রিসেট হচ্ছে…' : 'হ্যাঁ, সমস্ত ডেটা স্থায়ীভাবে রিসেট করুন'}</span>
               </button>
               <button
                 type="button"
@@ -5777,24 +5961,10 @@ export default function App() {
             </div>
             <div className="modal-actions">
               <button type="button" className="danger" onClick={handleConfirmBulkDelete} disabled={busy}>
-                <Trash2 size={16} /> স্থায়ীভাবে ডিলিট করুন
+                {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
+                <span>{busy ? 'ডিলিট করা হচ্ছে…' : 'স্থায়ীভাবে ডিলিট করুন'}</span>
               </button>
-              <button type="button" className="secondary" onClick={() => setShowBulkDeleteModal(false)}>বাতিল করুন</button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* MODAL: DEMO PREVIEW */}
-      {demoPreview && (
-        <Modal title="ডেমো ডেটা প্রিভিউ" close={() => setDemoPreview(null)}>
-          <div className="modal-body">
-            <p style={{ margin: 0, fontSize: '14px', color: '#334155' }}>
-              মোট {demoPreview.entriesCount}টি ডেমো এন্ট্রি পাওয়া গেছে ({money(demoPreview.entriesTotalAmount)})।
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="danger" onClick={handleExecuteDemoCleanup}>ডেমো ডেটা মুছুন</button>
-              <button type="button" className="secondary" onClick={() => setDemoPreview(null)}>বাতিল করুন</button>
+              <button type="button" className="secondary" onClick={() => setShowBulkDeleteModal(false)} disabled={busy}>বাতিল করুন</button>
             </div>
           </div>
         </Modal>
@@ -6046,7 +6216,8 @@ export default function App() {
                                     setNotifRejectReason('');
                                   }}
                                 >
-                                  নিশ্চিত বাতিল করুন
+                                  {busy ? <span className="btn-spinner" /> : null}
+                                  <span>{busy ? 'বাতিল হচ্ছে…' : 'নিশ্চিত বাতিল করুন'}</span>
                                 </button>
                               </div>
                             </div>
@@ -6059,7 +6230,8 @@ export default function App() {
                                 disabled={busy}
                                 onClick={() => handleApproveRequest(req)}
                               >
-                                <CheckCircle2 size={15} /> অনুমোদন করুন
+                                {busy ? <span className="btn-spinner" /> : <CheckCircle2 size={15} />}
+                                <span>{busy ? 'কার্যকর হচ্ছে…' : 'অনুমোদন করুন'}</span>
                               </button>
                               <button
                                 type="button"

@@ -452,10 +452,10 @@ export function calculatePartnerAccountBalances(
   return ledgers.map((inv) => {
     // Allocated profit according to ownership share percentage
     const allocatedProfit = Math.round(((netProfit * inv.share) / 100) * 100) / 100;
-    // Remaining profit = Allocated Profit - Partner Withdrawals (Capital is locked & non-withdrawable)
-    const remainingProfit = Math.round((allocatedProfit - inv.withdrawals) * 100) / 100;
+    // Remaining profit = Allocated Profit - Partner Withdrawals - Partner Loans (Loans auto-deducted from profit; Capital is locked)
+    const remainingProfit = Math.round((allocatedProfit - inv.withdrawals - inv.loans) * 100) / 100;
     // Total Equity Account Balance = Locked Capital + Remaining Profit
-    const accountBalance = Math.round((inv.capital + allocatedProfit - inv.withdrawals) * 100) / 100;
+    const accountBalance = Math.round((inv.capital + allocatedProfit - inv.withdrawals - inv.loans) * 100) / 100;
     // Withdrawable limit is strictly limited to positive remaining profit (NEVER includes capital), capped by available business cash
     const withdrawableProfitOnly = Math.max(0, remainingProfit);
     const withdrawableLimit = Math.max(0, Math.min(withdrawableProfitOnly, Math.max(0, cashSummary.availableCash)));

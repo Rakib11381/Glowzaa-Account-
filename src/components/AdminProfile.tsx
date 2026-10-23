@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { money, dateLabel, type PartnerAccountBalance } from '../accounting';
 import type { Entry, Investor, Product, ApprovalRequest } from '../types';
+import TermsConditionsCard from './TermsConditionsCard';
 
 interface AdminProfileProps {
   adminUser: {
@@ -45,6 +46,7 @@ interface AdminProfileProps {
     reason: string;
     investorId: string;
     investorName: string;
+    entryType?: 'withdrawal' | 'loan';
   }) => Promise<void>;
   currentPassword: string;
   onUpdatePassword: (newPass: string) => Promise<void>;
@@ -105,11 +107,12 @@ export default function AdminProfile({
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [profileBannerMsg, setProfileBannerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Active section filter ('all' | 'approvals' | 'wallet' | 'security')
-  const [activeSection, setActiveSection] = useState<'all' | 'approvals' | 'wallet' | 'security'>('all');
+  // Active section filter ('all' | 'approvals' | 'wallet' | 'security' | 'terms')
+  const [activeSection, setActiveSection] = useState<'all' | 'approvals' | 'wallet' | 'security' | 'terms'>('all');
 
-  // Withdrawal Modal states
+  // Withdrawal & Special Loan Modal states
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawMode, setWithdrawMode] = useState<'withdrawal' | 'loan'>('withdrawal');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawMethod, setWithdrawMethod] = useState('নগদ ক্যাশ (Cash)');
   const [withdrawDate, setWithdrawDate] = useState(getTodayStr());
@@ -127,7 +130,7 @@ export default function AdminProfile({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Profile history tab
-  const [historyFilter, setHistoryFilter] = useState<'all' | 'withdrawal' | 'investment'>('all');
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'withdrawal' | 'loan' | 'investment'>('all');
 
   // Approval Center states
   const [approvalTab, setApprovalTab] = useState<'waiting_for_me' | 'my_outgoing' | 'audit_history'>('waiting_for_me');
@@ -217,14 +220,14 @@ export default function AdminProfile({
     return myEntries.filter((e) => e.type === historyFilter);
   }, [myEntries, historyFilter]);
 
-  // Pending withdrawal requests made by this admin
+  // Pending withdrawal or loan requests made by this admin
   const myPendingWithdrawals = useMemo(() => {
     return approvalRequests.filter(
       (r) =>
         r.status === 'pending' &&
         r.requestedBy === adminUser.username &&
         r.actionType === 'create_entry' &&
-        r.payload?.type === 'withdrawal'
+        (r.payload?.type === 'withdrawal' || r.payload?.type === 'loan')
     );
   }, [approvalRequests, adminUser.username]);
 
@@ -308,7 +311,7 @@ export default function AdminProfile({
     }
   }
 
-  // Handle Direct Withdrawal Submit (STRICT: Only earned profit can be withdrawn, never capital)
+  // Handle Direct Profit Withdrawal or Special Loan Submit
   async function handleWithdrawSubmit(e: React.FormEvent) {
     e.preventDefault();
     setWithdrawError(null);
@@ -319,22 +322,37 @@ export default function AdminProfile({
       return;
     }
 
-    if (myPartner.withdrawableLimit <= 0) {
-      setWithdrawError(
-        `আপনার বর্তমানে কোনো উত্তোলনযোগ্য লাভ নেই (${money(0)})। বিনিয়োগকৃত মূলধন (${money(myPartner.capital)}) উত্তোলন করা যাবে না—শুধুমাত্র অর্জিত লাভ উত্তোলন করা যাবে।`
-      );
-      return;
-    }
+    if (withdrawMode === 'withdrawal') {
+      if (myPartner.withdrawableLimit <= 0) {
+        setWithdrawError(
+          `আপনার বর্তমানে কোনো উত্তোলনযোগ্য লাভাংশ নেই (${money(0)})। শর্তাবলী অনুযায়ী বিনিয়োগের টাকা (${money(myPartner.capital)}) উত্তোলনযোগ্য নয়—শুধুমাত্র লাভাংশ উত্তোলন করতে পারবেন (বিশেষ প্রয়োজনে "বিশেষ লোন" অপশন ব্যবহার করুন)।`
+        );
+        return;
+      }
 
-    if (amt > myPartner.withdrawableLimit) {
-      setWithdrawError(
-        `বিনিয়োগকৃত মূলধন (${money(myPartner.capital)}) উত্তোলন করা যাবে না! আপনি শুধুমাত্র আপনার উত্তোলনযোগ্য অবশিষ্ট লাভ (${money(myPartner.withdrawableLimit)}) পর্যন্ত উত্তোলন করতে পারবেন।`
-      );
-      return;
+      if (amt > myPartner.withdrawableLimit) {
+        setWithdrawError(
+          `বিনিয়োগের টাকা (${money(myPartner.capital)}) উত্তোলনযোগ্য নয়! আপনি শুধুমাত্র আপনার উত্তোলনযোগ্য অবশিষ্ট লাভাংশ (${money(myPartner.withdrawableLimit)}) পর্যন্ত উত্তোলন করতে পারবেন।`
+        );
+        return;
+      }
+    } else {
+      // Special Loan mode
+      const maxLoanCash = Math.max(0, availableBusinessCash);
+      if (maxLoanCash > 0 && amt > maxLoanCash) {
+        setWithdrawError(
+          `ব্যবসায় বর্তমানে উপলব্ধ নগদ ক্যাশ (${money(maxLoanCash)}) এর বেশি লোন নেওয়া যাবে না।`
+        );
+        return;
+      }
     }
 
     if (!withdrawReason.trim()) {
-      setWithdrawError('স্বচ্ছতার স্বার্থে উত্তোলনের কারণ বা নোট উল্লেখ করা আবশ্যক।');
+      setWithdrawError(
+        withdrawMode === 'loan'
+          ? 'বিশেষ লোনের কারণ বা প্রয়োজনীয়তা উল্লেখ করা আবশ্যক (অপর অংশীদারের অনুমোদনের জন্য)।'
+          : 'স্বচ্ছতার স্বার্থে লাভাংশ উত্তোলনের কারণ বা নোট উল্লেখ করা আবশ্যক।'
+      );
       return;
     }
 
@@ -347,6 +365,7 @@ export default function AdminProfile({
         reason: withdrawReason.trim(),
         investorId: myPartner.id,
         investorName: myPartner.name,
+        entryType: withdrawMode,
       });
 
       setShowWithdrawModal(false);
@@ -354,11 +373,14 @@ export default function AdminProfile({
       setWithdrawReason('');
       setProfileBannerMsg({
         type: 'success',
-        text: `${money(amt)} উত্তোলনের অনুরোধ পাঠানো হয়েছে! ${partnerName} অনুমোদন দিলেই তা আপনার হিসাবে যুক্ত হবে।`,
+        text:
+          withdrawMode === 'loan'
+            ? `${money(amt)} বিশেষ লোনের অনুরোধ পাঠানো হয়েছে! ${partnerName} অনুমোদন দিলে তা কার্যকর হবে এবং পরবর্তী লাভাংশ থেকে অটোমেটিক কেটে নেওয়া হবে।`
+            : `${money(amt)} লাভাংশ উত্তোলনের অনুরোধ পাঠানো হয়েছে! ${partnerName} অনুমোদন দিলেই তা আপনার হিসাবে যুক্ত হবে।`,
       });
       setTimeout(() => setProfileBannerMsg(null), 6000);
     } catch (err: any) {
-      setWithdrawError(err?.message || 'উত্তোলনের অনুরোধ পাঠানো যায়নি।');
+      setWithdrawError(err?.message || 'অনুরোধ পাঠানো যায়নি।');
     } finally {
       setIsWithdrawing(false);
     }
@@ -521,7 +543,7 @@ export default function AdminProfile({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploadingAvatar}
               >
-                <Camera size={13} />
+                {isUploadingAvatar ? <span className="btn-spinner" /> : <Camera size={13} />}
                 <span>{isUploadingAvatar ? 'আপলোড হচ্ছে…' : avatarUrl ? 'ছবি পরিবর্তন' : 'ছবি যুক্ত করুন'}</span>
               </button>
               {avatarUrl && (
@@ -565,18 +587,23 @@ export default function AdminProfile({
           </div>
         </div>
 
-        {/* Integrated Personal Profit Balance & Instant Withdraw Action Bar */}
+        {/* Integrated Personal Profit Balance & Instant Withdraw / Special Loan Action Bar */}
         <div className="profile-wallet-strip">
           <div className="wallet-strip-info">
             <div className="wallet-strip-label">
               <TrendingUp size={15} />
-              <span>আমার উত্তোলনযোগ্য নিট লাভ (মূলধন লককৃত • শুধু লাভ উত্তোলনযোগ্য)</span>
+              <span>আমার উত্তোলনযোগ্য নিট লাভাংশ (বিনিয়োগের টাকা উত্তোলনযোগ্য নয় • প্রতি শুক্রবার রাতে উত্তোলন)</span>
             </div>
             <div className="wallet-strip-amount-row">
               <strong className="wallet-strip-balance">{money(myPartner.withdrawableLimit)}</strong>
-              <span className="wallet-strip-limit" title="বিনিয়োগকৃত মূলধন উত্তোলন করা যাবে না">
-                🔒 স্থির মূলধন (উত্তোলনযোগ্য নয়): <b>{money(myPartner.capital)}</b>
+              <span className="wallet-strip-limit" title="বিনিয়োগের টাকা উত্তোলন যোগ্য নয়">
+                🔒 স্থির বিনিয়োগ: <b>{money(myPartner.capital)}</b>
               </span>
+              {myPartner.loans > 0 && (
+                <span className="wallet-strip-limit" style={{ background: 'rgba(245, 158, 11, 0.2)', borderColor: 'rgba(251, 191, 36, 0.4)', color: '#fef3c7' }}>
+                  ⚡ লোন কর্তনকৃত: <b>-{money(myPartner.loans)}</b>
+                </span>
+              )}
               <span className="wallet-strip-limit">
                 মোট ইক্যুইটি: <b>{money(myPartner.accountBalance)}</b>
               </span>
@@ -588,13 +615,27 @@ export default function AdminProfile({
               type="button"
               className="profile-withdraw-cta"
               onClick={() => {
+                setWithdrawMode('withdrawal');
                 setWithdrawError(null);
                 setWithdrawDate(getTodayStr());
                 setShowWithdrawModal(true);
               }}
             >
-              <ArrowDownLeft size={17} />
-              <span>লাভ উত্তোলন করুন (Withdraw)</span>
+              <ArrowDownLeft size={16} />
+              <span>লাভাংশ উত্তোলন (Withdraw)</span>
+            </button>
+            <button
+              type="button"
+              className="profile-loan-cta"
+              onClick={() => {
+                setWithdrawMode('loan');
+                setWithdrawError(null);
+                setWithdrawDate(getTodayStr());
+                setShowWithdrawModal(true);
+              }}
+            >
+              <Banknote size={16} />
+              <span>বিশেষ লোন নিন</span>
             </button>
           </div>
         </div>
@@ -610,7 +651,7 @@ export default function AdminProfile({
             <span>আমার স্থির মূলধন বিনিয়োগ</span>
             <strong>{money(myPartner.capital)}</strong>
             <small className="stat-sub-meta" style={{ color: '#475569', fontWeight: 600 }}>
-              🔒 উত্তোলনযোগ্য নয় • শেয়ার: {formattedShare}
+              🔒 বিনিয়োগের টাকা উত্তোলনযোগ্য নয় • শেয়ার: {formattedShare}
             </small>
           </div>
         </div>
@@ -620,9 +661,9 @@ export default function AdminProfile({
             <TrendingUp size={20} />
           </div>
           <div className="stat-content">
-            <span>আমার অর্জিত মোট মুনাফা</span>
+            <span>আমার অর্জিত মোট লাভাংশ</span>
             <strong style={{ color: '#047857' }}>+{money(myPartner.allocatedProfit)}</strong>
-            <small className="stat-sub-meta">শেয়ার অনুযায়ী অর্জিত লভ্যাংশ</small>
+            <small className="stat-sub-meta">প্রতি শুক্রবার রাতে উত্তোলনযোগ্য</small>
           </div>
         </div>
 
@@ -631,12 +672,10 @@ export default function AdminProfile({
             <ArrowDownLeft size={20} />
           </div>
           <div className="stat-content">
-            <span>আমার মোট লাভ উত্তোলন</span>
-            <strong style={{ color: '#b91c1c' }}>-{money(myPartner.withdrawals)}</strong>
+            <span>লাভাংশ উত্তোলন ও বিশেষ লোন</span>
+            <strong style={{ color: '#b91c1c' }}>-{money(myPartner.withdrawals + myPartner.loans)}</strong>
             <small className="stat-sub-meta">
-              {myPendingWithdrawals.length > 0
-                ? `${myPendingWithdrawals.length}টি উত্তোলন অনুমোদনের অপেক্ষায়`
-                : 'অর্জিত লাভ থেকে উত্তোলিত'}
+              উত্তোলন: {money(myPartner.withdrawals)} | লোন (অটো কর্তন): {money(myPartner.loans)}
             </small>
           </div>
         </div>
@@ -646,10 +685,10 @@ export default function AdminProfile({
             <BadgeDollarSign size={20} />
           </div>
           <div className="stat-content">
-            <span style={{ color: '#0f766e', fontWeight: 700 }}>উত্তোলনযোগ্য অবশিষ্ট লাভ</span>
+            <span style={{ color: '#0f766e', fontWeight: 700 }}>উত্তোলনযোগ্য অবশিষ্ট লাভাংশ</span>
             <strong style={{ color: '#0f766e' }}>{money(myPartner.withdrawableLimit)}</strong>
             <small className="stat-sub-meta" style={{ color: '#0d9488', fontWeight: 600 }}>
-              শুধু লাভ উত্তোলনযোগ্য (মোট ইক্যুইটি: {money(myPartner.accountBalance)})
+              লোন সমন্বয়ের পর নিট উত্তোলনযোগ্য লাভাংশ
             </small>
           </div>
         </div>
@@ -676,10 +715,17 @@ export default function AdminProfile({
         </button>
         <button
           type="button"
+          className={`profile-sec-btn ${activeSection === 'terms' ? 'active' : ''}`}
+          onClick={() => setActiveSection('terms')}
+        >
+          শর্তাবলী ও নীতিমালা (৭টি শর্ত)
+        </button>
+        <button
+          type="button"
           className={`profile-sec-btn ${activeSection === 'wallet' ? 'active' : ''}`}
           onClick={() => setActiveSection('wallet')}
         >
-          উত্তোলন ও লেনদেন ({myEntries.length})
+          উত্তোলন, লোন ও লেনদেন ({myEntries.length})
         </button>
         <button
           type="button"
@@ -733,14 +779,14 @@ export default function AdminProfile({
               </div>
             </div>
 
-            {/* Tab selectors for Approval Center */}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Tab selectors for Approval Center — Side-by-side horizontal row */}
+            <div className="approval-nav-tabs">
               <button
                 type="button"
                 className={`approval-nav-tab ${approvalTab === 'waiting_for_me' ? 'active' : ''}`}
                 onClick={() => setApprovalTab('waiting_for_me')}
               >
-                আমার অনুমোদন প্রয়োজন
+                <span>আমার অনুমোদন প্রয়োজন</span>
                 {pendingForMe.length > 0 && (
                   <span className="tab-counter-badge pulse">{pendingForMe.length}</span>
                 )}
@@ -751,7 +797,7 @@ export default function AdminProfile({
                 className={`approval-nav-tab ${approvalTab === 'my_outgoing' ? 'active' : ''}`}
                 onClick={() => setApprovalTab('my_outgoing')}
               >
-                আমার পাঠানো অনুরোধ
+                <span>আমার পাঠানো অনুরোধ</span>
                 {myOutgoingRequests.length > 0 && (
                   <span className="tab-counter-badge neutral">{myOutgoingRequests.length}</span>
                 )}
@@ -762,7 +808,7 @@ export default function AdminProfile({
                 className={`approval-nav-tab ${approvalTab === 'audit_history' ? 'active' : ''}`}
                 onClick={() => setApprovalTab('audit_history')}
               >
-                অনুমোদনের ইতিহাস ({completedAuditRequests.length})
+                <span>অনুমোদনের ইতিহাস ({completedAuditRequests.length})</span>
               </button>
             </div>
           </div>
@@ -955,8 +1001,8 @@ export default function AdminProfile({
                             disabled={isProcessing}
                             onClick={() => handleApprove(req)}
                           >
-                            <CheckCircle2 size={16} />
-                            {isProcessing ? 'কার্যকর হচ্ছে…' : 'অনুমোদন করুন'}
+                            {isProcessing ? <span className="btn-spinner" /> : <CheckCircle2 size={16} />}
+                            <span>{isProcessing ? 'কার্যকর হচ্ছে…' : 'অনুমোদন করুন'}</span>
                           </button>
 
                           <button
@@ -1133,6 +1179,14 @@ export default function AdminProfile({
         </div>
       )}
 
+      {/* 4.5 PARTNERSHIP TERMS & CONDITIONS (শর্তাবলী ও নীতিমালা) */}
+      {(activeSection === 'all' || activeSection === 'terms') && (
+        <TermsConditionsCard
+          currentAdminName={adminUser.displayName}
+          partnerName={partnerName}
+        />
+      )}
+
       {/* 5. WALLET / WITHDRAWAL HISTORY & PASSWORD CHANGE */}
       {(activeSection === 'all' || activeSection === 'wallet' || activeSection === 'security') && (
         <div
@@ -1150,9 +1204,9 @@ export default function AdminProfile({
                 <div className="panel-head-info">
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px' }}>
                     <Banknote size={18} style={{ color: '#0d9488' }} />
-                    আমার উত্তোলন ও লেনদেন ({filteredHistory.length}টি)
+                    আমার উত্তোলন, লোন ও লেনদেন ({filteredHistory.length}টি)
                   </h3>
-                  <p>আপনার ব্যক্তিগত মূলধন বিনিয়োগ এবং টাকা উত্তোলনের রেকর্ড</p>
+                  <p>আপনার ব্যক্তিগত মূলধন বিনিয়োগ, লাভাংশ উত্তোলন এবং বিশেষ লোনের রেকর্ড</p>
                 </div>
 
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1170,7 +1224,15 @@ export default function AdminProfile({
                     style={{ height: '30px', fontSize: '11.5px', padding: '4px 10px' }}
                     onClick={() => setHistoryFilter('withdrawal')}
                   >
-                    উত্তোলন
+                    লাভাংশ উত্তোলন
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-pill ${historyFilter === 'loan' ? 'active' : ''}`}
+                    style={{ height: '30px', fontSize: '11.5px', padding: '4px 10px' }}
+                    onClick={() => setHistoryFilter('loan')}
+                  >
+                    বিশেষ লোন
                   </button>
                   <button
                     type="button"
@@ -1185,12 +1247,13 @@ export default function AdminProfile({
                     className="primary"
                     style={{ height: '30px', fontSize: '11.5px', padding: '4px 11px' }}
                     onClick={() => {
+                      setWithdrawMode('withdrawal');
                       setWithdrawError(null);
                       setWithdrawDate(getTodayStr());
                       setShowWithdrawModal(true);
                     }}
                   >
-                    <ArrowDownLeft size={13} /> নতুন উত্তোলন
+                    <ArrowDownLeft size={13} /> নতুন উত্তোলন / লোন
                   </button>
                 </div>
               </div>
@@ -1277,7 +1340,9 @@ export default function AdminProfile({
                               {e.type === 'investment'
                                 ? 'মূলধন'
                                 : e.type === 'withdrawal'
-                                ? 'উত্তোলন'
+                                ? 'লাভাংশ উত্তোলন'
+                                : e.type === 'loan'
+                                ? 'বিশেষ লোন (অটো কর্তন)'
                                 : e.type === 'sale'
                                 ? 'বিক্রয়'
                                 : e.type}
@@ -1292,7 +1357,7 @@ export default function AdminProfile({
                             )}
                           </td>
                           <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-                            {e.type === 'withdrawal' ? (
+                            {e.type === 'withdrawal' || e.type === 'loan' ? (
                               <span style={{ color: '#b91c1c' }}>-{money(e.amount)}</span>
                             ) : e.type === 'investment' ? (
                               <span style={{ color: '#047857' }}>+{money(e.amount)}</span>
@@ -1484,7 +1549,14 @@ export default function AdminProfile({
                     fontWeight: 600,
                   }}
                 >
-                  {isSubmitting ? 'সংরক্ষণ হচ্ছে…' : 'পাসওয়ার্ড সংরক্ষণ করুন'}
+                  {isSubmitting ? (
+                    <>
+                      <span className="btn-spinner" />
+                      <span>সংরক্ষণ হচ্ছে…</span>
+                    </>
+                  ) : (
+                    'পাসওয়ার্ড সংরক্ষণ করুন'
+                  )}
                 </button>
               </form>
             </div>
@@ -1492,7 +1564,7 @@ export default function AdminProfile({
         </div>
       )}
 
-      {/* PARTNER PROFIT WITHDRAWAL MODAL (ONLY PROFIT CAN BE WITHDRAWN, CAPITAL IS LOCKED) */}
+      {/* PARTNER PROFIT WITHDRAWAL & SPECIAL LOAN MODAL */}
       {showWithdrawModal && (
         <div
           className="modal-backdrop"
@@ -1503,8 +1575,17 @@ export default function AdminProfile({
           <div className="modal" role="dialog" aria-modal="true">
             <div className="modal-head">
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f2438' }}>
-                <ArrowDownLeft size={20} style={{ color: '#0d9488', flexShrink: 0 }} />
-                <span>লাভের টাকা উত্তোলন (Profit Withdraw)</span>
+                {withdrawMode === 'loan' ? (
+                  <>
+                    <Banknote size={20} style={{ color: '#7c3aed', flexShrink: 0 }} />
+                    <span>বিশেষ প্রয়োজনে লোন গ্রহণ (Special Partner Loan)</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownLeft size={20} style={{ color: '#0d9488', flexShrink: 0 }} />
+                    <span>লাভাংশ উত্তোলন (Profit Withdraw — শুক্রবার রাত)</span>
+                  </>
+                )}
               </h2>
               <button
                 type="button"
@@ -1518,6 +1599,38 @@ export default function AdminProfile({
 
             <div className="modal-content-area">
               <form className="modal-body" onSubmit={handleWithdrawSubmit}>
+                {/* Mode Switcher: Profit Withdrawal vs Special Partner Loan */}
+                <div className="withdraw-mode-switcher">
+                  <button
+                    type="button"
+                    className={`withdraw-mode-tab ${withdrawMode === 'withdrawal' ? 'active' : ''}`}
+                    onClick={() => {
+                      setWithdrawMode('withdrawal');
+                      setWithdrawError(null);
+                    }}
+                  >
+                    <ArrowDownLeft size={15} />
+                    <div>
+                      <strong>লাভাংশ উত্তোলন</strong>
+                      <small>প্রতি শুক্রবার রাতে • শুধু লাভ</small>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`withdraw-mode-tab loan-tab ${withdrawMode === 'loan' ? 'active' : ''}`}
+                    onClick={() => {
+                      setWithdrawMode('loan');
+                      setWithdrawError(null);
+                    }}
+                  >
+                    <Banknote size={15} />
+                    <div>
+                      <strong>বিশেষ প্রয়োজনে লোন</strong>
+                      <small>পরবর্তী লাভাংশ থেকে অটো কর্তন</small>
+                    </div>
+                  </button>
+                </div>
+
                 {/* Partner Capital (Locked) vs Withdrawable Profit Snapshot */}
                 <div className="modal-stat-grid-3">
                   <div className="modal-stat-box" style={{ background: '#f8fafc', borderColor: '#cbd5e1' }}>
@@ -1525,9 +1638,9 @@ export default function AdminProfile({
                     <b style={{ color: '#334155' }}>{money(myPartner.capital)}</b>
                   </div>
                   <div className="modal-stat-box">
-                    <span>অর্জিত লাভ − পূর্বের উত্তোলন</span>
+                    <span>অর্জিত লাভ − (উত্তোলন + লোন)</span>
                     <b style={{ color: '#047857' }}>
-                      {money(myPartner.allocatedProfit)} − {money(myPartner.withdrawals)}
+                      {money(myPartner.allocatedProfit)} − {money(myPartner.withdrawals + myPartner.loans)}
                     </b>
                   </div>
                   <div className="modal-stat-box" style={{ background: '#f0fdfa', borderColor: '#99f6e4' }}>
@@ -1536,25 +1649,50 @@ export default function AdminProfile({
                   </div>
                 </div>
 
-                {/* Strict Capital Lock Notice */}
-                <div
-                  style={{
-                    background: '#fffbeb',
-                    border: '1px solid #fde68a',
-                    borderRadius: '10px',
-                    padding: '9px 12px',
-                    fontSize: '12px',
-                    color: '#92400e',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '8px',
-                  }}
-                >
-                  <Lock size={15} style={{ flexShrink: 0, marginTop: '2px', color: '#d97706' }} />
-                  <span>
-                    <b>মূলধন সুরক্ষা নিয়ম:</b> বিনিয়োগকৃত মূলধন (<b>{money(myPartner.capital)}</b>) উঠানো যাবে না। শুধুমাত্র আপনার অর্জিত মুনাফা থেকে অবশিষ্ট লাভ (<b>{money(myPartner.withdrawableLimit)}</b>) উত্তোলন করা যাবে।
-                  </span>
-                </div>
+                {/* Official Rules Notice based on Mode */}
+                {withdrawMode === 'withdrawal' ? (
+                  <div
+                    style={{
+                      background: '#fffbeb',
+                      border: '1px solid #fde68a',
+                      borderRadius: '10px',
+                      padding: '10px 12px',
+                      fontSize: '12px',
+                      color: '#92400e',
+                      display: 'grid',
+                      gap: '5px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 700 }}>
+                      <Calendar size={15} style={{ color: '#d97706', flexShrink: 0 }} />
+                      <span>শর্তাবলী: লাভাংশ প্রতি শুক্রবার রাতে উত্তোলন হবে এবং বিনিয়োগের টাকা উত্তোলনযোগ্য নয়।</span>
+                    </div>
+                    <div style={{ color: '#78350f', lineHeight: 1.45 }}>
+                      শুধুমাত্র আপনার অর্জিত মুনাফা থেকে অবশিষ্ট লাভাংশ (<b>{money(myPartner.withdrawableLimit)}</b>) উত্তোলন করা যাবে। কোনো লোন থাকলে তা লাভাংশ থেকে স্বয়ংক্রিয়ভাবে সমন্বয় করা হয়েছে।
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      background: '#f5f3ff',
+                      border: '1px solid #ddd6fe',
+                      borderRadius: '10px',
+                      padding: '10px 12px',
+                      fontSize: '12px',
+                      color: '#5b21b6',
+                      display: 'grid',
+                      gap: '5px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 700 }}>
+                      <Banknote size={15} style={{ color: '#7c3aed', flexShrink: 0 }} />
+                      <span>শর্তাবলী: বিশেষ প্রয়োজনে লোন এবং পরবর্তী লাভাংশ থেকে অটোমেটিক কর্তন</span>
+                    </div>
+                    <div style={{ color: '#4c1d95', lineHeight: 1.45 }}>
+                      বিশেষ প্রয়োজনে আপনি লোন নিতে পারবেন (অপর অ্যাডমিনের অনুমোদন সাপেক্ষে)। এই লোন আপনার পরবর্তী অর্জিত লাভাংশ থেকে <b>অটোমেটিক কেটে নেওয়া হবে</b>। বর্তমান পূর্ববর্তী লোন: <b>{money(myPartner.loans)}</b>।
+                    </div>
+                  </div>
+                )}
 
                 {withdrawError && (
                   <div className="alert" style={{ margin: 0 }}>
@@ -1565,75 +1703,103 @@ export default function AdminProfile({
                   </div>
                 )}
 
-                {/* Quick Profit Amount Input & Chips */}
+                {/* Quick Amount Input & Chips */}
                 <div className="modal-field">
-                  <label htmlFor="withdraw-amount-input">লাভ উত্তোলনের পরিমাণ (৳) *</label>
+                  <label htmlFor="withdraw-amount-input">
+                    {withdrawMode === 'loan' ? 'বিশেষ লোনের পরিমাণ (৳) *' : 'লাভাংশ উত্তোলনের পরিমাণ (৳) *'}
+                  </label>
                   <input
                     id="withdraw-amount-input"
                     type="number"
                     min="1"
-                    max={myPartner.withdrawableLimit > 0 ? myPartner.withdrawableLimit : undefined}
+                    max={
+                      withdrawMode === 'withdrawal'
+                        ? myPartner.withdrawableLimit > 0
+                          ? myPartner.withdrawableLimit
+                          : undefined
+                        : availableBusinessCash > 0
+                        ? availableBusinessCash
+                        : undefined
+                    }
                     step="any"
                     required
                     placeholder={
-                      myPartner.withdrawableLimit > 0
+                      withdrawMode === 'loan'
+                        ? 'লোনের টাকার পরিমাণ লিখুন (যেমন: ২০০০)'
+                        : myPartner.withdrawableLimit > 0
                         ? `সর্বোচ্চ ${money(myPartner.withdrawableLimit)}`
-                        : 'বর্তমানে উত্তোলনযোগ্য লাভ নেই (৳0.00)'
+                        : 'বর্তমানে উত্তোলনযোগ্য লাভাংশ নেই (৳0.00)'
                     }
                     value={withdrawAmount}
                     onChange={(e) => setWithdrawAmount(e.target.value)}
                   />
-                  {myPartner.withdrawableLimit > 0 ? (
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
-                      {[500, 1000, 2000, 5000]
-                        .filter((preset) => preset <= myPartner.withdrawableLimit)
-                        .map((preset) => (
-                          <button
-                            key={preset}
-                            type="button"
-                            className="date-preset-btn"
-                            style={{ padding: '4px 10px', fontSize: '11.5px' }}
-                            onClick={() => setWithdrawAmount(String(preset))}
-                          >
-                            ৳{preset.toLocaleString('bn-BD')}
-                          </button>
-                        ))}
-                      <button
-                        type="button"
-                        className="date-preset-btn"
-                        style={{ padding: '4px 10px', fontSize: '11.5px' }}
-                        onClick={() =>
-                          setWithdrawAmount(String(Math.round(myPartner.withdrawableLimit * 0.5 * 100) / 100))
-                        }
-                      >
-                        ৫০% লাভ ({money(Math.round(myPartner.withdrawableLimit * 0.5 * 100) / 100)})
-                      </button>
-                      <button
-                        type="button"
-                        className="date-preset-btn"
-                        style={{
-                          padding: '4px 10px',
-                          fontSize: '11.5px',
-                          background: '#f0fdfa',
-                          borderColor: '#99f6e4',
-                          color: '#0f766e',
-                          fontWeight: 700,
-                        }}
-                        onClick={() => setWithdrawAmount(String(myPartner.withdrawableLimit))}
-                      >
-                        সম্পূর্ণ লাভ ({money(myPartner.withdrawableLimit)})
-                      </button>
-                    </div>
+                  {withdrawMode === 'withdrawal' ? (
+                    myPartner.withdrawableLimit > 0 ? (
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                        {[500, 1000, 2000, 5000]
+                          .filter((preset) => preset <= myPartner.withdrawableLimit)
+                          .map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              className="date-preset-btn"
+                              style={{ padding: '4px 10px', fontSize: '11.5px' }}
+                              onClick={() => setWithdrawAmount(String(preset))}
+                            >
+                              ৳{preset.toLocaleString('bn-BD')}
+                            </button>
+                          ))}
+                        <button
+                          type="button"
+                          className="date-preset-btn"
+                          style={{ padding: '4px 10px', fontSize: '11.5px' }}
+                          onClick={() =>
+                            setWithdrawAmount(String(Math.round(myPartner.withdrawableLimit * 0.5 * 100) / 100))
+                          }
+                        >
+                          ৫০% লাভ ({money(Math.round(myPartner.withdrawableLimit * 0.5 * 100) / 100)})
+                        </button>
+                        <button
+                          type="button"
+                          className="date-preset-btn"
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '11.5px',
+                            background: '#f0fdfa',
+                            borderColor: '#99f6e4',
+                            color: '#0f766e',
+                            fontWeight: 700,
+                          }}
+                          onClick={() => setWithdrawAmount(String(myPartner.withdrawableLimit))}
+                        >
+                          সম্পূর্ণ লাভ ({money(myPartner.withdrawableLimit)})
+                        </button>
+                      </div>
+                    ) : (
+                      <small style={{ color: '#dc2626', fontSize: '11.5px', fontWeight: 600 }}>
+                        ⚠️ আপনার উত্তোলনযোগ্য অবশিষ্ট লাভাংশ বর্তমানে ৳০.০০। বিনিয়োগের টাকা উত্তোলনযোগ্য নয় (বিশেষ প্রয়োজনে উপরের "বিশেষ প্রয়োজনে লোন" ট্যাব ব্যবহার করুন)।
+                      </small>
+                    )
                   ) : (
-                    <small style={{ color: '#dc2626', fontSize: '11.5px', fontWeight: 600 }}>
-                      ⚠️ আপনার উত্তোলনযোগ্য অবশিষ্ট লাভ বর্তমানে ৳০.০০। মূলধন উত্তোলনযোগ্য নয়।
-                    </small>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                      {[500, 1000, 2000, 5000].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className="date-preset-btn"
+                          style={{ padding: '4px 10px', fontSize: '11.5px' }}
+                          onClick={() => setWithdrawAmount(String(preset))}
+                        >
+                          ৳{preset.toLocaleString('bn-BD')}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
 
                 <div className="form-grid">
                   <div className="modal-field">
-                    <label htmlFor="withdraw-method-select">উত্তোলনের মাধ্যম</label>
+                    <label htmlFor="withdraw-method-select">গ্রহণ করার মাধ্যম</label>
                     <select
                       id="withdraw-method-select"
                       value={withdrawMethod}
@@ -1648,7 +1814,7 @@ export default function AdminProfile({
                   </div>
 
                   <div className="modal-field">
-                    <label htmlFor="withdraw-date-input">উত্তোলনের তারিখ</label>
+                    <label htmlFor="withdraw-date-input">তারিখ</label>
                     <input
                       id="withdraw-date-input"
                       type="date"
@@ -1661,12 +1827,18 @@ export default function AdminProfile({
 
                 <div className="modal-field">
                   <label htmlFor="withdraw-reason-input">
-                    উত্তোলনের কারণ / নোট (আবশ্যক - {partnerName}-এর অনুমোদনের জন্য) *
+                    {withdrawMode === 'loan'
+                      ? `বিশেষ লোনের কারণ / বিবরণ (আবশ্যক - ${partnerName}-এর অনুমোদনের জন্য) *`
+                      : `লাভাংশ উত্তোলনের কারণ / নোট (আবশ্যক - ${partnerName}-এর অনুমোদনের জন্য) *`}
                   </label>
                   <textarea
                     id="withdraw-reason-input"
                     required
-                    placeholder="উদাঃ অর্জিত লভ্যাংশ থেকে ব্যক্তিগত উত্তোলন..."
+                    placeholder={
+                      withdrawMode === 'loan'
+                        ? 'উদাঃ জরুরি ব্যক্তিগত প্রয়োজনে বিশেষ লোন (পরবর্তী লাভাংশ থেকে অটো কর্তন হবে)...'
+                        : 'উদাঃ শুক্রবার রাতের সাপ্তাহিক অর্জিত লাভাংশ উত্তোলন...'
+                    }
                     value={withdrawReason}
                     onChange={(e) => setWithdrawReason(e.target.value)}
                   />
@@ -1687,7 +1859,7 @@ export default function AdminProfile({
                 >
                   <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
                   <span>
-                    নিরাপত্তা নীতি অনুযায়ী, আপনার লাভ উত্তোলনের অনুরোধটি <b>{partnerName}</b>-এর প্রোফাইলে যাবে। তিনি অনুমোদন দিলে এটি মূল হিসাবে যুক্ত হবে।
+                    শর্তাবলী অনুযায়ী, অ্যাডমিন ২জন একে অপরকে ছাড়া কোনো উত্তোলন বা লোন করতে পারবেন না। আপনার অনুরোধটি <b>{partnerName}</b>-এর ব্যক্তিগত প্রোফাইলে যাবে এবং তিনি অনুমোদন দিলে কার্যকর হবে।
                   </span>
                 </div>
 
@@ -1695,10 +1867,19 @@ export default function AdminProfile({
                   <button
                     type="submit"
                     className="primary"
-                    disabled={isWithdrawing || myPartner.withdrawableLimit <= 0}
+                    disabled={
+                      isWithdrawing ||
+                      (withdrawMode === 'withdrawal' && myPartner.withdrawableLimit <= 0)
+                    }
                   >
-                    <Check size={16} />
-                    <span>{isWithdrawing ? 'পাঠানো হচ্ছে…' : 'লাভ উত্তোলন অনুরোধ পাঠান'}</span>
+                    {isWithdrawing ? <span className="btn-spinner" /> : <Check size={16} />}
+                    <span>
+                      {isWithdrawing
+                        ? 'পাঠানো হচ্ছে…'
+                        : withdrawMode === 'loan'
+                        ? 'বিশেষ লোনের অনুরোধ পাঠান'
+                        : 'লাভাংশ উত্তোলন অনুরোধ পাঠান'}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -1766,7 +1947,7 @@ export default function AdminProfile({
                     disabled={!rejectReason.trim() || processingReqId === rejectingReq.id}
                     onClick={handleConfirmReject}
                   >
-                    <XCircle size={16} />
+                    {processingReqId === rejectingReq.id ? <span className="btn-spinner" /> : <XCircle size={16} />}
                     <span>{processingReqId === rejectingReq.id ? 'বাতিল হচ্ছে…' : 'নিশ্চিত বাতিল করুন'}</span>
                   </button>
                   <button type="button" className="secondary" onClick={() => setRejectingReq(null)}>
