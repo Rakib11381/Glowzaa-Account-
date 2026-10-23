@@ -1,0 +1,6 @@
+{
+  "name": "ব্যবসার হিসাব - Business Partner Accounting",
+  "description": "বাংলা-ভিত্তিক ব্যবসায়িক অংশীদার হিসাবরক্ষণ ওয়েবসাইট: বিনিয়োগ, বিক্রয়, স্টক ক্রয়, কস্ট অব গুডস সোল্ড (COGS), নিট লাভ, ইনভেস্টর লেজার ও পিডিএফ রিপোর্ট।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

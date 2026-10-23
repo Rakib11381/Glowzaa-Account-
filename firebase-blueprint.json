@@ -1,0 +1,156 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile document storing RBAC roles and activity status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "role": { "type": "string", "enum": ["admin", "investor"] },
+        "active": { "type": "boolean" },
+        "investorId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["role", "active"]
+    },
+    "Entry": {
+      "title": "Accounting Transaction Entry",
+      "description": "Financial entry for sale, purchase, investment, expense, withdrawal, or loan",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "type": { "type": "string", "enum": ["investment", "sale", "purchase", "expense", "withdrawal", "loan", "other"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "status": { "type": "string", "enum": ["draft", "posted", "void"] },
+        "investorId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "quantity": { "type": "number" },
+        "unitCost": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "cogsAmount": { "type": "number" },
+        "category": { "type": "string", "maxLength": 100 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "demo": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "voidReason": { "type": "string", "maxLength": 500 },
+        "voidedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["title", "type", "amount", "date", "status"]
+    },
+    "Investor": {
+      "title": "Business Partner / Investor",
+      "description": "Registered partner with capital equity tracking",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 256 },
+        "active": { "type": "boolean" },
+        "demo": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "active"]
+    },
+    "Product": {
+      "title": "Inventory Product",
+      "description": "Stock item for COGS and inventory valuation",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 150 },
+        "sku": { "type": "string", "maxLength": 50 },
+        "unit": { "type": "string", "maxLength": 30 },
+        "currentStock": { "type": "number" },
+        "averageCost": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "demo": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["name", "unit", "currentStock", "averageCost"]
+    },
+    "ProfitDistribution": {
+      "title": "Profit Distribution Record",
+      "description": "Periodic distributed profit allocation according to partner equity shares",
+      "type": "object",
+      "properties": {
+        "periodName": { "type": "string", "maxLength": 100 },
+        "totalNetProfit": { "type": "number" },
+        "distributedAmount": { "type": "number" },
+        "retainedAmount": { "type": "number" },
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "status": { "type": "string", "enum": ["draft", "posted", "void"] },
+        "demo": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["periodName", "totalNetProfit", "distributedAmount", "date", "status"]
+    },
+    "BusinessSettings": {
+      "title": "Business Settings",
+      "description": "Company profile, currency, and operational preferences",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 150 },
+        "type": { "type": "string", "maxLength": 100 },
+        "address": { "type": "string", "maxLength": 300 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "currencySymbol": { "type": "string", "maxLength": 10 },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["name"]
+    },
+    "AuditLog": {
+      "title": "System Audit Log",
+      "description": "Immutable audit entries for voided transactions, draft removals, and demo cleanups",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "maxLength": 60 },
+        "recordId": { "type": "string", "maxLength": 128 },
+        "actor": { "type": "string", "maxLength": 128 },
+        "actorEmail": { "type": "string", "maxLength": 256 },
+        "reason": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["action", "actor", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile with role authorization"
+    },
+    "/entries/{id}": {
+      "schema": { "$ref": "#/entities/Entry" },
+      "description": "Financial accounting transaction entries"
+    },
+    "/investors/{id}": {
+      "schema": { "$ref": "#/entities/Investor" },
+      "description": "Business partners and equity holders"
+    },
+    "/products/{id}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Inventory products with stock and unit costs"
+    },
+    "/profitDistributions/{id}": {
+      "schema": { "$ref": "#/entities/ProfitDistribution" },
+      "description": "Profit distribution records by equity percentage"
+    },
+    "/businessSettings/{id}": {
+      "schema": { "$ref": "#/entities/BusinessSettings" },
+      "description": "Business settings and configuration"
+    },
+    "/auditLogs/{id}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable security and accounting audit log"
+    }
+  }
+}

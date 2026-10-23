@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function hasAccess() {
+      return true;
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User management
+    match /users/{uid} {
+      allow read, write: if hasAccess();
+    }
+
+    // Financial transaction entries
+    match /entries/{id} {
+      allow read, write: if hasAccess();
+    }
+
+    // Investors list
+    match /investors/{id} {
+      allow read, write: if hasAccess();
+    }
+
+    // Inventory products
+    match /products/{id} {
+      allow read, write: if hasAccess();
+    }
+
+    // Profit distributions
+    match /profitDistributions/{id} {
+      allow read, write: if hasAccess();
+    }
+
+    // Business settings
+    match /businessSettings/{id} {
+      allow read, write: if hasAccess();
+    }
+
+    // Audit logs
+    match /auditLogs/{id} {
+      allow read, write: if hasAccess();
+    }
+
+    // Dual-Admin Approval Requests
+    match /approvalRequests/{id} {
+      allow read, write: if hasAccess();
+    }
+
+    // Connection testing endpoint
+    match /test/{id} {
+      allow read: if true;
+    }
+  }
+}
