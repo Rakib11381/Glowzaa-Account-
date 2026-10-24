@@ -15,8 +15,19 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import type { Entry, Investor, Product, ProfitDistribution, AuditLog, UserProfile, BusinessSettings, ApprovalRequest } from './types';
-import { formatBengaliDateTime } from './accounting';
+import type {
+  Entry,
+  Investor,
+  Product,
+  ProfitDistribution,
+  AuditLog,
+  UserProfile,
+  BusinessSettings,
+  ApprovalRequest,
+  EmailTriggerConfig,
+  EmailNotificationLog,
+} from './types';
+import { formatBengaliDateTime, calculateCashBalance } from './accounting';
 
 const requireDb = () => {
   if (!db) throw new Error('Firebase ডেটাবেস সংযোগ পাওয়া যায়নি।');
@@ -240,8 +251,13 @@ export function watchAuditLogs(cb: (rows: AuditLog[]) => void, error: (e: Error)
   );
 }
 
-// Add Entry with optional Inventory Stock update
-export async function addEntry(row: Omit<Entry, 'id' | 'createdAt'>, uid: string, userEmail?: string) {
+// Add Entry with optional Inventory Stock update and automatic Backend Email Trigger
+export async function addEntry(
+  row: Omit<Entry, 'id' | 'createdAt'>,
+  uid: string,
+  userEmail?: string,
+  approverName?: string
+) {
   const d = requireDb();
   const path = 'entries';
   try {
@@ -289,6 +305,35 @@ export async function addEntry(row: Omit<Entry, 'id' | 'createdAt'>, uid: string
     }
 
     await batch.commit();
+
+    // Trigger backend email summary to Rakib & Limon when a non-demo transaction is posted
+    if (row.status === 'posted' && !row.demo) {
+      const actorDisplay =
+        uid === 'Rakib'
+          ? 'রাকিব (Rakib)'
+          : uid === 'Limon'
+          ? 'লিমন (Limon)'
+          : userEmail || uid || 'অ্যাডমিন';
+      const invList = getCachedInvestors();
+      const matchedPartner = row.investorId ? invList.find((i) => i.id === row.investorId)?.name : undefined;
+
+      triggerBackendEmailSummary({
+        eventType: 'transaction_posted',
+        title: row.title,
+        entryType: row.type,
+        amount: Number(row.amount) || 0,
+        date: row.date,
+        actorName: actorDisplay,
+        approverName,
+        partnerName: matchedPartner,
+        category: row.category,
+        notes: row.notes,
+        profitAmount: row.grossProfit ?? row.profit,
+        costAmount: row.cogsAmount,
+        pendingAddedEntry: { id: entryRef.id, ...(row as any) },
+      }).catch((err) => console.warn('Email trigger warning on addEntry:', err));
+    }
+
     return entryRef.id;
   } catch (e) {
     handleFirestoreError(e, OperationType.CREATE, path);
@@ -546,6 +591,29 @@ export async function updateEntry(id: string, patch: Partial<Entry>, uid: string
     }));
 
     await batch.commit();
+
+    // If a draft entry was just promoted to posted, trigger email summary to Rakib & Limon
+    if (oldData && oldData.status !== 'posted' && patch.status === 'posted') {
+      const merged: Entry = { ...oldData, ...patch, id };
+      const actorDisplay =
+        uid === 'Rakib'
+          ? 'রাকিব (Rakib)'
+          : uid === 'Limon'
+          ? 'লিমন (Limon)'
+          : email || uid || 'অ্যাডমিন';
+      triggerBackendEmailSummary({
+        eventType: 'transaction_posted',
+        title: merged.title,
+        entryType: merged.type,
+        amount: Number(merged.amount) || 0,
+        date: merged.date,
+        actorName: actorDisplay,
+        category: merged.category,
+        notes: merged.notes,
+        profitAmount: merged.grossProfit ?? merged.profit,
+        costAmount: merged.cogsAmount,
+      }).catch((err) => console.warn('Email trigger warning on updateEntry:', err));
+    }
   } catch (e) {
     handleFirestoreError(e, OperationType.UPDATE, path);
   }
@@ -1295,6 +1363,51 @@ export async function createApprovalRequest(
     }
   }
 
+  // Trigger Backend Email Summary to Rakib & Limon if:
+  // 1) A high-value withdrawal or special loan request is created (or any withdrawal request >= threshold)
+  // 2) Or if notifyOnAllTransactionRequests is enabled for a new transaction request
+  if (data.actionType === 'create_entry' && data.payload) {
+    const pType = String(data.payload.type || '');
+    const pAmount = Number(data.payload.amount) || 0;
+    const emailCfg = getEmailTriggerConfig();
+    const isWithdrawalOrLoan = pType === 'withdrawal' || pType === 'loan';
+    const isHighValue = isWithdrawalOrLoan && pAmount >= (emailCfg.highValueWithdrawalThreshold || 5000);
+
+    if (isHighValue && emailCfg.notifyOnHighValueWithdrawal) {
+      const invList = getCachedInvestors();
+      const matchedPartner = data.payload.investorId
+        ? invList.find((i) => i.id === data.payload.investorId)?.name
+        : data.requestedByName;
+
+      triggerBackendEmailSummary({
+        eventType: 'high_value_withdrawal_request',
+        title: data.title || data.payload.title || 'উচ্চ-মূল্যের উত্তোলনের অনুরোধ',
+        entryType: pType,
+        amount: pAmount,
+        date: data.payload.date || now.toISOString().slice(0, 10),
+        actorName: data.requestedByName,
+        approverName: `${data.targetApproverName} (অনুমোদন অপেক্ষমান)`,
+        partnerName: matchedPartner,
+        category: data.payload.category,
+        reason: data.reason,
+        notes: data.payload.notes || data.description,
+      }).catch((err) => console.warn('High-value withdrawal email trigger warning:', err));
+    } else if (emailCfg.notifyOnAllTransactionRequests) {
+      triggerBackendEmailSummary({
+        eventType: isWithdrawalOrLoan ? 'high_value_withdrawal_request' : 'transaction_posted',
+        title: `[অনুমোদনের অনুরোধ] ${data.title}`,
+        entryType: pType,
+        amount: pAmount,
+        date: data.payload.date || now.toISOString().slice(0, 10),
+        actorName: data.requestedByName,
+        approverName: `${data.targetApproverName} (অনুমোদন অপেক্ষমান)`,
+        category: data.payload.category,
+        reason: data.reason,
+        notes: data.payload.notes || data.description,
+      }).catch((err) => console.warn('Transaction request email trigger warning:', err));
+    }
+  }
+
   return reqId;
 }
 
@@ -1319,7 +1432,8 @@ export async function approveApprovalRequest(
       await addEntry(
         req.payload,
         req.requestedBy,
-        `${req.requestedBy.toLowerCase()}@glowzaa.shop`
+        `${req.requestedBy.toLowerCase()}@glowzaa.shop`,
+        reviewerName
       );
       break;
 
@@ -1609,4 +1723,314 @@ export async function rejectApprovalRequest(
       : r
   );
   saveLocalApprovalRequests(updated);
+}
+
+// -------------------------------------------------------------
+// BACKEND EMAIL NOTIFICATION TRIGGER & CONFIGURATION HELPERS
+// -------------------------------------------------------------
+
+const EMAIL_CONFIG_STORAGE_KEY = 'glowzaa_email_trigger_config_v1';
+const EMAIL_LOGS_STORAGE_KEY = 'glowzaa_email_logs_cache_v1';
+
+export const DEFAULT_EMAIL_TRIGGER_CONFIG: EmailTriggerConfig = {
+  rakibEmail: 'rakib.glowzaa@gmail.com',
+  limonEmail: 'limon.glowzaa@gmail.com',
+  ccEmail: 'glowzaabd.shop@gmail.com',
+  highValueWithdrawalThreshold: 5000,
+  notifyOnTransactionPosted: true,
+  notifyOnHighValueWithdrawal: true,
+  notifyOnAllTransactionRequests: false,
+};
+
+export function getEmailTriggerConfig(): EmailTriggerConfig {
+  try {
+    const raw = localStorage.getItem(EMAIL_CONFIG_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_EMAIL_TRIGGER_CONFIG };
+    const parsed = JSON.parse(raw);
+    return {
+      rakibEmail: parsed.rakibEmail || DEFAULT_EMAIL_TRIGGER_CONFIG.rakibEmail,
+      limonEmail: parsed.limonEmail || DEFAULT_EMAIL_TRIGGER_CONFIG.limonEmail,
+      ccEmail: parsed.ccEmail ?? DEFAULT_EMAIL_TRIGGER_CONFIG.ccEmail,
+      highValueWithdrawalThreshold:
+        Number(parsed.highValueWithdrawalThreshold) > 0
+          ? Number(parsed.highValueWithdrawalThreshold)
+          : DEFAULT_EMAIL_TRIGGER_CONFIG.highValueWithdrawalThreshold,
+      notifyOnTransactionPosted:
+        typeof parsed.notifyOnTransactionPosted === 'boolean'
+          ? parsed.notifyOnTransactionPosted
+          : DEFAULT_EMAIL_TRIGGER_CONFIG.notifyOnTransactionPosted,
+      notifyOnHighValueWithdrawal:
+        typeof parsed.notifyOnHighValueWithdrawal === 'boolean'
+          ? parsed.notifyOnHighValueWithdrawal
+          : DEFAULT_EMAIL_TRIGGER_CONFIG.notifyOnHighValueWithdrawal,
+      notifyOnAllTransactionRequests:
+        typeof parsed.notifyOnAllTransactionRequests === 'boolean'
+          ? parsed.notifyOnAllTransactionRequests
+          : DEFAULT_EMAIL_TRIGGER_CONFIG.notifyOnAllTransactionRequests,
+      updatedBy: parsed.updatedBy,
+      updatedAt: parsed.updatedAt,
+    };
+  } catch {
+    return { ...DEFAULT_EMAIL_TRIGGER_CONFIG };
+  }
+}
+
+export async function loadEmailTriggerConfigFromDb(): Promise<EmailTriggerConfig> {
+  const local = getEmailTriggerConfig();
+  if (!db) return local;
+  try {
+    const snap = await getDoc(doc(db, 'businessSettings', 'emailConfig'));
+    if (snap.exists()) {
+      const data = snap.data() as Partial<EmailTriggerConfig>;
+      const merged: EmailTriggerConfig = {
+        rakibEmail: data.rakibEmail || local.rakibEmail,
+        limonEmail: data.limonEmail || local.limonEmail,
+        ccEmail: data.ccEmail ?? local.ccEmail,
+        highValueWithdrawalThreshold:
+          Number(data.highValueWithdrawalThreshold) > 0
+            ? Number(data.highValueWithdrawalThreshold)
+            : local.highValueWithdrawalThreshold,
+        notifyOnTransactionPosted:
+          typeof data.notifyOnTransactionPosted === 'boolean'
+            ? data.notifyOnTransactionPosted
+            : local.notifyOnTransactionPosted,
+        notifyOnHighValueWithdrawal:
+          typeof data.notifyOnHighValueWithdrawal === 'boolean'
+            ? data.notifyOnHighValueWithdrawal
+            : local.notifyOnHighValueWithdrawal,
+        notifyOnAllTransactionRequests:
+          typeof data.notifyOnAllTransactionRequests === 'boolean'
+            ? data.notifyOnAllTransactionRequests
+            : local.notifyOnAllTransactionRequests,
+      };
+      localStorage.setItem(EMAIL_CONFIG_STORAGE_KEY, JSON.stringify(merged));
+      return merged;
+    }
+  } catch (e) {
+    console.warn('Could not read emailConfig from Firestore:', e);
+  }
+  return local;
+}
+
+export async function saveEmailTriggerConfig(
+  cfg: EmailTriggerConfig,
+  actorUid: string
+): Promise<EmailTriggerConfig> {
+  const normalized: EmailTriggerConfig = {
+    rakibEmail: (cfg.rakibEmail || DEFAULT_EMAIL_TRIGGER_CONFIG.rakibEmail).trim(),
+    limonEmail: (cfg.limonEmail || DEFAULT_EMAIL_TRIGGER_CONFIG.limonEmail).trim(),
+    ccEmail: (cfg.ccEmail || '').trim(),
+    highValueWithdrawalThreshold: Math.max(100, Number(cfg.highValueWithdrawalThreshold) || 5000),
+    notifyOnTransactionPosted: Boolean(cfg.notifyOnTransactionPosted),
+    notifyOnHighValueWithdrawal: Boolean(cfg.notifyOnHighValueWithdrawal),
+    notifyOnAllTransactionRequests: Boolean(cfg.notifyOnAllTransactionRequests),
+    updatedBy: actorUid,
+  };
+
+  try {
+    localStorage.setItem(EMAIL_CONFIG_STORAGE_KEY, JSON.stringify(normalized));
+  } catch {}
+
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'businessSettings', 'emailConfig'),
+        cleanObject({
+          ...normalized,
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('Could not save emailConfig to Firestore:', e);
+    }
+  }
+
+  return normalized;
+}
+
+export function getLocalEmailLogs(): EmailNotificationLog[] {
+  try {
+    const raw = localStorage.getItem(EMAIL_LOGS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalEmailLogs(logs: EmailNotificationLog[]) {
+  try {
+    localStorage.setItem(EMAIL_LOGS_STORAGE_KEY, JSON.stringify(logs.slice(0, 50)));
+  } catch {}
+}
+
+type EmailLogSubscriber = (logs: EmailNotificationLog[]) => void;
+const emailLogSubscribers = new Set<EmailLogSubscriber>();
+
+export function subscribeEmailLogs(cb: EmailLogSubscriber): () => void {
+  emailLogSubscribers.add(cb);
+  cb(getLocalEmailLogs());
+  return () => {
+    emailLogSubscribers.delete(cb);
+  };
+}
+
+function notifyEmailLogSubscribers(logs: EmailNotificationLog[]) {
+  emailLogSubscribers.forEach((cb) => {
+    try {
+      cb(logs);
+    } catch {}
+  });
+}
+
+export async function fetchBackendEmailHistory(): Promise<{
+  logs: EmailNotificationLog[];
+  smtpConfigured: boolean;
+}> {
+  const localLogs = getLocalEmailLogs();
+  try {
+    const res = await fetch('/api/notifications/history');
+    if (res.ok) {
+      const data = await res.json();
+      const serverLogs: EmailNotificationLog[] = Array.isArray(data.logs) ? data.logs : [];
+      const mergedMap = new Map<string, EmailNotificationLog>();
+      for (const item of [...serverLogs, ...localLogs]) {
+        if (item && item.id && !mergedMap.has(item.id)) {
+          mergedMap.set(item.id, item);
+        }
+      }
+      const merged = Array.from(mergedMap.values()).sort((a, b) =>
+        (b.sentAt || '').localeCompare(a.sentAt || '')
+      );
+      saveLocalEmailLogs(merged);
+      notifyEmailLogSubscribers(merged);
+      return {
+        logs: merged,
+        smtpConfigured: Boolean(data.smtpConfigured),
+      };
+    }
+  } catch (e) {
+    console.warn('Could not fetch backend email history:', e);
+  }
+  return { logs: localLogs, smtpConfigured: false };
+}
+
+export async function triggerBackendEmailSummary(params: {
+  eventType: 'transaction_posted' | 'high_value_withdrawal_request' | 'test_summary';
+  title: string;
+  entryType?: string;
+  amount: number;
+  date?: string;
+  actorName?: string;
+  approverName?: string;
+  partnerName?: string;
+  category?: string;
+  notes?: string;
+  reason?: string;
+  profitAmount?: number;
+  costAmount?: number;
+  pendingAddedEntry?: Entry;
+}): Promise<EmailNotificationLog | null> {
+  const cfg = getEmailTriggerConfig();
+
+  if (params.eventType === 'transaction_posted' && !cfg.notifyOnTransactionPosted) {
+    return null;
+  }
+  if (params.eventType === 'high_value_withdrawal_request' && !cfg.notifyOnHighValueWithdrawal) {
+    return null;
+  }
+
+  // Compute live financial summary including the newly posted entry if provided
+  const cachedEntries = getCachedEntries();
+  const cachedProducts = getCachedProducts();
+  const entriesForCalc = params.pendingAddedEntry
+    ? [params.pendingAddedEntry, ...cachedEntries.filter((e) => e.id !== params.pendingAddedEntry?.id)]
+    : cachedEntries;
+
+  const cashSnap = calculateCashBalance(entriesForCalc, cachedProducts);
+
+  const response = await fetch('/api/notifications/trigger-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      eventType: params.eventType,
+      title: params.title,
+      entryType: params.entryType || 'sale',
+      amount: params.amount,
+      date: params.date,
+      actorName: params.actorName,
+      approverName: params.approverName,
+      partnerName: params.partnerName,
+      category: params.category,
+      notes: params.notes,
+      reason: params.reason,
+      profitAmount: params.profitAmount,
+      costAmount: params.costAmount,
+      highValueThreshold: cfg.highValueWithdrawalThreshold,
+      recipients: {
+        rakibEmail: cfg.rakibEmail,
+        limonEmail: cfg.limonEmail,
+        ccEmail: cfg.ccEmail,
+      },
+      financialSummary: {
+        availableCash: cashSnap.availableCash,
+        totalInvestments: cashSnap.totalInvestments,
+        netProfit: cashSnap.netProfit,
+        totalWithdrawals: cashSnap.totalWithdrawals + cashSnap.totalLoans,
+        totalSales: cashSnap.totalSales,
+        totalExpenses: cashSnap.totalExpenses,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('ইমেইল ট্রিগার সার্ভারে পাঠানো যায়নি');
+  }
+
+  const data = await response.json();
+  if (data.ok && data.emailLog) {
+    const newLog: EmailNotificationLog = data.emailLog;
+    const updatedLogs = [newLog, ...getLocalEmailLogs().filter((l) => l.id !== newLog.id)].slice(0, 50);
+    saveLocalEmailLogs(updatedLogs);
+    notifyEmailLogSubscribers(updatedLogs);
+
+    // Also record in Firestore Audit Logs for full partner transparency
+    if (db) {
+      try {
+        await addDoc(
+          collection(db, 'auditLogs'),
+          cleanObject({
+            action:
+              params.eventType === 'high_value_withdrawal_request'
+                ? 'email_alert_high_withdrawal'
+                : params.eventType === 'test_summary'
+                ? 'email_test_summary'
+                : 'email_summary_transaction',
+            recordId: newLog.id,
+            actor: params.actorName || 'Backend Trigger',
+            actorEmail: `${cfg.rakibEmail}, ${cfg.limonEmail}`,
+            formattedTime: newLog.sentAtFormatted,
+            reason: `📧 ইমেইল সারাংশ পাঠানো হয়েছে (প্রাপক: Rakib ও Limon) — ${newLog.subject}`,
+            createdAt: serverTimestamp(),
+            details: {
+              title: newLog.title,
+              subject: newLog.subject,
+              recipients: newLog.recipients,
+              amount: newLog.amount,
+              eventType: newLog.eventType,
+              deliveryMode: newLog.deliveryMode,
+            },
+          })
+        );
+      } catch (e) {
+        console.warn('Could not write email audit log:', e);
+      }
+    }
+
+    return newLog;
+  }
+
+  return null;
 }

@@ -84,8 +84,53 @@ export interface BusinessSettings {
   phone: string;
   currencySymbol?: string;
   superAdminEmail?: string;
+  rakibEmail?: string;
+  limonEmail?: string;
+  highValueWithdrawalThreshold?: number;
+  notifyOnTransactionPosted?: boolean;
+  notifyOnHighValueWithdrawal?: boolean;
   updatedBy?: string;
   updatedAt?: any;
+}
+
+export interface EmailTriggerConfig {
+  rakibEmail: string;
+  limonEmail: string;
+  ccEmail: string;
+  highValueWithdrawalThreshold: number;
+  notifyOnTransactionPosted: boolean;
+  notifyOnHighValueWithdrawal: boolean;
+  notifyOnAllTransactionRequests: boolean;
+  updatedBy?: string;
+  updatedAt?: any;
+}
+
+export interface EmailNotificationLog {
+  id: string;
+  eventType: 'transaction_posted' | 'high_value_withdrawal_request' | 'test_summary';
+  subject: string;
+  recipients: string[];
+  rakibEmail: string;
+  limonEmail: string;
+  title: string;
+  entryType: string;
+  entryTypeLabel: string;
+  amount: number;
+  date: string;
+  actorName: string;
+  approverName?: string;
+  partnerName?: string;
+  reason?: string;
+  notes?: string;
+  highValueThreshold?: number;
+  sentAt: string;
+  sentAtFormatted: string;
+  deliveryMode: 'smtp' | 'ethereal_test_smtp' | 'backend_digest_relay';
+  messageId: string;
+  previewUrl?: string;
+  summaryText: string;
+  htmlContent: string;
+  status: 'sent' | 'queued';
 }
 
 export interface AuditLog {

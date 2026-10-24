@@ -95,6 +95,8 @@ import {
 import AdminProfile from './components/AdminProfile';
 import TermsConditionsCard from './components/TermsConditionsCard';
 import PWAInstallButton from './components/PWAInstallButton';
+import SalesTrendChartSection from './components/SalesTrendChartSection';
+import EmailNotificationSection from './components/EmailNotificationSection';
 import {
   money,
   moneyBn,
@@ -420,6 +422,12 @@ export default function App() {
   const [quickTotalLotSell, setQuickTotalLotSell] = useState<string>('');
   const [quickDirectAvgCost, setQuickDirectAvgCost] = useState<string>('');
   const [quickDirectAvgSell, setQuickDirectAvgSell] = useState<string>('');
+
+  // AI Smart Product Upload Assistant State
+  const [aiProductPrompt, setAiProductPrompt] = useState<string>('');
+  const [isAiParsingProduct, setIsAiParsingProduct] = useState<boolean>(false);
+  const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [aiSummaryNote, setAiSummaryNote] = useState<string>('');
 
   // Profit Distribution Form
   const [distributionForm, setDistributionForm] = useState({
@@ -1316,6 +1324,172 @@ export default function App() {
       totalStock,
     };
   }, [batchProductsForm]);
+
+  function autoSuggestFromProductName(rawName: string) {
+    const n = rawName.toLowerCase().trim();
+    if (!n) return {};
+    // First check existing inventory products for matching history
+    const matchedExisting = products.find(
+      (p) => p.name.toLowerCase().includes(n) || n.includes(p.name.toLowerCase())
+    );
+    if (matchedExisting) {
+      return {
+        sku: matchedExisting.sku || '',
+        unit: matchedExisting.unit || 'কেজি',
+        averageCost: matchedExisting.averageCost ? String(matchedExisting.averageCost) : '',
+        sellingPrice: matchedExisting.sellingPrice ? String(matchedExisting.sellingPrice) : '',
+        imageUrl: matchedExisting.imageUrl || '',
+      };
+    }
+
+    if (n.includes('কাকড়া') || n.includes('কাঁকড়া') || n.includes('crab')) {
+      return {
+        sku: `CRAB-0${products.length + 1}`,
+        unit: 'কেজি',
+        imageUrl: 'https://images.unsplash.com/photo-1548811579-017cf2a4268b?w=300&auto=format&fit=crop&q=80',
+      };
+    }
+    if (n.includes('চিংড়ি') || n.includes('গলদা') || n.includes('বাগদা') || n.includes('shrimp')) {
+      return {
+        sku: `SHRIMP-0${products.length + 1}`,
+        unit: 'কেজি',
+        imageUrl: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?w=300&auto=format&fit=crop&q=80',
+      };
+    }
+    if (n.includes('ইলিশ') || n.includes('রুই') || n.includes('কাতলা') || n.includes('মাছ') || n.includes('কোরাল') || n.includes('রূপচাঁদা')) {
+      return {
+        sku: `FISH-0${products.length + 1}`,
+        unit: 'কেজি',
+        imageUrl: 'https://images.unsplash.com/photo-1534043464124-3be32fe00099?w=300&auto=format&fit=crop&q=80',
+      };
+    }
+    if (n.includes('মাংস') || n.includes('মুরগি') || n.includes('গরু') || n.includes('খাসি')) {
+      return {
+        sku: `MEAT-0${products.length + 1}`,
+        unit: 'কেজি',
+        imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=300&auto=format&fit=crop&q=80',
+      };
+    }
+    if (n.includes('ডিম')) {
+      return {
+        sku: `EGG-0${products.length + 1}`,
+        unit: 'পিস',
+        imageUrl: 'https://images.unsplash.com/photo-1582722872445-44dc5f7e3c8f?w=300&auto=format&fit=crop&q=80',
+      };
+    }
+    return {};
+  }
+
+  async function handleAiParseProduct(overridePrompt?: string, overrideImage?: string) {
+    const promptToUse = (overridePrompt !== undefined ? overridePrompt : aiProductPrompt).trim();
+    const imgToUse = overrideImage !== undefined ? overrideImage : productForm.imageUrl;
+
+    if (!promptToUse && !imgToUse) {
+      setError('অনুগ্রহ করে ১ লাইনে পণ্যের তথ্য লিখুন, মাইকে বলুন অথবা পণ্যের/রসিদের ছবি দিন।');
+      return;
+    }
+
+    setError('');
+    setIsAiParsingProduct(true);
+    setAiSummaryNote('');
+    try {
+      const response = await fetch('/api/ai/parse-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: promptToUse,
+          imageDataUrl: imgToUse && imgToUse.startsWith('data:image/') ? imgToUse : '',
+          mode: editingProduct ? 'single' : productUploadMode,
+          existingProducts: products.slice(0, 15),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('AI সার্ভার থেকে উত্তর পাওয়া যায়নি');
+      }
+
+      const data = await response.json();
+
+      if (!editingProduct && productUploadMode === 'batch_avg' && Array.isArray(data.products) && data.products.length > 0) {
+        const targetCount = Math.max(5, Math.min(6, data.products.length));
+        const newRows = Array.from({ length: targetCount }, (_, idx) => {
+          const item = data.products[idx];
+          return {
+            id: `row-${Date.now()}-${idx}`,
+            name: item?.name || '',
+            sku: item?.sku || '',
+            unit: item?.unit || 'কেজি',
+            currentStock: item?.currentStock ? String(item.currentStock) : '',
+            averageCost: item?.averageCost ? String(item.averageCost) : '',
+            sellingPrice: item?.sellingPrice ? String(item.sellingPrice) : '',
+            imageUrl: item?.imageUrl || '',
+          };
+        });
+        setBatchProductsForm(newRows);
+        if (data.totalLotCost > 0) setQuickTotalLotCost(String(data.totalLotCost));
+        if (data.totalLotSell > 0) setQuickTotalLotSell(String(data.totalLotSell));
+        if (data.reason) setProductReason(data.reason);
+        setAiSummaryNote(data.summaryBn || `✨ এআই এক ক্লিকে ${toBengaliNumerals(data.products.length)}টি পণ্যের তথ্য পূরণ করেছে!`);
+      } else if (data.product) {
+        const p = data.product;
+        setProductForm((prev) => ({
+          ...prev,
+          name: p.name || prev.name,
+          sku: p.sku || prev.sku,
+          unit: p.unit || prev.unit || 'কেজি',
+          currentStock: p.currentStock !== undefined && p.currentStock !== null ? String(p.currentStock) : prev.currentStock,
+          averageCost: p.averageCost ? String(p.averageCost) : prev.averageCost,
+          sellingPrice: p.sellingPrice ? String(p.sellingPrice) : prev.sellingPrice,
+          imageUrl: prev.imageUrl && prev.imageUrl.startsWith('data:image/') ? prev.imageUrl : (p.imageUrl || prev.imageUrl),
+        }));
+        if (data.reason) setProductReason(data.reason);
+        setAiSummaryNote(data.summaryBn || '✨ এআই পণ্যের নাম, কোড, স্টক ও ক্রয়-বিক্রয়মূল্য স্বয়ংক্রিয়ভাবে বসিয়েছে!');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'AI অটো-ফিল করতে সমস্যা হয়েছে');
+    } finally {
+      setIsAiParsingProduct(false);
+    }
+  }
+
+  function handleStartVoiceInput() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('আপনার ব্রাউজারে ভয়েস টাইপিং সাপোর্ট নেই (Chrome বা Edge ব্যবহার করুন)।');
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'bn-BD';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      setIsVoiceListening(true);
+      setAiSummaryNote('🎙️ শুনছি... মুখে বলুন (যেমন: "৫০ কেজি কাকড়া কেনা ১৫০০০ টাকা বিক্রি ৪২০ টাকা")');
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || '';
+        setIsVoiceListening(false);
+        if (transcript) {
+          setAiProductPrompt(transcript);
+          handleAiParseProduct(transcript);
+        }
+      };
+
+      recognition.onerror = () => {
+        setIsVoiceListening(false);
+        setAiSummaryNote('');
+      };
+
+      recognition.onend = () => {
+        setIsVoiceListening(false);
+      };
+
+      recognition.start();
+    } catch {
+      setIsVoiceListening(false);
+    }
+  }
 
   async function handleSaveBatchProducts(e: React.FormEvent) {
     e.preventDefault();
@@ -2675,23 +2849,13 @@ export default function App() {
 
             {/* TODAY'S INSTANT SNAPSHOT BAR */}
             <div className="today-highlight-banner">
-              <div className="today-banner-head" style={{ flexWrap: 'wrap', gap: '8px' }}>
+              <div className="today-banner-head">
                 <div className="today-banner-title">
                   <Calendar size={16} />
                   <span>আজকের তাৎক্ষণিক হিসাব ({dateLabel(todayStr)})</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <span
-                    style={{
-                      background: 'rgba(16, 185, 129, 0.18)',
-                      border: '1px solid rgba(52, 211, 153, 0.45)',
-                      color: '#ecfdf5',
-                      padding: '4px 10px',
-                      borderRadius: '999px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                    }}
-                  >
+                <div className="today-banner-actions">
+                  <span className="today-balance-pill">
                     মূলধন সহ বর্তমান ব্যালান্স: {money(cashSummary.availableCash)}
                   </span>
                   <button
@@ -3249,6 +3413,14 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* WEEKLY & MONTHLY SALES & BUSINESS GROWTH TREND CHART (RECHARTS) */}
+            <SalesTrendChartSection
+              entries={entries}
+              products={products}
+              onInspectSales={() => setDashDetailModal('sales')}
+              onInspectProfit={() => setDashDetailModal('net_profit')}
+            />
 
             {/* DAY-BY-DAY SALES, PROFIT/LOSS & EXPENSE LEDGER (TODAY + ALL PAST DAYS) */}
             <div className="panel">
@@ -4739,6 +4911,11 @@ export default function App() {
               </div>
             </form>
 
+            <EmailNotificationSection
+              currentActorName={currentAdmin?.displayName || 'রাকিব (Rakib)'}
+              currentActorUid={currentAdmin?.username || user?.uid || 'Rakib'}
+            />
+
             <div style={{ marginBottom: '20px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '15px', margin: '0 0 8px', color: '#0f2438' }}>অ্যাকাউন্টিং ইঞ্জিন স্বয়ংক্রিয় যাচাই</h3>
               <button className="secondary" onClick={handleRunTests}>
@@ -5354,6 +5531,213 @@ export default function App() {
             </div>
           )}
 
+          {/* ✨ AI SMART PRODUCT UPLOAD ASSISTANT (SAVES TYPING TIME FOR SINGLE & 5-6 BATCH MODES) */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #f0fdfa 0%, #eff6ff 100%)',
+              border: '1.5px solid #5eead4',
+              borderRadius: '12px',
+              padding: '12px 14px',
+              marginBottom: '14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              boxShadow: '0 2px 8px rgba(13, 148, 136, 0.08)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+              <span style={{ fontWeight: 800, fontSize: '13px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={16} color="#0d9488" />
+                {productUploadMode === 'batch_avg' && !editingProduct
+                  ? '✨ AI ম্যাজিক লট অটো-ফিল (লেখালেখির সময় বাঁচান)'
+                  : '✨ AI ম্যাজিক অটো-ফিল (ভয়েস, ১-লাইন টেক্সট বা ছবি স্ক্যান)'}
+              </span>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  background: '#ccfbf1',
+                  color: '#115e59',
+                  padding: '2px 8px',
+                  borderRadius: '999px',
+                }}
+              >
+                ১ ক্লিকে সব ঘর পূরণ
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                value={aiProductPrompt}
+                onChange={(e) => setAiProductPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAiParseProduct();
+                  }
+                }}
+                placeholder={
+                  productUploadMode === 'batch_avg' && !editingProduct
+                    ? 'যেমন: কাকড়া ২০ কেজি, চিংড়ি ১৫ কেজি, ইলিশ ১০ কেজি, রুই ২৫ কেজি, কাতলা ১৫ কেজি মোট ২৫০০০ টাকা'
+                    : 'যেমন: ৫০ কেজি কাকড়া কেনা ১৫০০০ টাকা, বিক্রি ৪২০ টাকা'
+                }
+                style={{
+                  flex: 1,
+                  minWidth: '180px',
+                  background: '#ffffff',
+                  border: '1px solid #99f6e4',
+                  borderRadius: '8px',
+                  padding: '8px 11px',
+                  fontSize: '12.5px',
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={handleStartVoiceInput}
+                disabled={isAiParsingProduct}
+                title="মুখে বলুন (বাংলা ভয়েস টাইপিং)"
+                style={{
+                  background: isVoiceListening ? '#dc2626' : '#ffffff',
+                  color: isVoiceListening ? '#ffffff' : '#0f766e',
+                  border: '1px solid #0d9488',
+                  borderRadius: '8px',
+                  padding: '8px 11px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                🎙️ {isVoiceListening ? 'শুনছি...' : 'মুখে বলুন'}
+              </button>
+
+              <label
+                title="ভাউচার, ক্যাশ মেমো বা পণ্যের ছবি স্ক্যান করে অটো-ফিল করুন"
+                style={{
+                  background: '#ffffff',
+                  color: '#0369a1',
+                  border: '1px solid #38bdf8',
+                  borderRadius: '8px',
+                  padding: '8px 11px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  margin: 0,
+                }}
+              >
+                <Camera size={14} /> রসিদ/ছবি স্ক্যান
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      try {
+                        const compressed = await compressImage(file);
+                        if (editingProduct || productUploadMode === 'single') {
+                          setProductForm((prev) => ({ ...prev, imageUrl: compressed }));
+                        }
+                        await handleAiParseProduct(aiProductPrompt, compressed);
+                      } catch {
+                        setError('ছবি স্ক্যান করতে সমস্যা হয়েছে');
+                      }
+                    }
+                  }}
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={() => handleAiParseProduct()}
+                disabled={isAiParsingProduct}
+                style={{
+                  background: 'linear-gradient(135deg, #0d9488 0%, #0284c7 100%)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  fontSize: '12.5px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <Sparkles size={14} />
+                {isAiParsingProduct ? 'AI বসাচ্ছে…' : 'AI অটো-ফিল'}
+              </button>
+            </div>
+
+            {/* 1-Click Instant Sample Chips to save typing */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#475569' }}>
+              <span style={{ fontWeight: 700 }}>⚡ ১-ক্লিক রেডি টেমপ্লেট:</span>
+              {(productUploadMode === 'batch_avg' && !editingProduct
+                ? [
+                    {
+                      label: '📦 ৫টি মাছ-কাকড়া লট',
+                      text: 'কাকড়া ২০ কেজি কেনা ৩০০ বিক্রি ৪২০, গলদা চিংড়ি ১৫ কেজি কেনা ৫৫০ বিক্রি ৭০০, ইলিশ ১০ কেজি কেনা ৮০০ বিক্রি ১০০০, রুই মাছ ২৫ কেজি কেনা ২৬০ বিক্রি ৩৪০, কাতলা ১৫ কেজি কেনা ২৮০ বিক্রি ৩৬০',
+                    },
+                    {
+                      label: '🦀 কাকড়া ও চিংড়ি লট (গড় ৩৫০৳)',
+                      text: 'বড় কাকড়া ২৫ কেজি ৩৫০ টাকা, মাঝারি কাকড়া ৩০ কেজি ৩২০ টাকা, ছোট কাকড়া ২০ কেজি ২৫০ টাকা, বাগদা চিংড়ি ১৫ কেজি ৪৮০ টাকা, গলদা চিংড়ি ১০ কেজি ৫৫০ টাকা',
+                    },
+                  ]
+                : [
+                    { label: '🦀 কাকড়া ৫০ কেজি', text: 'সামুদ্রিক কাকড়া ৫০ কেজি মোট কেনা ১৫০০০ টাকা, বিক্রি ৪২০ টাকা' },
+                    { label: '🦐 চিংড়ি ৩০ কেজি', text: 'গলদা চিংড়ি ৩০ কেজি কেনা ৫৫০ টাকা, বিক্রি ৭০০ টাকা' },
+                    { label: '🐟 ইলিশ ২০ কেজি', text: 'পদ্মার ইলিশ ২০ কেজি কেনা ৮৫০ টাকা, বিক্রি ১০৫০ টাকা' },
+                    { label: '🐟 রুই মাছ ৪০ কেজি', text: 'দেশি রুই মাছ ৪০ কেজি কেনা ২৬০ টাকা, বিক্রি ৩৪০ টাকা' },
+                  ]
+              ).map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  onClick={() => {
+                    setAiProductPrompt(chip.text);
+                    handleAiParseProduct(chip.text);
+                  }}
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #99f6e4',
+                    color: '#0f766e',
+                    borderRadius: '6px',
+                    padding: '3px 8px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+
+            {aiSummaryNote && (
+              <div
+                style={{
+                  background: '#ffffff',
+                  border: '1px solid #99f6e4',
+                  borderRadius: '7px',
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  color: '#0f766e',
+                  fontWeight: 600,
+                }}
+              >
+                {aiSummaryNote}
+              </div>
+            )}
+          </div>
+
           {editingProduct || productUploadMode === 'single' ? (
             <form className="form-grid" onSubmit={handleSaveProduct}>
               {/* PRODUCT PHOTO SECTION */}
@@ -5366,19 +5750,43 @@ export default function App() {
                 flexDirection: 'column',
                 gap: '12px'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                   <span style={{ fontWeight: 700, fontSize: '13px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <ImageIcon size={16} color="#0d9488" /> পণ্যের ছবি (Product Photo)
                   </span>
-                  {productForm.imageUrl && (
-                    <button
-                      type="button"
-                      style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
-                      onClick={() => setProductForm({ ...productForm, imageUrl: '' })}
-                    >
-                      ছবি মুছুন
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {productForm.imageUrl && productForm.imageUrl.startsWith('data:image/') && (
+                      <button
+                        type="button"
+                        disabled={isAiParsingProduct}
+                        onClick={() => handleAiParseProduct(aiProductPrompt, productForm.imageUrl)}
+                        style={{
+                          background: '#f0fdfa',
+                          border: '1px solid #0d9488',
+                          color: '#0f766e',
+                          borderRadius: '6px',
+                          padding: '3px 8px',
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <Sparkles size={12} /> ছবি থেকে নাম ও তথ্য বসান
+                      </button>
+                    )}
+                    {productForm.imageUrl && (
+                      <button
+                        type="button"
+                        style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}
+                        onClick={() => setProductForm({ ...productForm, imageUrl: '' })}
+                      >
+                        ছবি মুছুন
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
@@ -5445,6 +5853,9 @@ export default function App() {
                             try {
                               const compressed = await compressImage(file);
                               setProductForm((prev) => ({ ...prev, imageUrl: compressed }));
+                              if (!productForm.name.trim()) {
+                                await handleAiParseProduct(aiProductPrompt, compressed);
+                              }
                             } catch (err) {
                               setError('ছবি প্রসেস করতে সমস্যা হয়েছে');
                             }
@@ -5500,7 +5911,17 @@ export default function App() {
                   required
                   value={productForm.name}
                   placeholder="যেমন: কাকড়া"
-                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                  onChange={(e) => {
+                    const newName = e.target.value;
+                    const suggested = autoSuggestFromProductName(newName);
+                    setProductForm((prev) => ({
+                      ...prev,
+                      name: newName,
+                      sku: prev.sku || suggested.sku || '',
+                      unit: prev.unit === 'পিস' && suggested.unit ? suggested.unit : prev.unit,
+                      imageUrl: prev.imageUrl || suggested.imageUrl || '',
+                    }));
+                  }}
                 />
               </label>
 
@@ -7385,7 +7806,17 @@ export default function App() {
                 </div>
               )}
 
-              <div className="modal-actions" style={{ marginTop: '4px' }}>
+              <div className="modal-actions" style={{ marginTop: '4px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setShowNotificationModal(false);
+                    setTab('settings');
+                  }}
+                >
+                  📧 ইমেইল সারাংশ ও অ্যালার্ট সেটিংস
+                </button>
                 <button
                   type="button"
                   className="secondary"
