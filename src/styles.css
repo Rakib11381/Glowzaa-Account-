@@ -4821,8 +4821,581 @@ td b {
   }
 }
 
+/* =========================================
+   BRAND WELCOME POPUP ANIMATION ("Glowzaa এটা ব্রান্ড")
+   & SETTINGS ON/OFF TOGGLE CARD
+   ========================================= */
+
+@keyframes brandPopupBackdropIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes brandPopupCardSpring {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.86);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes brandCrestFloat {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.04);
+  }
+}
+
+@keyframes brandRingSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes brandTextShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes brandTimerShrink {
+  0% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0);
+  }
+}
+
+.brand-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  background: radial-gradient(circle at center, rgba(15, 36, 56, 0.72) 0%, rgba(9, 18, 30, 0.88) 100%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  animation: brandPopupBackdropIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: opacity 0.3s ease;
+}
+
+.brand-popup-backdrop.closing {
+  opacity: 0;
+}
+
+.brand-popup-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: linear-gradient(155deg, #0b1f33 0%, #102e48 52%, #0c3b49 100%);
+  border: 1.5px solid rgba(45, 212, 191, 0.42);
+  border-radius: 24px;
+  padding: 32px 26px 26px;
+  text-align: center;
+  color: #ffffff;
+  overflow: hidden;
+  box-shadow:
+    0 26px 65px rgba(2, 12, 27, 0.65),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 0 42px rgba(20, 184, 166, 0.25);
+  animation: brandPopupCardSpring 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.brand-popup-card.closing {
+  opacity: 0;
+  transform: translateY(16px) scale(0.92);
+}
+
+.brand-popup-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(36px);
+  opacity: 0.45;
+}
+
+.brand-popup-orb.orb-1 {
+  width: 170px;
+  height: 170px;
+  background: radial-gradient(circle, #14b8a6 0%, transparent 70%);
+  top: -55px;
+  left: -45px;
+}
+
+.brand-popup-orb.orb-2 {
+  width: 190px;
+  height: 190px;
+  background: radial-gradient(circle, #f59e0b 0%, transparent 70%);
+  bottom: -65px;
+  right: -50px;
+  opacity: 0.32;
+}
+
+.brand-popup-shimmer-line {
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #2dd4bf, #fbbf24, #2dd4bf, transparent);
+  opacity: 0.9;
+}
+
+.brand-popup-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  z-index: 3;
+}
+
+.brand-popup-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: rotate(90deg);
+}
+
+.brand-popup-crest-wrap {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: brandCrestFloat 2.8s ease-in-out infinite;
+}
+
+.brand-popup-crest-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.brand-popup-crest-ring.ring-outer {
+  border: 1.5px dashed rgba(45, 212, 191, 0.55);
+  animation: brandRingSpin 14s linear infinite;
+}
+
+.brand-popup-crest-ring.ring-inner {
+  inset: 7px;
+  border: 1.5px solid rgba(251, 191, 36, 0.45);
+  box-shadow: 0 0 22px rgba(20, 184, 166, 0.35);
+}
+
+.brand-popup-crest-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 55%, #b45309 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(13, 148, 136, 0.45);
+}
+
+.brand-crest-main-svg {
+  color: #fef3c7;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.28));
+}
+
+.brand-crest-sparkle-svg {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #fde68a;
+}
+
+.brand-popup-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(20, 184, 166, 0.16);
+  border: 1px solid rgba(94, 234, 212, 0.35);
+  color: #5eead4;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+
+.brand-popup-headline {
+  margin: 0 0 10px;
+  font-size: clamp(26px, 6vw, 34px);
+  font-weight: 900;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  background: linear-gradient(90deg, #ffffff 0%, #fde68a 35%, #5eead4 70%, #ffffff 100%);
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: brandTextShimmer 3.6s linear infinite;
+  text-wrap: balance;
+}
+
+.brand-popup-subtitle {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.brand-popup-subtitle b {
+  color: #fde68a;
+  font-weight: 800;
+}
+
+.brand-popup-pillars {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  margin-bottom: 20px;
+}
+
+.brand-pillar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.brand-pillar-item svg {
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+.brand-popup-enter-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(94, 234, 212, 0.5);
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+  color: #ffffff;
+  font-size: 14.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(13, 148, 136, 0.38);
+  transition: all 0.18s ease;
+}
+
+.brand-popup-enter-btn:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+  box-shadow: 0 10px 24px rgba(20, 184, 166, 0.48);
+}
+
+.brand-popup-timer-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.brand-popup-timer-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #2dd4bf, #fbbf24);
+  transform-origin: left center;
+  animation: brandTimerShrink 4.2s linear forwards;
+}
+
+/* Settings Tab: Brand Popup ON/OFF Card */
+.brand-popup-setting-card {
+  background: linear-gradient(135deg, #f0fdfa 0%, #fffbeb 100%);
+  border: 1.5px solid #5eead4;
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 16px rgba(13, 148, 136, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brand-popup-setting-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.brand-popup-setting-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 240px;
+}
+
+.brand-popup-setting-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f2438 0%, #0d9488 100%);
+  color: #fde68a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+}
+
+.brand-popup-setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.brand-popup-setting-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.brand-popup-setting-title-row h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f2438;
+}
+
+.brand-popup-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.brand-popup-status-pill.is-on {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+
+.brand-popup-status-pill.is-off {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+.brand-popup-setting-text p {
+  margin: 0;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.brand-popup-setting-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.brand-toggle-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 9px;
+  border-radius: 999px;
+  border: 1.5px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.brand-toggle-switch-btn .brand-toggle-knob {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.brand-toggle-switch-btn.active {
+  background: #0d9488;
+  border-color: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.28);
+}
+
+.brand-toggle-switch-btn.active .brand-toggle-knob {
+  background: #fde68a;
+  transform: scale(1.06);
+}
+
+.brand-preview-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1.5px solid #0f2438;
+  background: #0f2438;
+  color: #fde68a;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 42px;
+  white-space: nowrap;
+  transition: all 0.16s ease;
+}
+
+.brand-preview-trigger-btn:hover {
+  background: #1e3a5f;
+  transform: translateY(-1px);
+}
+
+.brand-popup-custom-row {
+  padding-top: 12px;
+  border-top: 1px dashed #99f6e4;
+}
+
+.brand-popup-input-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.brand-popup-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-popup-input-group input {
+  flex: 1;
+  min-width: 0;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+@media (max-width: 640px) {
+  .brand-popup-card {
+    padding: 26px 18px 22px;
+    border-radius: 20px;
+  }
+
+  .brand-popup-pillars {
+    gap: 5px;
+  }
+
+  .brand-pillar-item {
+    padding: 5px 7px;
+    font-size: 10.5px;
+  }
+
+  .brand-popup-setting-card {
+    padding: 15px 14px;
+  }
+
+  .brand-popup-setting-controls {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .brand-toggle-switch-btn,
+  .brand-preview-trigger-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .brand-popup-input-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .brand-popup-input-group button {
+    width: 100%;
+  }
+}
+
 @media print {
-  .sidebar, .topbar, .top-actions, .icon-btn, .primary, .secondary, .danger, .filter-bar, .mobile-menu-btn, .mobile-tab-strip, .mobile-bottom-nav, .dash-filter-card, .action-loading-overlay {
+  .sidebar, .topbar, .top-actions, .icon-btn, .primary, .secondary, .danger, .filter-bar, .mobile-menu-btn, .mobile-tab-strip, .mobile-bottom-nav, .dash-filter-card, .action-loading-overlay, .brand-popup-backdrop {
     display: none !important;
   }
   .main {

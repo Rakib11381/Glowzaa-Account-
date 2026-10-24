@@ -97,6 +97,7 @@ import TermsConditionsCard from './components/TermsConditionsCard';
 import PWAInstallButton from './components/PWAInstallButton';
 import SalesTrendChartSection from './components/SalesTrendChartSection';
 import EmailNotificationSection from './components/EmailNotificationSection';
+import BrandWelcomePopup from './components/BrandWelcomePopup';
 import {
   money,
   moneyBn,
@@ -187,6 +188,8 @@ const blankSettings: BusinessSettings = {
   phone: '০১৭১১-০০০০০০',
   currencySymbol: '৳',
   superAdminEmail: 'glowzaabd.shop@gmail.com',
+  showBrandPopup: true,
+  brandPopupText: 'Glowzaa এটা ব্রান্ড',
 };
 
 function compressImage(file: File): Promise<string> {
@@ -288,6 +291,18 @@ export default function App() {
       }
     } catch {}
     return blankSettings;
+  });
+
+  // Website Entry Brand Popup Animation ("Glowzaa এটা ব্রান্ড") State
+  const [showBrandWelcome, setShowBrandWelcome] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem('glowzaa_business_settings');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.showBrandPopup === false) return false;
+      }
+    } catch {}
+    return true;
   });
 
   // UI state
@@ -459,6 +474,35 @@ export default function App() {
       });
     });
 
+    if (db) {
+      getDoc(doc(db, 'businessSettings', 'main'))
+        .then((s) => {
+          if (s.exists()) {
+            const merged = { ...blankSettings, ...(s.data() as BusinessSettings) };
+            setSettings(merged);
+            if (merged.showBrandPopup === false) {
+              setShowBrandWelcome(false);
+            }
+            try {
+              localStorage.setItem(
+                'glowzaa_business_settings',
+                JSON.stringify({
+                  name: merged.name || blankSettings.name,
+                  type: merged.type || '',
+                  address: merged.address || '',
+                  phone: merged.phone || '',
+                  currencySymbol: merged.currencySymbol || '৳',
+                  superAdminEmail: merged.superAdminEmail || blankSettings.superAdminEmail,
+                  showBrandPopup: merged.showBrandPopup !== false,
+                  brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
+                })
+              );
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    }
+
     if (!auth) {
       setAuthReady(true);
       return;
@@ -506,6 +550,9 @@ export default function App() {
         if (s.exists()) {
           const merged = { ...blankSettings, ...(s.data() as BusinessSettings) };
           setSettings(merged);
+          if (merged.showBrandPopup === false) {
+            setShowBrandWelcome(false);
+          }
           try {
             localStorage.setItem('glowzaa_business_settings', JSON.stringify({
               name: merged.name || blankSettings.name,
@@ -514,6 +561,8 @@ export default function App() {
               phone: merged.phone || '',
               currencySymbol: merged.currencySymbol || '৳',
               superAdminEmail: merged.superAdminEmail || blankSettings.superAdminEmail,
+              showBrandPopup: merged.showBrandPopup !== false,
+              brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
             }));
           } catch {}
         }
@@ -2135,6 +2184,46 @@ export default function App() {
     }
   }
 
+  async function handleToggleBrandPopup(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      showBrandPopup: enabled,
+      brandPopupText: (settings.brandPopupText || 'Glowzaa এটা ব্রান্ড').trim() || 'Glowzaa এটা ব্রান্ড',
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (enabled) {
+      setShowBrandWelcome(true);
+    } else {
+      setShowBrandWelcome(false);
+    }
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            showBrandPopup: enabled,
+            brandPopupText: updatedSettings.brandPopupText,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Brand popup toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '✨ "Glowzaa এটা ব্রান্ড" ওয়েলকাম পপআপ এনিমেশন চালু (ON) করা হয়েছে!'
+        : 'ওয়েলকাম পপআপ এনিমেশন বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
     if (!admin || !db) return;
@@ -2152,6 +2241,8 @@ export default function App() {
         phone: (settings.phone || '').trim(),
         currencySymbol: settings.currencySymbol || '৳',
         superAdminEmail: settings.superAdminEmail || 'glowzaabd.shop@gmail.com',
+        showBrandPopup: settings.showBrandPopup !== false,
+        brandPopupText: (settings.brandPopupText || 'Glowzaa এটা ব্রান্ড').trim() || 'Glowzaa এটা ব্রান্ড',
         updatedBy: actorId,
       };
       const payload = deepClean({
@@ -2256,6 +2347,12 @@ export default function App() {
   if (!currentAdmin) {
     return (
       <div className="setup">
+        <BrandWelcomePopup
+          open={showBrandWelcome}
+          brandText={settings.brandPopupText || 'Glowzaa এটা ব্রান্ড'}
+          shopName={settings.name || 'Glowzaa Shop'}
+          onClose={() => setShowBrandWelcome(false)}
+        />
         <div className="login-card" style={{ maxWidth: '440px', padding: '28px 24px' }}>
           <div style={{ display: 'inline-flex', padding: '12px', background: 'linear-gradient(135deg, #091e32, #0d3251)', borderRadius: '16px', color: '#2dd4bf', boxShadow: '0 4px 14px rgba(13, 148, 136, 0.25)', margin: '0 auto 8px' }}>
             <BadgeDollarSign size={38} />
@@ -2361,6 +2458,14 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {/* Website Entry Brand Welcome Popup Animation ("Glowzaa এটা ব্রান্ড") */}
+      <BrandWelcomePopup
+        open={showBrandWelcome}
+        brandText={settings.brandPopupText || 'Glowzaa এটা ব্রান্ড'}
+        shopName={settings.name || 'Glowzaa Shop'}
+        onClose={() => setShowBrandWelcome(false)}
+      />
+
       {/* Global Save / Add Product / Delete Loading Animation Overlay */}
       {busy && (
         <div className="action-loading-overlay" role="status" aria-live="polite">
@@ -4910,6 +5015,100 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            {/* WEBSITE ENTRY BRAND POPUP ANIMATION ("Glowzaa এটা ব্রান্ড") ON/OFF SETTING CARD */}
+            <div className="brand-popup-setting-card">
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div className="brand-popup-setting-icon">
+                    <Sparkles size={22} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>ওয়েবসাইট ওয়েলকাম পপআপ এনিমেশন (&ldquo;Glowzaa এটা ব্রান্ড&rdquo;)</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.showBrandPopup !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.showBrandPopup !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      ওয়েবসাইটে ঢুকলেই প্রিমিয়াম পপআপ এনিমেশনে <b>&ldquo;{settings.brandPopupText || 'Glowzaa এটা ব্রান্ড'}&rdquo;</b> লেখাটি দেখাবে। আপনি এখান থেকে যেকোনো সময় এটি অন বা অফ করে রাখতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  {/* Interactive ON / OFF Switch */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.showBrandPopup !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.showBrandPopup !== false ? 'active' : ''
+                    }`}
+                    onClick={() => handleToggleBrandPopup(settings.showBrandPopup === false)}
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.showBrandPopup !== false ? 'এনিমেশন: ON' : 'এনিমেশন: OFF'}
+                    </span>
+                  </button>
+
+                  {/* Preview Popup Button */}
+                  <button
+                    type="button"
+                    className="brand-preview-trigger-btn"
+                    onClick={() => setShowBrandWelcome(true)}
+                  >
+                    <PlayCircle size={16} />
+                    <span>এনিমেশন প্রিভিউ দেখুন</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="brand-popup-custom-row">
+                <label className="brand-popup-input-label">
+                  <span>পপআপ এনিমেশনের লেখা (চাইলে পরিবর্তন করতে পারেন):</span>
+                  <div className="brand-popup-input-group">
+                    <input
+                      type="text"
+                      value={settings.brandPopupText ?? 'Glowzaa এটা ব্রান্ড'}
+                      onChange={(e) =>
+                        setSettings({ ...settings, brandPopupText: e.target.value })
+                      }
+                      placeholder="Glowzaa এটা ব্রান্ড"
+                    />
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={async () => {
+                        const defaultText = 'Glowzaa এটা ব্রান্ড';
+                        const updated = { ...settings, brandPopupText: defaultText };
+                        setSettings(updated);
+                        try {
+                          localStorage.setItem('glowzaa_business_settings', JSON.stringify(updated));
+                        } catch {}
+                        if (db) {
+                          try {
+                            await setDoc(
+                              doc(db, 'businessSettings', 'main'),
+                              { brandPopupText: defaultText, updatedAt: serverTimestamp() },
+                              { merge: true }
+                            );
+                          } catch {}
+                        }
+                        setMessage('পপআপ টেক্সট "Glowzaa এটা ব্রান্ড"-এ রিসেট করা হয়েছে!');
+                      }}
+                    >
+                      ডিফল্ট টেক্সট
+                    </button>
+                  </div>
+                </label>
+              </div>
+            </div>
 
             <EmailNotificationSection
               currentActorName={currentAdmin?.displayName || 'রাকিব (Rakib)'}

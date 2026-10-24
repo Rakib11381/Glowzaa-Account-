@@ -103,6 +103,8 @@
         "address": { "type": "string", "maxLength": 300 },
         "phone": { "type": "string", "maxLength": 50 },
         "currencySymbol": { "type": "string", "maxLength": 10 },
+        "showBrandPopup": { "type": "boolean" },
+        "brandPopupText": { "type": "string", "maxLength": 150 },
         "updatedAt": { "type": "string" },
         "updatedBy": { "type": "string", "maxLength": 128 }
       },

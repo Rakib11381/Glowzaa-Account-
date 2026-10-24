@@ -84,6 +84,8 @@ export interface BusinessSettings {
   phone: string;
   currencySymbol?: string;
   superAdminEmail?: string;
+  showBrandPopup?: boolean;
+  brandPopupText?: string;
   rakibEmail?: string;
   limonEmail?: string;
   highValueWithdrawalThreshold?: number;

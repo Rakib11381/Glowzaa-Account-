@@ -2,6 +2,66 @@
 <html lang="bn">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var NativeWebSocket = window.WebSocket;
+        if (!NativeWebSocket) return;
+        function createSilentViteSocket(url, protocols) {
+          var target = new EventTarget();
+          var socket = {
+            url: String(url || ''),
+            protocol: Array.isArray(protocols) ? (protocols[0] || '') : String(protocols || ''),
+            readyState: 0,
+             bufferedAmount: 0,
+            extensions: '',
+            binaryType: 'blob',
+            CONNECTING: 0,
+            OPEN: 1,
+            CLOSING: 2,
+            CLOSED: 3,
+             onopen: null,
+            onmessage: null,
+            onerror: null,
+            onclose: null,
+            send: function () {},
+            close: function () {
+              socket.readyState = 3;
+            },
+            addEventListener: target.addEventListener.bind(target),
+            removeEventListener: target.removeEventListener.bind(target),
+            dispatchEvent: target.dispatchEvent.bind(target),
+          };
+          setTimeout(function () {
+            socket.readyState = 1;
+            var openEvent = new Event('open');
+            if (typeof socket.onopen === 'function') socket.onopen(openEvent);
+            target.dispatchEvent(openEvent);
+          }, 10);
+          return socket;
+        }
+        var WrappedWebSocket = function (url, protocols) {
+          var protoStr = Array.isArray(protocols) ? protocols.join(',') : String(protocols || '');
+          if (protoStr.indexOf('vite-hmr') !== -1 || protoStr.indexOf('vite-ping') !== -1) {
+            return createSilentViteSocket(url, protocols);
+          }
+          return protocols !== undefined
+            ? new NativeWebSocket(url, protocols)
+            : new NativeWebSocket(url);
+        };
+        WrappedWebSocket.prototype = NativeWebSocket.prototype;
+        WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+        WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
+        WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
+        WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
+        window.WebSocket = WrappedWebSocket;
+        window.addEventListener('unhandledrejection', function (event) {
+          var msg = event && event.reason && (event.reason.message || String(event.reason));
+          if (typeof msg === 'string' && msg.indexOf('WebSocket closed without opened') !== -1) {
+            event.preventDefault();
+          }
+        });
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
     <meta name="theme-color" content="#091e32" />
     <meta name="mobile-web-app-capable" content="yes" />
