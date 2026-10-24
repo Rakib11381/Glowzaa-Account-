@@ -8,6 +8,7 @@ export interface Investor {
   phone?: string;
   email?: string;
   active: boolean;
+  equityShare?: number;
   demo?: boolean;
   notes?: string;
   createdAt?: any;
@@ -83,6 +84,8 @@ export interface BusinessSettings {
   phone: string;
   currencySymbol?: string;
   superAdminEmail?: string;
+  updatedBy?: string;
+  updatedAt?: any;
 }
 
 export interface AuditLog {
@@ -113,6 +116,7 @@ export type ApprovalActionType =
   | 'edit_investor'
   | 'delete_investor'
   | 'distribute_profit'
+  | 'delete_distribution'
   | 'record_waste';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';

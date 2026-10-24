@@ -76,6 +76,57 @@ export interface InvestorLedgerItem extends Investor {
   share: number; // Equity share percentage (0-100)
 }
 
+// Match an entry to an investor by exact ID, case-insensitive ID, or Rakib/Limon/partner name
+export function matchInvestorIdForEntry(e: Entry, investors: Investor[]): string | null {
+  if (!investors.length) return e.investorId || null;
+
+  if (e.investorId) {
+    const exact = investors.find((i) => i.id === e.investorId);
+    if (exact) return exact.id;
+
+    const lowerId = e.investorId.toLowerCase().trim();
+    const caseInsensitive = investors.find((i) => i.id.toLowerCase().trim() === lowerId);
+    if (caseInsensitive) return caseInsensitive.id;
+
+    if (lowerId.includes('rakib') || lowerId.includes('রাকিব')) {
+      const rakibInv = investors.find(
+        (i) => i.name.toLowerCase().includes('rakib') || i.name.includes('রাকিব')
+      );
+      if (rakibInv) return rakibInv.id;
+    }
+    if (lowerId.includes('limon') || lowerId.includes('লিমন')) {
+      const limonInv = investors.find(
+        (i) => i.name.toLowerCase().includes('limon') || i.name.includes('লিমন')
+      );
+      if (limonInv) return limonInv.id;
+    }
+  }
+
+  // Fallback for partner entries (investment / withdrawal / loan) where investorId wasn't linked
+  if (e.type === 'investment' || e.type === 'withdrawal' || e.type === 'loan') {
+    const combined = `${e.title || ''} ${e.notes || ''}`.toLowerCase();
+    if (combined.includes('rakib') || combined.includes('রাকিব')) {
+      const rakibInv = investors.find(
+        (i) => i.name.toLowerCase().includes('rakib') || i.name.includes('রাকিব')
+      );
+      if (rakibInv) return rakibInv.id;
+    }
+    if (combined.includes('limon') || combined.includes('লিমন')) {
+      const limonInv = investors.find(
+        (i) => i.name.toLowerCase().includes('limon') || i.name.includes('লিমন')
+      );
+      if (limonInv) return limonInv.id;
+    }
+    for (const inv of investors) {
+      if (inv.name && combined.includes(inv.name.toLowerCase())) {
+        return inv.id;
+      }
+    }
+  }
+
+  return e.investorId || null;
+}
+
 // Calculate exact partner equity shares and ledgers
 export function shares(investors: Investor[], entries: Entry[]): InvestorLedgerItem[] {
   const posted = entries.filter((e) => e.status === 'posted');
@@ -90,28 +141,36 @@ export function shares(investors: Investor[], entries: Entry[]): InvestorLedgerI
   }
 
   for (const e of posted) {
-    if (!e.investorId) continue;
+    const matchedInvId = matchInvestorIdForEntry(e, investors);
+    if (!matchedInvId || !capitalMap.has(matchedInvId)) continue;
     const paisa = toPaisa(e.amount);
 
     if (e.type === 'investment') {
-      const cur = capitalMap.get(e.investorId) || 0;
-      capitalMap.set(e.investorId, cur + paisa);
+      const cur = capitalMap.get(matchedInvId) || 0;
+      capitalMap.set(matchedInvId, cur + paisa);
     } else if (e.type === 'withdrawal') {
-      const cur = withdrawalMap.get(e.investorId) || 0;
-      withdrawalMap.set(e.investorId, cur + paisa);
+      const cur = withdrawalMap.get(matchedInvId) || 0;
+      withdrawalMap.set(matchedInvId, cur + paisa);
     } else if (e.type === 'loan') {
-      const cur = loanMap.get(e.investorId) || 0;
-      loanMap.set(e.investorId, cur + paisa);
+      const cur = loanMap.get(matchedInvId) || 0;
+      loanMap.set(matchedInvId, cur + paisa);
     }
   }
 
   const totalCapitalPaisa = [...capitalMap.values()].reduce((sum, v) => sum + v, 0);
+  const activeInvestors = investors.filter((inv) => inv.active !== false);
+  const equalFallbackShare = activeInvestors.length > 0 ? 100 / activeInvestors.length : 0;
 
   return investors.map((inv) => {
     const capPaisa = capitalMap.get(inv.id) || 0;
     const withPaisa = withdrawalMap.get(inv.id) || 0;
     const loanPaisa = loanMap.get(inv.id) || 0;
-    const share = totalCapitalPaisa > 0 ? (capPaisa / totalCapitalPaisa) * 100 : 0;
+    const share =
+      totalCapitalPaisa > 0
+        ? (capPaisa / totalCapitalPaisa) * 100
+        : inv.active !== false
+        ? (inv as any).equityShare ?? equalFallbackShare
+        : 0;
 
     return {
       ...inv,
@@ -129,7 +188,7 @@ export interface InventoryValuationResult {
   totalInventoryValue: number;
 }
 
-// Compute weighted average inventory costing and stock balances
+// Compute weighted average inventory costing and stock balances from base product list + entries
 export function calculateInventoryCosting(products: Product[], entries: Entry[]): InventoryValuationResult {
   const postedPurchases = entries.filter((e) => e.status === 'posted' && e.type === 'purchase');
   const postedSales = entries.filter((e) => e.status === 'posted' && e.type === 'sale');
@@ -200,6 +259,51 @@ export function calculateInventoryCosting(products: Product[], entries: Entry[])
   };
 }
 
+// Compute total purchase cost without double-counting products that have both a 'purchase' entry and a 'sale' COGS entry
+export function calculateTotalPurchaseCost(entries: Entry[], products: Product[] = []): number {
+  const posted = entries.filter((e) => e.status === 'posted');
+  const prodCostMap = new Map<string, number>();
+  for (const p of products) {
+    prodCostMap.set(p.id, p.averageCost || 0);
+  }
+
+  const purchasedProductIds = new Set<string>();
+  let totalPurchasePaisa = 0;
+
+  for (const e of posted) {
+    if (e.type === 'purchase') {
+      totalPurchasePaisa += toPaisa(e.amount);
+      if (e.productId) {
+        purchasedProductIds.add(e.productId);
+      }
+    }
+  }
+
+  // Include direct sale COGS only for sales that are NOT already covered by a product purchase entry
+  for (const s of posted) {
+    if (s.type !== 'sale') continue;
+    if (s.productId && purchasedProductIds.has(s.productId)) {
+      continue;
+    }
+
+    let saleCogsPaisa = 0;
+    if (s.grossProfit !== undefined && !isNaN(Number(s.grossProfit))) {
+      saleCogsPaisa = Math.max(0, toPaisa(s.amount) - toPaisa(s.grossProfit));
+    } else if (s.cogsAmount !== undefined && !isNaN(Number(s.cogsAmount))) {
+      saleCogsPaisa = toPaisa(s.cogsAmount);
+    } else if (s.productId && s.quantity && prodCostMap.has(s.productId)) {
+      saleCogsPaisa = toPaisa(s.quantity * (prodCostMap.get(s.productId) || 0));
+    }
+
+    // Only add standalone sale COGS if there are no unlinked general purchase entries, or if this sale has explicit cost
+    if (saleCogsPaisa > 0) {
+      totalPurchasePaisa += saleCogsPaisa;
+    }
+  }
+
+  return fromPaisa(totalPurchasePaisa);
+}
+
 export interface AccountingSummary {
   sales: number;
   purchases: number;
@@ -233,9 +337,6 @@ export function summary(entries: Entry[], products: Product[] = []): AccountingS
   const withdrawalsPaisa = sumPaisa('withdrawal');
   const loansPaisa = sumPaisa('loan');
 
-  // Calculate COGS
-  // If an entry has cogsAmount, use it; otherwise, if product linked, calculate from product avg cost;
-  // If no product tracking exists for an entry, calculate based on overall purchases or logged cogs.
   let calculatedCogsPaisa = 0;
   const prodCostMap = new Map<string, number>();
   for (const p of products) {
@@ -248,26 +349,38 @@ export function summary(entries: Entry[], products: Product[] = []): AccountingS
   for (const s of salesEntries) {
     if (s.grossProfit !== undefined && !isNaN(Number(s.grossProfit))) {
       const gp = toPaisa(s.grossProfit);
-      calculatedCogsPaisa += Math.max(0, toPaisa(s.amount) - gp);
-      hasItemizedSales = true;
+      const cogs = Math.max(0, toPaisa(s.amount) - gp);
+      calculatedCogsPaisa += cogs;
+      if (cogs > 0 || purchasesPaisa === 0) {
+        hasItemizedSales = true;
+      }
     } else if (s.cogsAmount !== undefined && !isNaN(Number(s.cogsAmount))) {
-      calculatedCogsPaisa += toPaisa(s.cogsAmount);
-      hasItemizedSales = true;
+      const cogs = toPaisa(s.cogsAmount);
+      calculatedCogsPaisa += cogs;
+      if (cogs > 0 || purchasesPaisa === 0) {
+        hasItemizedSales = true;
+      }
     } else if (s.productId && s.quantity && prodCostMap.has(s.productId)) {
       const avgCost = prodCostMap.get(s.productId) || 0;
-      calculatedCogsPaisa += toPaisa(s.quantity * avgCost);
-      hasItemizedSales = true;
+      const cogs = toPaisa(s.quantity * avgCost);
+      calculatedCogsPaisa += cogs;
+      if (cogs > 0 || purchasesPaisa === 0) {
+        hasItemizedSales = true;
+      }
     }
   }
 
-  // If items weren't tracked individually, direct COGS defaults to purchases for simplified cash accounting
+  // If items weren't tracked with explicit cost and purchase entries exist, fall back to purchasesPaisa
   const finalCogsPaisa = hasItemizedSales ? calculatedCogsPaisa : purchasesPaisa;
   const grossProfitPaisa = salesPaisa - finalCogsPaisa;
   const netProfitPaisa = grossProfitPaisa - expensesPaisa;
   const roughNetProfitPaisa = salesPaisa - purchasesPaisa - expensesPaisa;
 
-  // Inventory value
-  const invVal = calculateInventoryCosting(products, entries);
+  // Live inventory value directly from current product stocks (since addEntry/removeEntry/voidPostedEntry already maintain p.currentStock)
+  const liveInventoryValuePaisa = products.reduce(
+    (acc, p) => acc + toPaisa((p.currentStock || 0) * (p.averageCost || 0)),
+    0
+  );
 
   return {
     sales: fromPaisa(salesPaisa),
@@ -280,7 +393,7 @@ export function summary(entries: Entry[], products: Product[] = []): AccountingS
     grossProfit: fromPaisa(grossProfitPaisa),
     netProfit: fromPaisa(netProfitPaisa),
     roughNetProfit: fromPaisa(roughNetProfitPaisa),
-    inventoryValuation: invVal.totalInventoryValue,
+    inventoryValuation: fromPaisa(liveInventoryValuePaisa),
     postedCount: posted.length,
     draftCount: drafts.length,
     voidCount: voids.length,
@@ -345,7 +458,7 @@ export interface CashBalanceSummary {
 
 // Calculate exact available balance following user's rule:
 // "মুলধনের সাথে শুধু মাত্র লাভ টা যোগ হয়ে নতুন ব্যালেন্স হিসাব হবে।"
-// (New Balance = Capital + Profit - Withdrawals)
+// (New Balance = Capital + Profit - Withdrawals - Loans)
 export function calculateCashBalance(entries: Entry[], products: Product[] = []): CashBalanceSummary {
   const posted = entries.filter((e) => e.status === 'posted');
   let investmentsPaisa = 0;
@@ -364,6 +477,13 @@ export function calculateCashBalance(entries: Entry[], products: Product[] = [])
     prodCostMap.set(p.id, p.averageCost || 0);
   }
 
+  // First pass to know total purchasesPaisa
+  for (const e of posted) {
+    if (e.type === 'purchase') {
+      purchasesPaisa += toPaisa(e.amount);
+    }
+  }
+
   for (const e of posted) {
     const p = toPaisa(e.amount);
     switch (e.type) {
@@ -374,19 +494,26 @@ export function calculateCashBalance(entries: Entry[], products: Product[] = [])
         salesPaisa += p;
         if (e.grossProfit !== undefined && !isNaN(Number(e.grossProfit))) {
           const gp = toPaisa(e.grossProfit);
-          itemizedCogsPaisa += Math.max(0, p - gp);
-          hasItemizedSales = true;
+          const cogs = Math.max(0, p - gp);
+          itemizedCogsPaisa += cogs;
+          if (cogs > 0 || purchasesPaisa === 0) {
+            hasItemizedSales = true;
+          }
         } else if (e.cogsAmount !== undefined && !isNaN(Number(e.cogsAmount))) {
-          itemizedCogsPaisa += toPaisa(e.cogsAmount);
-          hasItemizedSales = true;
+          const cogs = toPaisa(e.cogsAmount);
+          itemizedCogsPaisa += cogs;
+          if (cogs > 0 || purchasesPaisa === 0) {
+            hasItemizedSales = true;
+          }
         } else if (e.productId && e.quantity && prodCostMap.has(e.productId)) {
           const cost = toPaisa(e.quantity * (prodCostMap.get(e.productId) || 0));
           itemizedCogsPaisa += cost;
-          hasItemizedSales = true;
+          if (cost > 0 || purchasesPaisa === 0) {
+            hasItemizedSales = true;
+          }
         }
         break;
       case 'purchase':
-        purchasesPaisa += p;
         break;
       case 'expense':
         expensesPaisa += p;
@@ -438,7 +565,7 @@ export interface PartnerAccountBalance extends InvestorLedgerItem {
 }
 
 // Calculate partner-by-partner account balances including allocated profits and withdrawable profit limit
-// STRICT BUSINESS RULE: Invested capital (মূলধন / বিনিয়োগ) CANNOT be withdrawn. Only earned profit (লাভ) minus withdrawals can be withdrawn.
+// STRICT BUSINESS RULE: Invested capital (মূলধন / বিনিয়োগ) CANNOT be withdrawn. Only earned profit (লাভ) minus withdrawals/loans can be withdrawn.
 export function calculatePartnerAccountBalances(
   investors: Investor[],
   entries: Entry[],
@@ -446,26 +573,31 @@ export function calculatePartnerAccountBalances(
 ): PartnerAccountBalance[] {
   const ledgers = shares(investors, entries);
   const finSummary = summary(entries, entries.length ? products : []);
-  const netProfit = finSummary.netProfit;
+  const netProfitPaisa = toPaisa(finSummary.netProfit);
   const cashSummary = calculateCashBalance(entries, products);
+  const availableCashPaisa = Math.max(0, toPaisa(cashSummary.availableCash));
 
   return ledgers.map((inv) => {
+    const capPaisa = toPaisa(inv.capital);
+    const withPaisa = toPaisa(inv.withdrawals);
+    const loanPaisa = toPaisa(inv.loans);
+
     // Allocated profit according to ownership share percentage
-    const allocatedProfit = Math.round(((netProfit * inv.share) / 100) * 100) / 100;
+    const allocatedProfitPaisa = Math.round((netProfitPaisa * inv.share) / 100);
     // Remaining profit = Allocated Profit - Partner Withdrawals - Partner Loans (Loans auto-deducted from profit; Capital is locked)
-    const remainingProfit = Math.round((allocatedProfit - inv.withdrawals - inv.loans) * 100) / 100;
+    const remainingProfitPaisa = allocatedProfitPaisa - withPaisa - loanPaisa;
     // Total Equity Account Balance = Locked Capital + Remaining Profit
-    const accountBalance = Math.round((inv.capital + allocatedProfit - inv.withdrawals - inv.loans) * 100) / 100;
+    const accountBalancePaisa = capPaisa + remainingProfitPaisa;
     // Withdrawable limit is strictly limited to positive remaining profit (NEVER includes capital), capped by available business cash
-    const withdrawableProfitOnly = Math.max(0, remainingProfit);
-    const withdrawableLimit = Math.max(0, Math.min(withdrawableProfitOnly, Math.max(0, cashSummary.availableCash)));
+    const withdrawableProfitOnlyPaisa = Math.max(0, remainingProfitPaisa);
+    const withdrawableLimitPaisa = Math.max(0, Math.min(withdrawableProfitOnlyPaisa, availableCashPaisa));
 
     return {
       ...inv,
-      allocatedProfit,
-      remainingProfit,
-      accountBalance,
-      withdrawableLimit,
+      allocatedProfit: fromPaisa(allocatedProfitPaisa),
+      remainingProfit: fromPaisa(remainingProfitPaisa),
+      accountBalance: fromPaisa(accountBalancePaisa),
+      withdrawableLimit: fromPaisa(withdrawableLimitPaisa),
     };
   });
 }
@@ -517,10 +649,17 @@ export function calculateDailyBreakdowns(
     let salesPaisa = 0;
     let salesCount = 0;
     let cogsPaisa = 0;
+    let hasItemizedDaySales = false;
     let expensesPaisa = 0;
     let purchasesPaisa = 0;
     let investmentsPaisa = 0;
     let withdrawalsPaisa = 0;
+
+    for (const e of dayEntries) {
+      if (e.type === 'purchase') {
+        purchasesPaisa += toPaisa(e.amount);
+      }
+    }
 
     for (const e of dayEntries) {
       const amtPaisa = toPaisa(e.amount);
@@ -529,24 +668,29 @@ export function calculateDailyBreakdowns(
         salesCount += 1;
         if (e.grossProfit !== undefined && !isNaN(Number(e.grossProfit))) {
           const gp = toPaisa(e.grossProfit);
-          cogsPaisa += Math.max(0, amtPaisa - gp);
+          const cogs = Math.max(0, amtPaisa - gp);
+          cogsPaisa += cogs;
+          if (cogs > 0 || purchasesPaisa === 0) hasItemizedDaySales = true;
         } else if (e.cogsAmount !== undefined && !isNaN(Number(e.cogsAmount))) {
-          cogsPaisa += toPaisa(e.cogsAmount);
+          const cogs = toPaisa(e.cogsAmount);
+          cogsPaisa += cogs;
+          if (cogs > 0 || purchasesPaisa === 0) hasItemizedDaySales = true;
         } else if (e.productId && e.quantity && prodCostMap.has(e.productId)) {
-          cogsPaisa += toPaisa(e.quantity * (prodCostMap.get(e.productId) || 0));
+          const cogs = toPaisa(e.quantity * (prodCostMap.get(e.productId) || 0));
+          cogsPaisa += cogs;
+          if (cogs > 0 || purchasesPaisa === 0) hasItemizedDaySales = true;
         }
       } else if (e.type === 'expense') {
         expensesPaisa += amtPaisa;
-      } else if (e.type === 'purchase') {
-        purchasesPaisa += amtPaisa;
       } else if (e.type === 'investment') {
         investmentsPaisa += amtPaisa;
-      } else if (e.type === 'withdrawal') {
+      } else if (e.type === 'withdrawal' || e.type === 'loan') {
         withdrawalsPaisa += amtPaisa;
       }
     }
 
-    const grossProfitPaisa = salesPaisa - cogsPaisa;
+    const finalDayCogsPaisa = hasItemizedDaySales ? cogsPaisa : purchasesPaisa;
+    const grossProfitPaisa = salesPaisa - finalDayCogsPaisa;
     const netProfitPaisa = grossProfitPaisa - expensesPaisa;
 
     return {
@@ -555,7 +699,7 @@ export function calculateDailyBreakdowns(
       isYesterday: date === yesterdayStr,
       sales: fromPaisa(salesPaisa),
       salesCount,
-      cogs: fromPaisa(cogsPaisa),
+      cogs: fromPaisa(finalDayCogsPaisa),
       grossProfit: fromPaisa(grossProfitPaisa),
       expenses: fromPaisa(expensesPaisa),
       purchases: fromPaisa(purchasesPaisa),

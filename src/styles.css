@@ -665,7 +665,7 @@ a {
   flex: 1;
 }
 
-.stat-card span {
+.stat-card > .stat-content > span {
   display: block;
   font-size: 12.5px;
   color: #64748b;
@@ -681,6 +681,255 @@ a {
   color: #0f172a;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Interactive Dashboard KPI Cards (Clean Full-Width Layout on Mobile & Desktop) */
+.dash-kpi-card {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px 15px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  transition: all 0.16s ease;
+  font-family: inherit;
+}
+
+.dash-kpi-card:hover {
+  border-color: #0d9488;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(13, 148, 136, 0.12);
+}
+
+.dash-kpi-card:active {
+  transform: translateY(0);
+}
+
+.dash-kpi-card.featured-balance {
+  border-color: #c4b5fd;
+  background: linear-gradient(180deg, #ffffff 0%, #faf5ff 100%);
+}
+
+.dash-kpi-card.featured-balance:hover {
+  border-color: #8b5cf6;
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.16);
+}
+
+.dash-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.dash-kpi-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #0f766e;
+  background: #f0fdfa;
+  border: 1px solid #ccfbf1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.dash-kpi-card.featured-balance .dash-kpi-badge {
+  color: #6d28d9;
+  background: #f3e8ff;
+  border-color: #ddd6fe;
+}
+
+.dash-kpi-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+}
+
+.dash-kpi-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #334155;
+  line-height: 1.3;
+  display: block;
+}
+
+.dash-kpi-amount {
+  font-size: clamp(16.5px, 1.5vw, 21px);
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-kpi-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 7px;
+  margin-top: 2px;
+  border-top: 1px dashed #e2e8f0;
+  width: 100%;
+}
+
+.dash-kpi-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.25;
+  width: 100%;
+}
+
+.dash-kpi-meta-row span {
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.dash-kpi-meta-row b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Interactive 6-Button Balance & Expense Breakdown Panel */
+.dash-breakdown-panel {
+  background: linear-gradient(135deg, #f0fdfa 0%, #f8fafc 100%);
+  border: 1.5px solid #99f6e4;
+  border-radius: 15px;
+  padding: 15px 16px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 2px 10px rgba(13, 148, 136, 0.06);
+}
+
+.dash-breakdown-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dash-breakdown-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dash-breakdown-title strong {
+  font-size: 14px;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.dash-breakdown-title small {
+  display: block;
+  font-size: 11.5px;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.dash-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dash-breakdown-btn {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  font-family: inherit;
+  min-width: 0;
+  width: 100%;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+.dash-breakdown-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.08);
+  border-color: #0d9488;
+}
+
+.dash-breakdown-btn:active {
+  transform: translateY(0);
+}
+
+.dash-breakdown-btn-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+
+.dash-breakdown-btn-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1.25;
+}
+
+.dash-breakdown-btn-arrow {
+  font-size: 10px;
+  font-weight: 700;
+  color: #0d9488;
+  background: #f0fdfa;
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dash-breakdown-btn-val {
+  font-size: 15.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-breakdown-btn-hint {
+  font-size: 10.5px;
+  color: #64748b;
+  line-height: 1.25;
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2827,7 +3076,7 @@ td b {
     height: 17px;
   }
 
-  .stat-card span {
+  .stat-card > .stat-content > span {
     font-size: 11px;
     margin-bottom: 3px;
   }
@@ -2837,6 +3086,56 @@ td b {
   }
 
   .stat-sub-meta {
+    font-size: 10px;
+  }
+
+  .dash-kpi-card {
+    padding: 11px 10px;
+    gap: 6px;
+    border-radius: 12px;
+  }
+
+  .dash-kpi-label {
+    font-size: 11.5px;
+  }
+
+  .dash-kpi-amount {
+    font-size: 15.5px;
+  }
+
+  .dash-kpi-badge {
+    font-size: 9.5px;
+    padding: 2px 6px;
+  }
+
+  .dash-kpi-meta-row {
+    font-size: 10.5px;
+  }
+
+  .dash-breakdown-panel {
+    padding: 12px 11px;
+    border-radius: 13px;
+  }
+
+  .dash-breakdown-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dash-breakdown-btn {
+    padding: 9px 10px;
+    border-radius: 11px;
+  }
+
+  .dash-breakdown-btn-label {
+    font-size: 11px;
+  }
+
+  .dash-breakdown-btn-val {
+    font-size: 14.5px;
+  }
+
+  .dash-breakdown-btn-hint {
     font-size: 10px;
   }
 

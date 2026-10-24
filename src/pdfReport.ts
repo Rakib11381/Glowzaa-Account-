@@ -108,7 +108,7 @@ export async function generateBengaliPdf(data: ReportData, fileName?: string): P
         </div>
         <div>
           <span style="color: #64748b; display: block; font-size: 11px;">মোট উত্তোলন:</span>
-          <b style="color: #b42318; font-size: 15px;">-${money(cashSum.totalWithdrawals)}</b>
+          <b style="color: #b42318; font-size: 15px;">-${money(cashSum.totalWithdrawals + cashSum.totalLoans)}</b>
         </div>
       </div>
     </div>
@@ -169,7 +169,7 @@ export async function generateBengaliPdf(data: ReportData, fileName?: string): P
               <td style="padding: 8px 10px; text-align: right;">${money(p.capital)}</td>
               <td style="padding: 8px 10px; text-align: right; color: #087f70;">${p.share.toFixed(2)}%</td>
               <td style="padding: 8px 10px; text-align: right;">${money(p.allocatedProfit)}</td>
-              <td style="padding: 8px 10px; text-align: right; color: #b42318;">${money(p.withdrawals)}</td>
+              <td style="padding: 8px 10px; text-align: right; color: #b42318;">${money(p.withdrawals + p.loans)}</td>
               <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: #102a43;">${money(p.accountBalance)}</td>
             </tr>
           `

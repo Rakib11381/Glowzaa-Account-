@@ -83,6 +83,13 @@ import {
   createApprovalRequest,
   approveApprovalRequest,
   rejectApprovalRequest,
+  deepClean,
+  getCachedEntries,
+  getCachedInvestors,
+  getCachedProducts,
+  getCachedDistributions,
+  getCachedAuditLogs,
+  getLocalApprovalRequests,
   type DemoCleanupPreview,
 } from './data';
 import AdminProfile from './components/AdminProfile';
@@ -100,6 +107,7 @@ import {
   calculateCashBalance,
   calculatePartnerAccountBalances,
   calculateDailyBreakdowns,
+  calculateTotalPurchaseCost,
   formatBengaliDateTime,
   type PartnerAccountBalance,
   type DailyFinancialBreakdown,
@@ -141,6 +149,34 @@ const filterPills: { key: RecordType; label: string }[] = [
   { key: 'loan', label: 'পার্টনার লোন' },
   { key: 'other', label: 'অন্যান্য' },
 ];
+
+type DashDetailCategory =
+  | 'sales'
+  | 'net_profit'
+  | 'purchases'
+  | 'expenses'
+  | 'balance'
+  | 'investments'
+  | 'withdrawals';
+
+function resolveEntryPartnerName(e: Entry, investors: Investor[]): string {
+  if (e.investorId) {
+    const found = investors.find(
+      (i) => i.id === e.investorId || i.id.toLowerCase() === e.investorId?.toLowerCase()
+    );
+    if (found) return found.name;
+    const lowId = e.investorId.toLowerCase();
+    if (lowId.includes('rakib')) return 'রাকিব (Rakib)';
+    if (lowId.includes('limon')) return 'লিমন (Limon)';
+  }
+  const combined = `${e.title || ''} ${e.notes || ''}`.toLowerCase();
+  if (combined.includes('rakib') || combined.includes('রাকিব')) return 'রাকিব (Rakib)';
+  if (combined.includes('limon') || combined.includes('লিমন')) return 'লিমন (Limon)';
+  for (const inv of investors) {
+    if (inv.name && combined.includes(inv.name.toLowerCase())) return inv.name;
+  }
+  return 'সাধারণ / উল্লেখ নেই';
+}
 
 const blankSettings: BusinessSettings = {
   name: 'Glowzaa Shop',
@@ -195,8 +231,7 @@ function compressImage(file: File): Promise<string> {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<Role | null>(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [role, setRole] = useState<Role | null>('admin');
 
   // Dedicated 2-Admin Authentication State (Rakib & Limon only)
   const [currentAdmin, setCurrentAdmin] = useState<{
@@ -212,6 +247,9 @@ export default function App() {
     }
     return null;
   });
+
+  // Render UI immediately (0ms delay) instead of blocking on async Firebase auth check
+  const [authReady, setAuthReady] = useState<boolean>(true);
 
   const [adminUsernameInput, setAdminUsernameInput] = useState<string>('Rakib');
   const [adminPasswordInput, setAdminPasswordInput] = useState<string>('G120');
@@ -234,13 +272,21 @@ export default function App() {
     return { rakib: '', limon: '' };
   });
 
-  // Core Data Collections
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [investors, setInvestors] = useState<Investor[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [distributions, setDistributions] = useState<ProfitDistribution[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [settings, setSettings] = useState<BusinessSettings>(blankSettings);
+  // Core Data Collections — Pre-hydrated synchronously from localStorage cache for 0ms instant load
+  const [entries, setEntries] = useState<Entry[]>(() => getCachedEntries());
+  const [investors, setInvestors] = useState<Investor[]>(() => getCachedInvestors());
+  const [products, setProducts] = useState<Product[]>(() => getCachedProducts());
+  const [distributions, setDistributions] = useState<ProfitDistribution[]>(() => getCachedDistributions());
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => getCachedAuditLogs());
+  const [settings, setSettings] = useState<BusinessSettings>(() => {
+    try {
+      const cached = localStorage.getItem('glowzaa_business_settings');
+      if (cached) {
+        return { ...blankSettings, ...JSON.parse(cached) };
+      }
+    } catch {}
+    return blankSettings;
+  });
 
   // UI state
   const [error, setError] = useState('');
@@ -275,6 +321,7 @@ export default function App() {
   const [dashDaySearch, setDashDaySearch] = useState<string>('');
 
   // Modals
+  const [dashDetailModal, setDashDetailModal] = useState<DashDetailCategory | null>(null);
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [showInvestorModal, setShowInvestorModal] = useState(false);
@@ -298,7 +345,7 @@ export default function App() {
   const [testResults, setTestResults] = useState<{ passed: boolean; message: string; timestamp: string } | null>(null);
 
   // Dual-Admin Approval & Notification Modal states
-  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>(() => getLocalApprovalRequests());
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [notifTab, setNotifTab] = useState<'pending_for_me' | 'my_sent' | 'recent_activity'>('pending_for_me');
   const [notifRejectingId, setNotifRejectingId] = useState<string | null>(null);
@@ -393,7 +440,7 @@ export default function App() {
     notes: '',
   });
 
-  // 1. Initial Auth Setup & Connection Test
+  // 1. Initial Auth Setup & Connection Test (Non-blocking so UI renders in 0ms)
   useEffect(() => {
     testConnection();
     getAdminAuthData().then((authData) => {
@@ -413,29 +460,31 @@ export default function App() {
       signInAnonymously(auth).catch(() => {});
     }
 
-    return onAuthStateChanged(auth, async (u) => {
+    return onAuthStateChanged(auth, (u) => {
       setUser(u);
+      setAuthReady(true);
       if (u) {
-        try {
-          const profile = await syncUserProfile(u.uid, u.email || '', u.displayName || undefined);
-          setRole(profile.role);
-          ensureAdminInvestors(u.uid);
-        } catch {
-          setRole('admin');
-        }
+        syncUserProfile(u.uid, u.email || '', u.displayName || undefined)
+          .then((profile) => {
+            setRole(profile.role);
+            ensureAdminInvestors(u.uid);
+          })
+          .catch(() => {
+            setRole('admin');
+          });
       } else if (currentAdmin) {
         setRole('admin');
         ensureAdminInvestors(currentAdmin.username);
       } else {
         setRole(null);
       }
-      setAuthReady(true);
     });
   }, [currentAdmin]);
 
-  // 2. Real-time Firestore Listeners
+  // 2. Real-time Firestore Listeners (Subscribed once per authenticated session, never torn down when anonymous auth resolves)
+  const hasActiveSession = Boolean(currentAdmin || user);
   useEffect(() => {
-    if ((!currentAdmin && !user) || !db) return;
+    if (!hasActiveSession || !db) return;
 
     const unsubEntries = watchEntries(setEntries, (e) => console.warn('Entries sync warning:', e));
     const unsubInvestors = watchInvestors(setInvestors, (e) => console.warn('Investors sync warning:', e));
@@ -447,7 +496,18 @@ export default function App() {
     getDoc(doc(db, 'businessSettings', 'main'))
       .then((s) => {
         if (s.exists()) {
-          setSettings({ ...blankSettings, ...(s.data() as BusinessSettings) });
+          const merged = { ...blankSettings, ...(s.data() as BusinessSettings) };
+          setSettings(merged);
+          try {
+            localStorage.setItem('glowzaa_business_settings', JSON.stringify({
+              name: merged.name || blankSettings.name,
+              type: merged.type || '',
+              address: merged.address || '',
+              phone: merged.phone || '',
+              currencySymbol: merged.currencySymbol || '৳',
+              superAdminEmail: merged.superAdminEmail || blankSettings.superAdminEmail,
+            }));
+          } catch {}
         }
       })
       .catch(() => {});
@@ -460,7 +520,7 @@ export default function App() {
       unsubAudit();
       unsubApprovals();
     };
-  }, [user, currentAdmin]);
+  }, [hasActiveSession]);
 
   const admin = Boolean(currentAdmin) || role === 'admin' || user?.email === 'glowzaabd.shop@gmail.com' || Boolean(user);
 
@@ -556,27 +616,21 @@ export default function App() {
     [dashPeriodEntries, products]
   );
 
-  // Total purchase cost (combines sold items' purchase cost COGS + any separate stock purchase entries without double counting)
-  const periodTotalPurchase = useMemo(() => {
-    const cogs = dashPeriodStats.cogs || 0;
-    const pur = dashPeriodStats.purchases || 0;
-    if (pur > 0 && cogs !== pur) return Math.round((cogs + pur) * 100) / 100;
-    return Math.max(cogs, pur);
-  }, [dashPeriodStats]);
+  // Total purchase cost (combines sold items' purchase cost COGS + any separate stock purchase entries without double counting same product)
+  const periodTotalPurchase = useMemo(
+    () => calculateTotalPurchaseCost(dashPeriodEntries, products),
+    [dashPeriodEntries, products]
+  );
 
-  const overallTotalPurchase = useMemo(() => {
-    const cogs = stats.cogs || 0;
-    const pur = stats.purchases || 0;
-    if (pur > 0 && cogs !== pur) return Math.round((cogs + pur) * 100) / 100;
-    return Math.max(cogs, pur);
-  }, [stats]);
+  const overallTotalPurchase = useMemo(
+    () => calculateTotalPurchaseCost(entries, products),
+    [entries, products]
+  );
 
-  const todayTotalPurchase = useMemo(() => {
-    const cogs = todayBreakdown.cogs || 0;
-    const pur = todayBreakdown.purchases || 0;
-    if (pur > 0 && cogs !== pur) return Math.round((cogs + pur) * 100) / 100;
-    return Math.max(cogs, pur);
-  }, [todayBreakdown]);
+  const todayTotalPurchase = useMemo(
+    () => calculateTotalPurchaseCost(todayBreakdown.entries, products),
+    [todayBreakdown.entries, products]
+  );
 
   const dashDisplayEntries = useMemo(() => {
     if (dashTypeFilter === 'all') return dashPeriodEntries;
@@ -681,9 +735,7 @@ export default function App() {
       setCurrentAdmin(adminProfile);
       localStorage.setItem('glowzaa_current_admin', JSON.stringify(adminProfile));
 
-      if (auth?.currentUser?.uid) {
-        ensureAdminInvestors(auth.currentUser.uid);
-      }
+      ensureAdminInvestors(auth?.currentUser?.uid || canonicalName);
 
       setMessage(`স্বাগতম ${adminProfile.displayName}! অ্যাডমিন পোর্টালে সফলভাবে প্রবেশ করেছেন।`);
     } catch (err: any) {
@@ -810,17 +862,23 @@ export default function App() {
         if (uCost > 0) {
           newCost = String(Math.round(qty * uCost * 100) / 100);
         }
-        if (uPrice > 0 && (!entryForm.amount || Number(entryForm.amount) === 0)) {
+        if (uPrice > 0) {
           newAmount = String(Math.round(qty * uPrice * 100) / 100);
         }
         const effectiveAmt = Number(newAmount) || 0;
         if (effectiveAmt > 0 && newCost !== '') {
           newProfit = String(Math.round((effectiveAmt - Number(newCost)) * 100) / 100);
         }
+      } else if (val === '') {
+        if (uCost > 0) newCost = '';
+        if (uPrice > 0) newAmount = '';
+        newProfit = '';
       }
     } else if (entryForm.type === 'purchase') {
       if (qty > 0 && uCost > 0) {
         newAmount = String(Math.round(qty * uCost * 100) / 100);
+      } else if (val === '' && uCost > 0) {
+        newAmount = '';
       }
     }
 
@@ -973,12 +1031,24 @@ export default function App() {
       }
 
       // STRICT RULE: Capital/investment cannot be withdrawn; only earned profit (withdrawableLimit) can be withdrawn
-      if (entryForm.type === 'withdrawal' && entryForm.investorId) {
+      if ((entryForm.type === 'withdrawal' || entryForm.type === 'loan') && entryForm.investorId) {
         const pAcc = partnerAccounts.find((p) => p.id === entryForm.investorId);
-        if (pAcc && amount > pAcc.withdrawableLimit) {
-          throw new Error(
-            `উত্তোলন ব্যর্থ: মূলধন বা বিনিয়োগ (${money(pAcc.capital)}) উত্তোলন করা যাবে না—শুধুমাত্র অর্জিত লাভ উত্তোলন করা যাবে। ${pAcc.name}-এর বর্তমান উত্তোলনযোগ্য লাভের সীমা ${money(pAcc.withdrawableLimit)}।`
-          );
+        if (pAcc) {
+          // If editing an existing posted withdrawal/loan for this partner, add back its current amount to the allowed limit
+          const existingDeduction =
+            editingEntry &&
+            editingEntry.status === 'posted' &&
+            (editingEntry.type === 'withdrawal' || editingEntry.type === 'loan') &&
+            editingEntry.investorId === entryForm.investorId
+              ? Number(editingEntry.amount) || 0
+              : 0;
+          const maxAllowed = Math.round((pAcc.withdrawableLimit + existingDeduction) * 100) / 100;
+
+          if (entryForm.type === 'withdrawal' && amount > maxAllowed) {
+            throw new Error(
+              `উত্তোলন ব্যর্থ: মূলধন বা বিনিয়োগ (${money(pAcc.capital)}) উত্তোলন করা যাবে না—শুধুমাত্র অর্জিত লাভ উত্তোলন করা যাবে। ${pAcc.name}-এর বর্তমান উত্তোলনযোগ্য লাভের সীমা ${money(maxAllowed)}।`
+            );
+          }
         }
       }
 
@@ -1736,10 +1806,36 @@ export default function App() {
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 380));
-      const actorUid = user?.uid || currentAdmin?.username || 'admin';
-      await removeProfitDistribution(showDistributionDeleteModal.id, actorUid, user?.email || currentAdmin?.displayName);
-      setMessage(`মুনাফা বণ্টন "${showDistributionDeleteModal.periodName}" সফলভাবে ডিলিট করা হয়েছে।`);
-      setShowDistributionDeleteModal(null);
+      if (currentAdmin) {
+        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
+        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+
+        await createApprovalRequest({
+          actionType: 'delete_distribution',
+          targetCollection: 'profitDistributions',
+          targetId: showDistributionDeleteModal.id,
+          title: `মুনাফা বণ্টন ডিলিট: ${showDistributionDeleteModal.periodName} (${money(showDistributionDeleteModal.distributedAmount)})`,
+          description: `মেয়াদ: ${showDistributionDeleteModal.periodName}, বণ্টিত টাকা: ${money(showDistributionDeleteModal.distributedAmount)}`,
+          reason: deleteReasonInput.trim() || 'মুনাফা বণ্টন রেকর্ড মুছে ফেলার অনুরোধ',
+          requestedBy: currentAdmin.username,
+          requestedByName: currentAdmin.displayName,
+          requestedAt: new Date().toISOString(),
+          requestedAtFormatted: formatBengaliDateTime(new Date()),
+          targetApprover,
+          targetApproverName,
+          status: 'pending',
+          payload: { id: showDistributionDeleteModal.id },
+          previousData: showDistributionDeleteModal,
+        });
+
+        setMessage(`মুনাফা বণ্টন ডিলিটের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে তবেই মুছে যাবে।`);
+        setShowDistributionDeleteModal(null);
+        setDeleteReasonInput('');
+      } else if (user) {
+        await removeProfitDistribution(showDistributionDeleteModal.id, user.uid, user.email || undefined);
+        setMessage(`মুনাফা বণ্টন "${showDistributionDeleteModal.periodName}" সফলভাবে ডিলিট করা হয়েছে।`);
+        setShowDistributionDeleteModal(null);
+      }
     } catch (err: any) {
       setError(err?.message || 'মুনাফা বণ্টন ডিলিট করতে সমস্যা হয়েছে');
     } finally {
@@ -1868,16 +1964,32 @@ export default function App() {
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
     if (!admin || !db) return;
+    setError('');
     setBusyTone('default');
     setBusyText('ব্যবসার সেটিংস সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 380));
-      await setDoc(doc(db, 'businessSettings', 'main'), {
-        ...settings,
+      const actorId = currentAdmin?.username || user?.uid || 'admin';
+      const normalizedSettings: BusinessSettings = {
+        name: (settings.name || 'Glowzaa Shop').trim() || 'Glowzaa Shop',
+        type: (settings.type || '').trim(),
+        address: (settings.address || '').trim(),
+        phone: (settings.phone || '').trim(),
+        currencySymbol: settings.currencySymbol || '৳',
+        superAdminEmail: settings.superAdminEmail || 'glowzaabd.shop@gmail.com',
+        updatedBy: actorId,
+      };
+      const payload = deepClean({
+        ...normalizedSettings,
         updatedAt: serverTimestamp(),
-        updatedBy: user?.uid,
-      }, { merge: true });
+        updatedBy: actorId,
+      });
+      await setDoc(doc(db, 'businessSettings', 'main'), payload, { merge: true });
+      try {
+        localStorage.setItem('glowzaa_business_settings', JSON.stringify(normalizedSettings));
+      } catch {}
+      setSettings(normalizedSettings);
       setMessage('ব্যবসার সেটিংস সফলভাবে সংরক্ষিত হয়েছে');
     } catch (e: any) {
       setError(e?.message || 'সেটিংস সংরক্ষণ ব্যর্থ হয়েছে');
@@ -2592,20 +2704,40 @@ export default function App() {
                 </div>
               </div>
               <div className="today-metrics-strip">
-                <div className="today-metric-item">
-                  <span>আজকের বিক্রয় ({todayBreakdown.salesCount}টি)</span>
+                <div
+                  className="today-metric-item"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setDashDetailModal('sales')}
+                  title="বিক্রয়ের বিস্তারিত দেখুন"
+                >
+                  <span>আজকের বিক্রয় ({todayBreakdown.salesCount}টি) →</span>
                   <strong className="text-blue">{money(todayBreakdown.sales)}</strong>
                 </div>
-                <div className="today-metric-item">
-                  <span>আজকের মোট ক্রয়</span>
+                <div
+                  className="today-metric-item"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setDashDetailModal('purchases')}
+                  title="মোট ক্রয়ের বিস্তারিত দেখুন"
+                >
+                  <span>আজকের মোট ক্রয় →</span>
                   <strong className="text-amber">{money(todayTotalPurchase)}</strong>
                 </div>
-                <div className="today-metric-item">
-                  <span>আজকের অতিরিক্ত খরচ</span>
+                <div
+                  className="today-metric-item"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setDashDetailModal('expenses')}
+                  title="অতিরিক্ত খরচের বিস্তারিত দেখুন"
+                >
+                  <span>আজকের অতিরিক্ত খরচ →</span>
                   <strong className="text-red">{money(todayBreakdown.expenses)}</strong>
                 </div>
-                <div className="today-metric-item highlight">
-                  <span>আজকের নিট {todayBreakdown.netProfit >= 0 ? 'লাভ' : 'ক্ষতি'}</span>
+                <div
+                  className="today-metric-item highlight"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setDashDetailModal('net_profit')}
+                  title="নিট লাভের বিস্তারিত দেখুন"
+                >
+                  <span>আজকের নিট {todayBreakdown.netProfit >= 0 ? 'লাভ' : 'ক্ষতি'} →</span>
                   <strong className={todayBreakdown.netProfit >= 0 ? 'text-emerald' : 'text-red'}>
                     {todayBreakdown.netProfit >= 0 ? '+' : ''}{money(todayBreakdown.netProfit)}
                   </strong>
@@ -2744,141 +2876,377 @@ export default function App() {
               )}
             </div>
 
-            {/* 4 FILTERED PERIOD KPI CARDS */}
+            {/* 4 FILTERED PERIOD KPI CARDS — Clean Full-Width Layout & Interactive Clickable */}
             <div className="stats-grid">
-              <div className="stat-card">
-                <div className="stat-icon blue"><ArrowUpRight /></div>
-                <div className="stat-content">
-                  <span>{dashPreset === 'all' ? 'মোট বিক্রয় রাজস্ব' : 'নির্বাচিত সময়ের বিক্রয়'}</span>
-                  <strong>{money(dashPeriodStats.sales)}</strong>
-                  <small className="stat-sub-meta">
-                    বিক্রয় মুনাফা (Gross): <b style={{ color: '#059669' }}>+{money(dashPeriodStats.grossProfit)}</b>
-                  </small>
+              {/* Card 1: Sales */}
+              <div
+                className="dash-kpi-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => setDashDetailModal('sales')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setDashDetailModal('sales'); }}
+              >
+                <div className="dash-kpi-top">
+                  <div className="stat-icon blue"><ArrowUpRight /></div>
+                  <span className="dash-kpi-badge">বিস্তারিত →</span>
+                </div>
+                <div className="dash-kpi-body">
+                  <span className="dash-kpi-label">
+                    {dashPreset === 'all' ? 'মোট বিক্রয় রাজস্ব' : 'নির্বাচিত সময়ের বিক্রয়'}
+                  </span>
+                  <strong className="dash-kpi-amount">{money(dashPeriodStats.sales)}</strong>
+                </div>
+                <div className="dash-kpi-meta-list">
+                  <div className="dash-kpi-meta-row">
+                    <span>বিক্রয় মুনাফা:</span>
+                    <b style={{ color: '#059669' }}>+{money(dashPeriodStats.grossProfit)}</b>
+                  </div>
+                  <div className="dash-kpi-meta-row">
+                    <span>মোট ক্রয়:</span>
+                    <b style={{ color: '#b45309' }}>{money(periodTotalPurchase)}</b>
+                  </div>
                 </div>
               </div>
 
-              <div className="stat-card">
-                <div className={`stat-icon ${dashPeriodStats.netProfit >= 0 ? 'green' : 'orange'}`}>
-                  <Activity />
+              {/* Card 2: Net Profit */}
+              <div
+                className="dash-kpi-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => setDashDetailModal('net_profit')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setDashDetailModal('net_profit'); }}
+              >
+                <div className="dash-kpi-top">
+                  <div className={`stat-icon ${dashPeriodStats.netProfit >= 0 ? 'green' : 'orange'}`}>
+                    <Activity />
+                  </div>
+                  <span className="dash-kpi-badge">বিস্তারিত →</span>
                 </div>
-                <div className="stat-content">
-                  <span>
+                <div className="dash-kpi-body">
+                  <span className="dash-kpi-label">
                     {dashPreset === 'all'
-                      ? 'প্রকৃত নিট মুনাফা (Net Profit)'
+                      ? 'প্রকৃত নিট মুনাফা'
                       : `নির্বাচিত সময়ের নিট ${dashPeriodStats.netProfit >= 0 ? 'লাভ' : 'ক্ষতি'}`}
                   </span>
-                  <strong style={{ color: dashPeriodStats.netProfit >= 0 ? '#059669' : '#dc2626' }}>
+                  <strong
+                    className="dash-kpi-amount"
+                    style={{ color: dashPeriodStats.netProfit >= 0 ? '#059669' : '#dc2626' }}
+                  >
                     {dashPeriodStats.netProfit >= 0 ? '+' : ''}{money(dashPeriodStats.netProfit)}
                   </strong>
-                  <small className="stat-sub-meta">
-                    {dashPeriodStats.sales > 0
-                      ? `লাভের হার: ${((dashPeriodStats.netProfit / dashPeriodStats.sales) * 100).toFixed(1)}% · অতিরিক্ত খরচ বাদে`
-                      : 'বিক্রয় লাভ − অতিরিক্ত খরচ'}
-                  </small>
+                </div>
+                <div className="dash-kpi-meta-list">
+                  <div className="dash-kpi-meta-row">
+                    <span>লাভের হার:</span>
+                    <b style={{ color: '#0f766e' }}>
+                      {dashPeriodStats.sales > 0
+                        ? `${((dashPeriodStats.netProfit / dashPeriodStats.sales) * 100).toFixed(1)}%`
+                        : '0.0%'}
+                    </b>
+                  </div>
+                  <div className="dash-kpi-meta-row">
+                    <span>অতিরিক্ত খরচ:</span>
+                    <b style={{ color: '#dc2626' }}>{money(dashPeriodStats.expenses)}</b>
+                  </div>
                 </div>
               </div>
 
-              <div className="stat-card">
-                <div className="stat-icon orange"><ArrowDownLeft /></div>
-                <div className="stat-content">
-                  <span>মোট ক্রয় ও অতিরিক্ত খরচ</span>
-                  <strong>{money(periodTotalPurchase + dashPeriodStats.expenses)}</strong>
-                  <small className="stat-sub-meta" style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
-                    <span>মোট ক্রয়: <b style={{ color: '#b45309' }}>{money(periodTotalPurchase)}</b></span>
-                    <span>অতিরিক্ত খরচ: <b style={{ color: '#dc2626' }}>{money(dashPeriodStats.expenses)}</b></span>
-                  </small>
+              {/* Card 3: Total Purchase & Extra Expenses */}
+              <div
+                className="dash-kpi-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => setDashDetailModal('purchases')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setDashDetailModal('purchases'); }}
+              >
+                <div className="dash-kpi-top">
+                  <div className="stat-icon orange"><ArrowDownLeft /></div>
+                  <span className="dash-kpi-badge">বিস্তারিত →</span>
+                </div>
+                <div className="dash-kpi-body">
+                  <span className="dash-kpi-label">মোট ক্রয় ও অতিরিক্ত খরচ</span>
+                  <strong className="dash-kpi-amount">
+                    {money(periodTotalPurchase + dashPeriodStats.expenses)}
+                  </strong>
+                </div>
+                <div className="dash-kpi-meta-list">
+                  <div
+                    className="dash-kpi-meta-row"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDashDetailModal('purchases');
+                    }}
+                    title="মোট ক্রয়ের বিস্তারিত দেখুন"
+                  >
+                    <span>মোট ক্রয়:</span>
+                    <b style={{ color: '#b45309', textDecoration: 'underline dotted' }}>
+                      {money(periodTotalPurchase)}
+                    </b>
+                  </div>
+                  <div
+                    className="dash-kpi-meta-row"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDashDetailModal('expenses');
+                    }}
+                    title="অতিরিক্ত খরচের বিস্তারিত দেখুন"
+                  >
+                    <span>অতিরিক্ত খরচ:</span>
+                    <b style={{ color: '#dc2626', textDecoration: 'underline dotted' }}>
+                      {money(dashPeriodStats.expenses)}
+                    </b>
+                  </div>
                 </div>
               </div>
 
-              <div className="stat-card" style={{ borderColor: '#c4b5fd', background: 'linear-gradient(180deg, #ffffff 0%, #faf5ff 100%)' }}>
-                <div className="stat-icon purple"><Wallet /></div>
-                <div className="stat-content">
-                  <span style={{ color: '#5b21b6', fontWeight: 700 }}>মূলধন সহ বর্তমান ব্যালান্স</span>
-                  <strong style={{ color: '#0f766e' }}>
+              {/* Card 4: Current Balance with Capital */}
+              <div
+                className="dash-kpi-card featured-balance"
+                role="button"
+                tabIndex={0}
+                onClick={() => setDashDetailModal('balance')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setDashDetailModal('balance'); }}
+              >
+                <div className="dash-kpi-top">
+                  <div className="stat-icon purple"><Wallet /></div>
+                  <span className="dash-kpi-badge">বিস্তারিত →</span>
+                </div>
+                <div className="dash-kpi-body">
+                  <span className="dash-kpi-label" style={{ color: '#5b21b6' }}>
+                    মূলধন সহ বর্তমান ব্যালান্স
+                  </span>
+                  <strong className="dash-kpi-amount" style={{ color: '#0f766e' }}>
                     {money(dashPreset === 'all' ? cashSummary.availableCash : dashPeriodCash.availableCash)}
                   </strong>
-                  <small className="stat-sub-meta" style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
-                    <span>
-                      মূলধন: <b style={{ color: '#6d28d9' }}>{money(dashPreset === 'all' ? cashSummary.totalInvestments : dashPeriodStats.investments)}</b> · লাভ: <b style={{ color: '#059669' }}>+{money(dashPreset === 'all' ? cashSummary.netProfit : dashPeriodStats.netProfit)}</b>
-                    </span>
-                    <span>
-                      উত্তোলন: <b style={{ color: '#b91c1c' }}>-{money(dashPreset === 'all' ? cashSummary.totalWithdrawals + cashSummary.totalLoans : dashPeriodStats.withdrawals + dashPeriodStats.loans)}</b>
-                    </span>
-                  </small>
+                </div>
+                <div className="dash-kpi-meta-list">
+                  <div
+                    className="dash-kpi-meta-row"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDashDetailModal('investments');
+                    }}
+                    title="মূলধনের বিস্তারিত দেখুন"
+                  >
+                    <span>মূলধন:</span>
+                    <b style={{ color: '#6d28d9', textDecoration: 'underline dotted' }}>
+                      {money(dashPreset === 'all' ? cashSummary.totalInvestments : dashPeriodStats.investments)}
+                    </b>
+                  </div>
+                  <div
+                    className="dash-kpi-meta-row"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDashDetailModal('net_profit');
+                    }}
+                    title="নিট লাভের বিস্তারিত দেখুন"
+                  >
+                    <span>নিট লাভ:</span>
+                    <b style={{ color: '#059669', textDecoration: 'underline dotted' }}>
+                      +
+                      {money(dashPreset === 'all' ? cashSummary.netProfit : dashPeriodStats.netProfit)}
+                    </b>
+                  </div>
+                  <div
+                    className="dash-kpi-meta-row"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDashDetailModal('withdrawals');
+                    }}
+                    title="কে কবে কত টাকা উত্তোলন করেছে দেখুন"
+                  >
+                    <span>উত্তোলন:</span>
+                    <b style={{ color: '#b91c1c', textDecoration: 'underline dotted' }}>
+                      -
+                      {money(
+                        dashPreset === 'all'
+                          ? cashSummary.totalWithdrawals + cashSummary.totalLoans
+                          : dashPeriodStats.withdrawals + dashPeriodStats.loans
+                      )}
+                    </b>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* LIVE CAPITAL + BALANCE + PURCHASE & EXTRA EXPENSE SUMMARY STRIP */}
-            <div
-              style={{
-                background: 'linear-gradient(135deg, #f0fdfa 0%, #f8fafc 100%)',
-                border: '1.5px solid #99f6e4',
-                borderRadius: '14px',
-                padding: '14px 16px',
-                marginBottom: '18px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-                boxShadow: '0 2px 10px rgba(13, 148, 136, 0.06)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Wallet size={17} style={{ color: '#0d9488' }} />
-                  <strong style={{ fontSize: '14px', color: '#0f172a' }}>
-                    মূলধন সহ বর্তমান ব্যালান্স ও খরচের পূর্ণাঙ্গ হিসাব (উত্তোলন করলে ব্যালেন্স অটোমেটিক কমবে)
-                  </strong>
+            {/* INTERACTIVE 6-BUTTON BALANCE, WITHDRAWAL, PURCHASE & EXPENSE BREAKDOWN PANEL */}
+            <div className="dash-breakdown-panel">
+              <div className="dash-breakdown-head">
+                <div className="dash-breakdown-title">
+                  <div
+                    style={{
+                      width: '34px',
+                      height: '34px',
+                      borderRadius: '10px',
+                      background: '#ccfbf1',
+                      color: '#0f766e',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Wallet size={18} />
+                  </div>
+                  <div>
+                    <strong>মূলধন সহ বর্তমান ব্যালান্স ও খরচের পূর্ণাঙ্গ হিসাব</strong>
+                    <small>যেকোনো বাটনে চাপ দিলে কে, কবে, কত টাকা লেনদেন করেছে তার বিস্তারিত তালিকা দেখাবে</small>
+                  </div>
                 </div>
-                <span
+                <button
+                  type="button"
+                  onClick={() => setDashDetailModal('balance')}
                   style={{
                     background: '#0d9488',
                     color: '#ffffff',
-                    padding: '4px 12px',
+                    border: 'none',
+                    padding: '6px 13px',
                     borderRadius: '999px',
-                    fontSize: '12.5px',
+                    fontSize: '12px',
                     fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
                   }}
                 >
-                  বর্তমান ব্যালান্স: {money(cashSummary.availableCash)}
-                </span>
+                  <span>বর্তমান ব্যালান্স: {money(cashSummary.availableCash)}</span>
+                  <ChevronRight size={14} />
+                </button>
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
-                  gap: '8px',
-                }}
-              >
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 11px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block' }}>মোট মূলধন (বিনিয়োগ)</span>
-                  <strong style={{ fontSize: '14.5px', color: '#6d28d9' }}>{money(cashSummary.totalInvestments)}</strong>
-                </div>
-                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 11px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block' }}>সর্বমোট নিট মুনাফা (+)</span>
-                  <strong style={{ fontSize: '14.5px', color: '#059669' }}>
+              <div className="dash-breakdown-grid">
+                {/* Button 1: Total Capital (Investments) */}
+                <button
+                  type="button"
+                  className="dash-breakdown-btn"
+                  style={{ borderColor: '#ddd6fe', background: '#ffffff' }}
+                  onClick={() => setDashDetailModal('investments')}
+                >
+                  <div className="dash-breakdown-btn-top">
+                    <span className="dash-breakdown-btn-label" style={{ color: '#5b21b6' }}>
+                      মোট মূলধন (বিনিয়োগ)
+                    </span>
+                    <span className="dash-breakdown-btn-arrow" style={{ background: '#f3e8ff', color: '#6d28d9' }}>
+                      বিস্তারিত →
+                    </span>
+                  </div>
+                  <strong className="dash-breakdown-btn-val" style={{ color: '#6d28d9' }}>
+                    {money(cashSummary.totalInvestments)}
+                  </strong>
+                  <span className="dash-breakdown-btn-hint">কে কবে কত মূলধন দিয়েছে দেখুন</span>
+                </button>
+
+                {/* Button 2: Total Net Profit */}
+                <button
+                  type="button"
+                  className="dash-breakdown-btn"
+                  style={{ borderColor: '#bbf7d0', background: '#ffffff' }}
+                  onClick={() => setDashDetailModal('net_profit')}
+                >
+                  <div className="dash-breakdown-btn-top">
+                    <span className="dash-breakdown-btn-label" style={{ color: '#065f46' }}>
+                      সর্বমোট নিট মুনাফা (+)
+                    </span>
+                    <span className="dash-breakdown-btn-arrow" style={{ background: '#dcfce7', color: '#047857' }}>
+                      বিস্তারিত →
+                    </span>
+                  </div>
+                  <strong className="dash-breakdown-btn-val" style={{ color: '#059669' }}>
                     {cashSummary.netProfit >= 0 ? '+' : ''}{money(cashSummary.netProfit)}
                   </strong>
-                </div>
-                <div style={{ background: '#ffffff', border: '1px solid #fecaca', borderRadius: '10px', padding: '8px 11px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#991b1b', display: 'block' }}>মোট উত্তোলন ও লোন (−)</span>
-                  <strong style={{ fontSize: '14.5px', color: '#dc2626' }}>
+                  <span className="dash-breakdown-btn-hint">লাভের হিসাব ও অংশীদার ভাগ দেখুন</span>
+                </button>
+
+                {/* Button 3: Total Withdrawals & Loans */}
+                <button
+                  type="button"
+                  className="dash-breakdown-btn"
+                  style={{ borderColor: '#fecaca', background: '#fffdfd' }}
+                  onClick={() => setDashDetailModal('withdrawals')}
+                >
+                  <div className="dash-breakdown-btn-top">
+                    <span className="dash-breakdown-btn-label" style={{ color: '#991b1b' }}>
+                      মোট উত্তোলন ও লোন (−)
+                    </span>
+                    <span className="dash-breakdown-btn-arrow" style={{ background: '#fee2e2', color: '#b91c1c' }}>
+                      বিস্তারিত →
+                    </span>
+                  </div>
+                  <strong className="dash-breakdown-btn-val" style={{ color: '#dc2626' }}>
                     -{money(cashSummary.totalWithdrawals + cashSummary.totalLoans)}
                   </strong>
-                </div>
-                <div style={{ background: '#ecfdf5', border: '1.5px solid #34d399', borderRadius: '10px', padding: '8px 11px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#065f46', fontWeight: 700, display: 'block' }}>মূলধন সহ বর্তমান ব্যালান্স (=)</span>
-                  <strong style={{ fontSize: '15.5px', color: '#047857' }}>{money(cashSummary.availableCash)}</strong>
-                </div>
-                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '8px 11px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#92400e', display: 'block' }}>সর্বমোট ক্রয় (মাল কেনা)</span>
-                  <strong style={{ fontSize: '14.5px', color: '#b45309' }}>{money(overallTotalPurchase)}</strong>
-                </div>
-                <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '10px', padding: '8px 11px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#9f1239', display: 'block' }}>সর্বমোট অতিরিক্ত খরচ</span>
-                  <strong style={{ fontSize: '14.5px', color: '#e11d48' }}>{money(cashSummary.totalExpenses)}</strong>
-                </div>
+                  <span className="dash-breakdown-btn-hint">কবে কে কত টাকা উত্তোলন করেছে দেখুন</span>
+                </button>
+
+                {/* Button 4: Current Balance with Capital */}
+                <button
+                  type="button"
+                  className="dash-breakdown-btn"
+                  style={{ borderColor: '#34d399', background: '#ecfdf5' }}
+                  onClick={() => setDashDetailModal('balance')}
+                >
+                  <div className="dash-breakdown-btn-top">
+                    <span className="dash-breakdown-btn-label" style={{ color: '#065f46' }}>
+                      মূলধন সহ বর্তমান ব্যালান্স
+                    </span>
+                    <span className="dash-breakdown-btn-arrow" style={{ background: '#a7f3d0', color: '#065f46' }}>
+                      বিস্তারিত →
+                    </span>
+                  </div>
+                  <strong className="dash-breakdown-btn-val" style={{ color: '#047857' }}>
+                    {money(cashSummary.availableCash)}
+                  </strong>
+                  <span className="dash-breakdown-btn-hint" style={{ color: '#047857' }}>
+                    মূলধন + লাভ − উত্তোলন = নিট ব্যালান্স
+                  </span>
+                </button>
+
+                {/* Button 5: Total Purchase */}
+                <button
+                  type="button"
+                  className="dash-breakdown-btn"
+                  style={{ borderColor: '#fde68a', background: '#fffbeb' }}
+                  onClick={() => setDashDetailModal('purchases')}
+                >
+                  <div className="dash-breakdown-btn-top">
+                    <span className="dash-breakdown-btn-label" style={{ color: '#92400e' }}>
+                      সর্বমোট ক্রয় (মাল কেনা)
+                    </span>
+                    <span className="dash-breakdown-btn-arrow" style={{ background: '#fef3c7', color: '#b45309' }}>
+                      বিস্তারিত →
+                    </span>
+                  </div>
+                  <strong className="dash-breakdown-btn-val" style={{ color: '#b45309' }}>
+                    {money(overallTotalPurchase)}
+                  </strong>
+                  <span className="dash-breakdown-btn-hint" style={{ color: '#92400e' }}>
+                    ক্রয়কৃত পণ্য ও কেনা খরচের তালিকা
+                  </span>
+                </button>
+
+                {/* Button 6: Total Extra Expense */}
+                <button
+                  type="button"
+                  className="dash-breakdown-btn"
+                  style={{ borderColor: '#fecdd3', background: '#fff1f2' }}
+                  onClick={() => setDashDetailModal('expenses')}
+                >
+                  <div className="dash-breakdown-btn-top">
+                    <span className="dash-breakdown-btn-label" style={{ color: '#9f1239' }}>
+                      সর্বমোট অতিরিক্ত খরচ
+                    </span>
+                    <span className="dash-breakdown-btn-arrow" style={{ background: '#ffe4e6', color: '#be123c' }}>
+                      বিস্তারিত →
+                    </span>
+                  </div>
+                  <strong className="dash-breakdown-btn-val" style={{ color: '#e11d48' }}>
+                    {money(cashSummary.totalExpenses)}
+                  </strong>
+                  <span className="dash-breakdown-btn-hint" style={{ color: '#9f1239' }}>
+                    কবে কী বাবদ অতিরিক্ত খরচ হয়েছে দেখুন
+                  </span>
+                </button>
               </div>
             </div>
 
@@ -4783,7 +5151,7 @@ export default function App() {
               const pAcc = partnerAccounts.find(p => p.id === entryForm.investorId);
               return (
                 <div className="full note" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}>
-                  🔒 <b>মূলধন ({money(pAcc?.capital || 0)}) উত্তোলনযোগ্য নয়।</b> শুধুমাত্র অর্জিত লাভ উত্তোলন করা যাবে। এই অংশীদারের বর্তমান <b>উত্তোলনযোগ্য লাভের সীমা: {money(pAcc?.withdrawableLimit || 0)}</b> (মোট লাভ: {money(pAcc?.allocatedProfit || 0)} − পূর্বের উত্তোলন: {money(pAcc?.withdrawals || 0)})
+                  🔒 <b>মূলধন ({money(pAcc?.capital || 0)}) উত্তোলনযোগ্য নয়।</b> শুধুমাত্র অর্জিত লাভ উত্তোলন করা যাবে। এই অংশীদারের বর্তমান <b>উত্তোলনযোগ্য লাভের সীমা: {money(pAcc?.withdrawableLimit || 0)}</b> (মোট লাভ: {money(pAcc?.allocatedProfit || 0)} − পূর্বের উত্তোলন: {money((pAcc?.withdrawals || 0) + (pAcc?.loans || 0))})
                 </div>
               );
             })()}
@@ -5903,7 +6271,7 @@ export default function App() {
                 </div>
                 <div className="modal-stat-box">
                   <span>মোট লাভ উত্তোলন</span>
-                  <b style={{ color: '#b42318' }}>-{money(viewPartnerModal.withdrawals)}</b>
+                  <b style={{ color: '#b42318' }}>-{money(viewPartnerModal.withdrawals + viewPartnerModal.loans)}</b>
                 </div>
               </div>
               <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -7040,6 +7408,851 @@ export default function App() {
           </Modal>
         );
       })()}
+
+      {/* DASHBOARD METRIC & BUTTON INTERACTIVE BREAKDOWN MODAL */}
+      {dashDetailModal && (() => {
+        const postedAll = entries
+          .filter((e) => e.status === 'posted')
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        const withdrawalEntries = postedAll.filter((e) => e.type === 'withdrawal' || e.type === 'loan');
+        const investmentEntries = postedAll.filter((e) => e.type === 'investment');
+        const saleEntries = postedAll.filter((e) => e.type === 'sale');
+        const expenseEntries = postedAll.filter((e) => e.type === 'expense');
+        const purchaseAndSaleCostEntries = postedAll.filter(
+          (e) => e.type === 'purchase' || (e.type === 'sale' && ((e.cogsAmount || 0) > 0 || e.productId))
+        );
+
+        // Partner-wise withdrawal summary (even if partner Id was only in title)
+        const partnerWithdrawalStats = partnerAccounts.map((p) => {
+          const matchingEntries = withdrawalEntries.filter((e) => {
+            const pName = resolveEntryPartnerName(e, investors).toLowerCase();
+            return (
+              e.investorId === p.id ||
+              pName.includes(p.name.toLowerCase()) ||
+              (p.name.toLowerCase().includes('rakib') && (pName.includes('rakib') || pName.includes('রাকিব'))) ||
+              (p.name.toLowerCase().includes('limon') && (pName.includes('limon') || pName.includes('লিমন')))
+            );
+          });
+          const totalWithdrawn = matchingEntries
+            .filter((e) => e.type === 'withdrawal')
+            .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+          const totalLoan = matchingEntries
+            .filter((e) => e.type === 'loan')
+            .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+          return {
+            ...p,
+            computedWithdrawals: Math.max(p.withdrawals, totalWithdrawn),
+            computedLoans: Math.max(p.loans, totalLoan),
+            txCount: matchingEntries.length,
+          };
+        });
+
+        const modalTitles: Record<DashDetailCategory, string> = {
+          withdrawals: 'মোট উত্তোলন ও লোন — কবে, কে, কত টাকা উত্তোলন করেছেন',
+          investments: 'মোট মূলধন (বিনিয়োগ) — অংশীদার ও জমার বিস্তারিত তালিকা',
+          balance: 'মূলধন সহ বর্তমান ব্যালান্স — সম্পূর্ণ হিসাব ও লেনদেন',
+          purchases: 'সর্বমোট ক্রয় (মাল কেনা ও কেনা খরচ) — বিস্তারিত হিসাব',
+          expenses: 'সর্বমোট অতিরিক্ত ও পরিচালন খরচ — বিস্তারিত তালিকা',
+          sales: 'মোট বিক্রয় রাজস্ব ও বিক্রয় মুনাফা — বিস্তারিত তালিকা',
+          net_profit: 'প্রকৃত নিট মুনাফা ও অংশীদারদের লাভের ভাগ — বিস্তারিত হিসাব',
+        };
+
+        return (
+          <Modal title={modalTitles[dashDetailModal]} close={() => setDashDetailModal(null)}>
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {/* Quick Category Switcher Bar inside Modal */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '6px',
+                  overflowX: 'auto',
+                  paddingBottom: '4px',
+                  borderBottom: '1px solid #e2e8f0',
+                }}
+              >
+                {(
+                  [
+                    { key: 'balance', label: 'বর্তমান ব্যালান্স' },
+                    { key: 'withdrawals', label: `উত্তোলন ও লোন (${withdrawalEntries.length})` },
+                    { key: 'investments', label: `মূলধন (${investmentEntries.length})` },
+                    { key: 'net_profit', label: 'নিট মুনাফা' },
+                    { key: 'purchases', label: 'মোট ক্রয়' },
+                    { key: 'expenses', label: `অতিরিক্ত খরচ (${expenseEntries.length})` },
+                    { key: 'sales', label: `বিক্রয় (${saleEntries.length})` },
+                  ] as { key: DashDetailCategory; label: string }[]
+                ).map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setDashDetailModal(item.key)}
+                    style={{
+                      padding: '6px 11px',
+                      borderRadius: '999px',
+                      border: dashDetailModal === item.key ? '1.5px solid #0d9488' : '1px solid #cbd5e1',
+                      background: dashDetailModal === item.key ? '#0d9488' : '#f8fafc',
+                      color: dashDetailModal === item.key ? '#ffffff' : '#334155',
+                      fontSize: '11.5px',
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 1. WITHDRAWALS & LOANS DETAILED VIEW */}
+              {dashDetailModal === 'withdrawals' && (
+                <div style={{ display: 'grid', gap: '14px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  {/* Top Summary Box */}
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, #fff1f2 0%, #fff7ed 100%)',
+                      border: '1.5px solid #fecaca',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                      gap: '10px',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#991b1b', display: 'block' }}>সর্বমোট উত্তোলন ও লোন</span>
+                      <strong style={{ fontSize: '17px', color: '#dc2626' }}>
+                        -{money(cashSummary.totalWithdrawals + cashSummary.totalLoans)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#7f1d1d', display: 'block' }}>লাভাংশ উত্তোলন</span>
+                      <strong style={{ fontSize: '15px', color: '#b91c1c' }}>
+                        {money(cashSummary.totalWithdrawals)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#92400e', display: 'block' }}>বিশেষ লোন</span>
+                      <strong style={{ fontSize: '15px', color: '#d97706' }}>
+                        {money(cashSummary.totalLoans)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#065f46', display: 'block' }}>উত্তোলন বাদে বর্তমান ব্যালান্স</span>
+                      <strong style={{ fontSize: '15px', color: '#047857' }}>
+                        {money(cashSummary.availableCash)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Partner-by-Partner Withdrawal Summary */}
+                  <div
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '12px',
+                      padding: '12px',
+                    }}
+                  >
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      👥 কোন অংশীদার মোট কত টাকা উত্তোলন করেছেন:
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px' }}>
+                      {partnerWithdrawalStats.map((p) => (
+                        <div
+                          key={p.id}
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '10px',
+                            padding: '10px 12px',
+                            display: 'grid',
+                            gap: '4px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{p.name}</strong>
+                            <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>
+                              {p.txCount} বার উত্তোলন
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                            <span style={{ color: '#64748b' }}>মোট উত্তোলন:</span>
+                            <b style={{ color: '#dc2626' }}>-{money(p.computedWithdrawals + p.computedLoans)}</b>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                            <span style={{ color: '#64748b' }}>অবশিষ্ট উত্তোলনযোগ্য লাভ:</span>
+                            <b style={{ color: '#0d9488' }}>{money(p.withdrawableLimit)}</b>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Chronological List of Every Withdrawal & Loan */}
+                  <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      📋 কবে, কে, কত টাকা উত্তোলন করেছেন তার বিস্তারিত তালিকা ({withdrawalEntries.length}টি):
+                    </h4>
+                    {withdrawalEntries.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '24px 14px',
+                          textAlign: 'center',
+                          background: '#f8fafc',
+                          borderRadius: '10px',
+                          border: '1px dashed #cbd5e1',
+                          color: '#64748b',
+                          fontSize: '13px',
+                        }}
+                      >
+                        এখনো কোনো উত্তোলন বা লোন রেকর্ড করা হয়নি।
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {withdrawalEntries.map((e, idx) => {
+                          const partnerName = resolveEntryPartnerName(e, investors);
+                          return (
+                            <div
+                              key={e.id}
+                              style={{
+                                background: '#ffffff',
+                                border: '1px solid #fecaca',
+                                borderRadius: '11px',
+                                padding: '11px 13px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                  <span
+                                    style={{
+                                      background: '#0f2438',
+                                      color: '#ffffff',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                    }}
+                                  >
+                                    #{withdrawalEntries.length - idx} • {partnerName}
+                                  </span>
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      background: e.type === 'loan' ? '#fef3c7' : '#fee2e2',
+                                      color: e.type === 'loan' ? '#92400e' : '#b91c1c',
+                                    }}
+                                  >
+                                    {e.type === 'loan' ? 'বিশেষ লোন' : 'লাভাংশ উত্তোলন'}
+                                  </span>
+                                  {e.category && (
+                                    <span style={{ fontSize: '11px', color: '#475569', background: '#f1f5f9', padding: '2px 7px', borderRadius: '6px' }}>
+                                      মাধ্যম: {e.category}
+                                    </span>
+                                  )}
+                                </div>
+                                <strong style={{ fontSize: '15.5px', color: '#dc2626' }}>
+                                  -{money(e.amount)}
+                                </strong>
+                              </div>
+
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                                {e.title}
+                              </div>
+
+                              {e.notes && (
+                                <div style={{ fontSize: '12px', color: '#475569', background: '#f8fafc', padding: '6px 9px', borderRadius: '7px' }}>
+                                  নোট / কারণ: {e.notes}
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', paddingTop: '4px', borderTop: '1px dashed #f1f5f9', fontSize: '11.5px', color: '#64748b' }}>
+                                <span>📅 তারিখ: <b style={{ color: '#334155' }}>{dateLabel(e.date)} ({e.date})</b></span>
+                                <button
+                                  type="button"
+                                  className="text-btn"
+                                  style={{ fontSize: '11.5px', padding: '2px 6px' }}
+                                  onClick={() => {
+                                    setDashDetailModal(null);
+                                    setViewRecordModal(e);
+                                  }}
+                                >
+                                  সম্পূর্ণ রশিদ দেখুন →
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. INVESTMENTS (CAPITAL) DETAILED VIEW */}
+              {dashDetailModal === 'investments' && (
+                <div style={{ display: 'grid', gap: '14px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)',
+                      border: '1.5px solid #ddd6fe',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '10px',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '11.5px', color: '#5b21b6', display: 'block' }}>প্রতিষ্ঠানের সর্বমোট মূলধন (বিনিয়োগ)</span>
+                      <strong style={{ fontSize: '19px', color: '#6d28d9' }}>{money(cashSummary.totalInvestments)}</strong>
+                    </div>
+                    <span className="badge" style={{ background: '#ede9fe', color: '#5b21b6', border: '1px solid #c4b5fd' }}>
+                      🔒 শর্তাবলী অনুযায়ী মূলধন উত্তোলনযোগ্য নয়
+                    </span>
+                  </div>
+
+                  {/* Partner Capital Shares */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '8px' }}>
+                    {partnerAccounts.map((p) => (
+                      <div
+                        key={p.id}
+                        style={{
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '10px',
+                          padding: '10px 12px',
+                          display: 'grid',
+                          gap: '4px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{p.name}</strong>
+                          <span className="badge posted">{p.share.toFixed(1)}% শেয়ার</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
+                          <span style={{ color: '#64748b' }}>জমাকৃত মূলধন:</span>
+                          <b style={{ color: '#6d28d9' }}>{money(p.capital)}</b>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* List of Investment Entries */}
+                  <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      📋 কবে, কে, কত টাকা মূলধন জমা দিয়েছেন ({investmentEntries.length}টি):
+                    </h4>
+                    {investmentEntries.length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', background: '#f8fafc', borderRadius: '10px', color: '#64748b' }}>
+                        কোনো মূলধন জমার এন্ট্রি পাওয়া যায়নি।
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {investmentEntries.map((e, idx) => {
+                          const partnerName = resolveEntryPartnerName(e, investors);
+                          return (
+                            <div
+                              key={e.id}
+                              style={{
+                                background: '#ffffff',
+                                border: '1px solid #ddd6fe',
+                                borderRadius: '10px',
+                                padding: '10px 13px',
+                                display: 'grid',
+                                gap: '4px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                                <span style={{ background: '#5b21b6', color: '#ffffff', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '6px' }}>
+                                  #{investmentEntries.length - idx} • {partnerName}
+                                </span>
+                                <strong style={{ fontSize: '15px', color: '#6d28d9' }}>+{money(e.amount)}</strong>
+                              </div>
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{e.title}</div>
+                              {e.notes && <div style={{ fontSize: '12px', color: '#475569' }}>নোট: {e.notes}</div>}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b', paddingTop: '3px', borderTop: '1px dashed #f1f5f9' }}>
+                                <span>📅 তারিখ: <b>{dateLabel(e.date)} ({e.date})</b></span>
+                                <button
+                                  type="button"
+                                  className="text-btn"
+                                  style={{ fontSize: '11.5px', padding: 0 }}
+                                  onClick={() => {
+                                    setDashDetailModal(null);
+                                    setViewRecordModal(e);
+                                  }}
+                                >
+                                  রশিদ দেখুন →
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. CURRENT BALANCE WITH CAPITAL DETAILED VIEW */}
+              {dashDetailModal === 'balance' && (
+                <div style={{ display: 'grid', gap: '14px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 100%)',
+                      border: '1.5px solid #34d399',
+                      borderRadius: '12px',
+                      padding: '14px',
+                      display: 'grid',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', color: '#065f46', fontWeight: 700, display: 'block' }}>
+                          মূলধন সহ বর্তমান ব্যালান্স (উত্তোলন করলে ব্যালেন্স কমে)
+                        </span>
+                        <strong style={{ fontSize: '22px', color: '#047857' }}>{money(cashSummary.availableCash)}</strong>
+                      </div>
+                      <span className="badge posted" style={{ fontSize: '11.5px' }}>লাইভ আপডেটেড</span>
+                    </div>
+
+                    <div style={{ background: '#ffffff', borderRadius: '10px', padding: '10px 12px', border: '1px solid #a7f3d0', display: 'grid', gap: '6px', fontSize: '12.5px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#475569' }}>(+) মোট মূলধন (বিনিয়োগ):</span>
+                        <b style={{ color: '#6d28d9' }}>{money(cashSummary.totalInvestments)}</b>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#475569' }}>
+                          (+) সর্বমোট নিট মুনাফা (বিক্রয় লাভ {money(cashSummary.totalSalesProfit)} − অতিরিক্ত খরচ {money(cashSummary.totalExpenses)}):
+                        </span>
+                        <b style={{ color: '#059669' }}>+{money(cashSummary.netProfit)}</b>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#991b1b' }}>(−) মোট উত্তোলন ও বিশেষ লোন:</span>
+                        <b style={{ color: '#dc2626' }}>-{money(cashSummary.totalWithdrawals + cashSummary.totalLoans)}</b>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1.5px solid #e2e8f0', fontSize: '13.5px' }}>
+                        <strong style={{ color: '#0f172a' }}>(=) মূলধন সহ বর্তমান ব্যালান্স:</strong>
+                        <strong style={{ color: '#047857' }}>{money(cashSummary.availableCash)}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent Balance-Affecting Transactions */}
+                  <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      📋 ব্যালান্সে প্রভাব বিস্তারকারী সকল লেনদেনের তালিকা ({postedAll.length}টি):
+                    </h4>
+                    <div style={{ display: 'grid', gap: '7px' }}>
+                      {postedAll.slice(0, 30).map((e) => {
+                        const partnerName = resolveEntryPartnerName(e, investors);
+                        const isOut = e.type === 'withdrawal' || e.type === 'loan' || e.type === 'expense' || e.type === 'purchase';
+                        return (
+                          <div
+                            key={e.id}
+                            style={{
+                              background: '#ffffff',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '10px',
+                              padding: '9px 12px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '10px',
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                <span className="type-pill" style={{ fontSize: '10.5px' }}>{typeLabels[e.type] || e.type}</span>
+                                <small style={{ color: '#64748b', fontSize: '11px' }}>{dateLabel(e.date)}</small>
+                                {partnerName !== 'সাধারণ / উল্লেখ নেই' && (
+                                  <small style={{ color: '#0f766e', fontWeight: 700, fontSize: '11px' }}>• {partnerName}</small>
+                                )}
+                              </div>
+                              <strong style={{ fontSize: '13px', color: '#0f172a', display: 'block', marginTop: '2px' }}>{e.title}</strong>
+                            </div>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <strong style={{ fontSize: '13.5px', color: isOut ? '#dc2626' : '#059669', display: 'block' }}>
+                                {isOut ? '-' : '+'}{money(e.amount)}
+                              </strong>
+                              {e.type === 'sale' && e.grossProfit !== undefined && (
+                                <small style={{ fontSize: '10.5px', color: '#047857', fontWeight: 700 }}>
+                                  লাভ: +{money(e.grossProfit)}
+                                </small>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 4. TOTAL PURCHASES (মাল কেনা ও COGS) DETAILED VIEW */}
+              {dashDetailModal === 'purchases' && (
+                <div style={{ display: 'grid', gap: '14px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  <div
+                    style={{
+                      background: '#fffbeb',
+                      border: '1.5px solid #fde68a',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                      gap: '10px',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#92400e', display: 'block' }}>সর্বমোট ক্রয় (মাল কেনা)</span>
+                      <strong style={{ fontSize: '18px', color: '#b45309' }}>{money(overallTotalPurchase)}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#92400e', display: 'block' }}>বিক্রিত পণ্যের ক্রয়মূল্য (COGS)</span>
+                      <strong style={{ fontSize: '15px', color: '#d97706' }}>{money(stats.cogs)}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#92400e', display: 'block' }}>বর্তমান মজুদ স্টকের মূল্য</span>
+                      <strong style={{ fontSize: '15px', color: '#0f766e' }}>{money(stats.inventoryValuation)}</strong>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      📦 ক্রয়কৃত পণ্য ও বিক্রিত পণ্যের কেনা খরচের বিস্তারিত তালিকা ({purchaseAndSaleCostEntries.length}টি):
+                    </h4>
+                    {purchaseAndSaleCostEntries.length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', background: '#f8fafc', borderRadius: '10px', color: '#64748b' }}>
+                        কোনো ক্রয় বা পণ্যের কেনা খরচের রেকর্ড পাওয়া যায়নি।
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {purchaseAndSaleCostEntries.map((e) => {
+                          const linkedProd = e.productId ? products.find((p) => p.id === e.productId) : null;
+                          const itemCost =
+                            e.type === 'purchase'
+                              ? e.amount
+                              : e.cogsAmount !== undefined
+                              ? e.cogsAmount
+                              : linkedProd && e.quantity
+                              ? e.quantity * linkedProd.averageCost
+                              : 0;
+                          return (
+                            <div
+                              key={e.id}
+                              style={{
+                                background: '#ffffff',
+                                border: '1px solid #fde68a',
+                                borderRadius: '10px',
+                                padding: '10px 13px',
+                                display: 'grid',
+                                gap: '4px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                                <span className="badge" style={{ background: '#fef3c7', color: '#92400e' }}>
+                                  {e.type === 'purchase' ? 'সরাসরি মাল ক্রয়' : 'বিক্রিত পণ্যের কেনা খরচ (COGS)'}
+                                </span>
+                                <strong style={{ fontSize: '14.5px', color: '#b45309' }}>ক্রয় খরচ: {money(itemCost)}</strong>
+                              </div>
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{e.title}</div>
+                              <div style={{ fontSize: '11.5px', color: '#64748b', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                                <span>📅 তারিখ: <b>{dateLabel(e.date)}</b></span>
+                                {e.type === 'sale' && <span>বিক্রয় মূল্য: <b>{money(e.amount)}</b></span>}
+                                {e.quantity && <span>পরিমাণ: <b>{e.quantity}টি</b></span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 5. EXTRA / OPERATING EXPENSES DETAILED VIEW */}
+              {dashDetailModal === 'expenses' && (
+                <div style={{ display: 'grid', gap: '14px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  <div
+                    style={{
+                      background: '#fff1f2',
+                      border: '1.5px solid #fecdd3',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '10px',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '11.5px', color: '#9f1239', display: 'block' }}>সর্বমোট অতিরিক্ত ও পরিচালন খরচ</span>
+                      <strong style={{ fontSize: '19px', color: '#e11d48' }}>{money(cashSummary.totalExpenses)}</strong>
+                    </div>
+                    <span className="badge" style={{ background: '#ffe4e6', color: '#be123c' }}>
+                      মোট {expenseEntries.length}টি খরচের এন্ট্রি
+                    </span>
+                  </div>
+
+                  <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      📋 কবে, কী বাবদ কত টাকা অতিরিক্ত খরচ হয়েছে ({expenseEntries.length}টি):
+                    </h4>
+                    {expenseEntries.length === 0 ? (
+                      <div style={{ padding: '24px 14px', textAlign: 'center', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '13px' }}>
+                        এখনো কোনো অতিরিক্ত বা পরিচালন খরচ রেকর্ড করা হয়নি।
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {expenseEntries.map((e, idx) => (
+                          <div
+                            key={e.id}
+                            style={{
+                              background: '#ffffff',
+                              border: '1px solid #fecdd3',
+                              borderRadius: '10px',
+                              padding: '10px 13px',
+                              display: 'grid',
+                              gap: '4px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span className="badge" style={{ background: '#ffe4e6', color: '#be123c' }}>
+                                #{expenseEntries.length - idx} • {e.category || 'অতিরিক্ত খরচ'}
+                              </span>
+                              <strong style={{ fontSize: '15px', color: '#e11d48' }}>-{money(e.amount)}</strong>
+                            </div>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{e.title}</div>
+                            {e.notes && <div style={{ fontSize: '12px', color: '#475569' }}>বিবরণ: {e.notes}</div>}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b', paddingTop: '3px', borderTop: '1px dashed #f1f5f9' }}>
+                              <span>📅 তারিখ: <b>{dateLabel(e.date)} ({e.date})</b></span>
+                              <button
+                                type="button"
+                                className="text-btn"
+                                style={{ fontSize: '11.5px', padding: 0 }}
+                                onClick={() => {
+                                  setDashDetailModal(null);
+                                  setViewRecordModal(e);
+                                }}
+                              >
+                                রশিদ দেখুন →
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 6. SALES DETAILED VIEW */}
+              {dashDetailModal === 'sales' && (
+                <div style={{ display: 'grid', gap: '14px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  <div
+                    style={{
+                      background: '#eff6ff',
+                      border: '1.5px solid #bfdbfe',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+                      gap: '10px',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#1e40af', display: 'block' }}>সর্বমোট বিক্রয় রাজস্ব</span>
+                      <strong style={{ fontSize: '17px', color: '#1d4ed8' }}>{money(stats.sales)}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#92400e', display: 'block' }}>বিক্রিত পণ্যের কেনা খরচ</span>
+                      <strong style={{ fontSize: '15px', color: '#b45309' }}>{money(stats.cogs)}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#065f46', display: 'block' }}>মোট বিক্রয় মুনাফা (Gross)</span>
+                      <strong style={{ fontSize: '15px', color: '#059669' }}>+{money(stats.grossProfit)}</strong>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      🛒 সকল বিক্রয়ের বিস্তারিত তালিকা ({saleEntries.length}টি):
+                    </h4>
+                    {saleEntries.length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', background: '#f8fafc', borderRadius: '10px', color: '#64748b' }}>
+                        কোনো বিক্রয় রেকর্ড পাওয়া যায়নি।
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {saleEntries.map((e, idx) => {
+                          const profitVal =
+                            e.grossProfit !== undefined
+                              ? e.grossProfit
+                              : Math.max(0, e.amount - (e.cogsAmount || 0));
+                          const costVal = e.cogsAmount !== undefined ? e.cogsAmount : Math.max(0, e.amount - profitVal);
+                          return (
+                            <div
+                              key={e.id}
+                              style={{
+                                background: '#ffffff',
+                                border: '1px solid #bfdbfe',
+                                borderRadius: '10px',
+                                padding: '10px 13px',
+                                display: 'grid',
+                                gap: '4px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                                <span className="badge" style={{ background: '#dbeafe', color: '#1e40af' }}>
+                                  বিক্রয় #{saleEntries.length - idx} • {dateLabel(e.date)}
+                                </span>
+                                <strong style={{ fontSize: '15px', color: '#0f172a' }}>{money(e.amount)}</strong>
+                              </div>
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{e.title}</div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', fontSize: '11.5px', paddingTop: '3px', borderTop: '1px dashed #f1f5f9' }}>
+                                <span style={{ color: '#b45309' }}>ক্রয় খরচ: <b>{money(costVal)}</b></span>
+                                <span style={{ color: '#059669' }}>লাভ: <b>+{money(profitVal)}</b></span>
+                                <button
+                                  type="button"
+                                  className="text-btn"
+                                  style={{ fontSize: '11.5px', padding: 0 }}
+                                  onClick={() => {
+                                    setDashDetailModal(null);
+                                    setViewRecordModal(e);
+                                  }}
+                                >
+                                  রশিদ দেখুন →
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 7. NET PROFIT & PARTNER SHARE DETAILED VIEW */}
+              {dashDetailModal === 'net_profit' && (
+                <div style={{ display: 'grid', gap: '14px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '2px' }}>
+                  <div
+                    style={{
+                      background: '#f0fdf4',
+                      border: '1.5px solid #bbf7d0',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '11.5px', color: '#166534', display: 'block' }}>সর্বমোট প্রকৃত নিট মুনাফা (Net Profit)</span>
+                        <strong style={{ fontSize: '20px', color: '#15803d' }}>
+                          {cashSummary.netProfit >= 0 ? '+' : ''}{money(cashSummary.netProfit)}
+                        </strong>
+                      </div>
+                      <span className="badge posted">
+                        লাভের হার: {stats.sales > 0 ? `${((stats.netProfit / stats.sales) * 100).toFixed(1)}%` : '0%'}
+                      </span>
+                    </div>
+                    <div style={{ background: '#ffffff', borderRadius: '8px', padding: '8px 10px', border: '1px solid #dcfce7', fontSize: '12px', display: 'grid', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>মোট বিক্রয় রাজস্ব:</span>
+                        <b>{money(stats.sales)}</b>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>(−) বিক্রিত পণ্যের কেনা খরচ (COGS):</span>
+                        <b style={{ color: '#b45309' }}>-{money(stats.cogs)}</b>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>(−) অতিরিক্ত ও পরিচালন খরচ:</span>
+                        <b style={{ color: '#dc2626' }}>-{money(stats.expenses)}</b>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #cbd5e1', fontWeight: 700 }}>
+                        <span>(=) প্রকৃত নিট মুনাফা:</span>
+                        <b style={{ color: '#15803d' }}>+{money(stats.netProfit)}</b>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Partner Profit Allocation */}
+                  <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '13.5px', color: '#0f172a' }}>
+                      👥 অংশীদারদের মুনাফার ভাগ ও উত্তোলনযোগ্য ব্যালান্স:
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px' }}>
+                      {partnerAccounts.map((p) => (
+                        <div
+                          key={p.id}
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid #bbf7d0',
+                            borderRadius: '10px',
+                            padding: '10px 12px',
+                            display: 'grid',
+                            gap: '4px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{p.name}</strong>
+                            <span className="badge posted">{p.share.toFixed(1)}% শেয়ার</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                            <span style={{ color: '#64748b' }}>মোট অর্জিত লাভাংশ:</span>
+                            <b style={{ color: '#059669' }}>+{money(p.allocatedProfit)}</b>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                            <span style={{ color: '#64748b' }}>উত্তোলন ও লোন:</span>
+                            <b style={{ color: '#dc2626' }}>-{money(p.withdrawals + p.loans)}</b>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', paddingTop: '4px', borderTop: '1px dashed #e2e8f0' }}>
+                            <span style={{ color: '#0f766e', fontWeight: 700 }}>উত্তোলনযোগ্য লাভ:</span>
+                            <b style={{ color: '#0d9488' }}>{money(p.withdrawableLimit)}</b>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    const targetType: Record<DashDetailCategory, 'all' | RecordType> = {
+                      withdrawals: 'withdrawal',
+                      investments: 'investment',
+                      balance: 'all',
+                      purchases: 'purchase',
+                      expenses: 'expense',
+                      sales: 'sale',
+                      net_profit: 'sale',
+                    };
+                    setTypeFilter(targetType[dashDetailModal]);
+                    setDashDetailModal(null);
+                    setTab('transactions');
+                  }}
+                >
+                  সকল লেনদেন পেজে দেখুন →
+                </button>
+                <button type="button" className="primary" onClick={() => setDashDetailModal(null)}>
+                  বন্ধ করুন
+                </button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
@@ -7116,6 +8329,11 @@ function EntryTable({
         <tbody>
           {rows.map((e) => {
             const partner = investors.find((i) => i.id === e.investorId);
+            const resolvedPartnerName = partner?.name || (
+              e.type === 'withdrawal' || e.type === 'loan' || e.type === 'investment'
+                ? resolveEntryPartnerName(e, investors)
+                : '—'
+            );
             const isSelected = selectedIds.includes(e.id);
 
             return (
@@ -7164,7 +8382,7 @@ function EntryTable({
                     </div>
                   </div>
                 </td>
-                <td>{partner?.name || '—'}</td>
+                <td>{resolvedPartnerName}</td>
                 <td className={e.type === 'sale' ? 'positive' : ''}>
                   <div>{money(e.amount)}</div>
                   {e.type === 'sale' && (e.grossProfit !== undefined || e.cogsAmount !== undefined) && (

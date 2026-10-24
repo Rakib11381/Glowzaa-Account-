@@ -3,6 +3,8 @@ import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 import {
   getFirestore,
   initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   setLogLevel,
   doc,
   getDoc,
@@ -57,14 +59,26 @@ try {
   if (config.apiKey && config.projectId && config.appId) {
     app = getApps().length > 0 ? getApps()[0] : initializeApp(config);
     auth = getAuth(app);
-    // Explicitly pass firestoreDatabaseId if configured and enable auto long-polling for iframe/mobile proxy stability
+    // Explicitly pass firestoreDatabaseId if configured, enable persistent IndexedDB cache for 0ms boot, and auto long-polling for iframe/mobile proxy stability
     const databaseId = (firebaseConfigJson as { firestoreDatabaseId?: string }).firestoreDatabaseId;
+    const firestoreSettings = {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+      experimentalAutoDetectLongPolling: true,
+    };
     try {
       db = databaseId
-        ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true }, databaseId)
-        : initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+        ? initializeFirestore(app, firestoreSettings, databaseId)
+        : initializeFirestore(app, firestoreSettings);
     } catch {
-      db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+      try {
+        db = databaseId
+          ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true }, databaseId)
+          : initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+      } catch {
+        db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+      }
     }
     firebaseConfigured = true;
   }

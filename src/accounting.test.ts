@@ -153,7 +153,25 @@ export function runAutomatedTests() {
     assert(cashSum.totalSalesProfit === 1, `Total sale profit is 1`);
   }
 
-  console.log('\n--- ALL 6 AUTOMATED TEST SUITES PASSED SUCCESSFULLY --_\n');
+  // Test 8: Equal fallback partner share when capital is 0 & name-based partner matching
+  {
+    const investors: Investor[] = [
+      { id: 'rakib_doc_1', name: 'Rakib (অ্যাডমিন)', active: true, equityShare: 50 },
+      { id: 'limon_doc_2', name: 'Limon (অ্যাডমিন)', active: true, equityShare: 50 },
+    ];
+    const entries: Entry[] = [
+      { id: 's1', type: 'sale', title: 'Sale with 100 profit', amount: 300, cogsAmount: 200, grossProfit: 100, date: '2025-01-01', status: 'posted' },
+      { id: 'w1', type: 'withdrawal', title: 'Rakib withdrawal', amount: 20, date: '2025-01-02', status: 'posted' },
+    ];
+
+    const partnerAccs = calculatePartnerAccountBalances(investors, entries);
+    assert(partnerAccs[0].share === 50 && partnerAccs[1].share === 50, 'Equal 50/50 fallback share when capital is 0');
+    assert(partnerAccs[0].allocatedProfit === 50 && partnerAccs[1].allocatedProfit === 50, 'Each partner gets 50 profit');
+    assert(partnerAccs[0].withdrawals === 20, 'Name-based fallback matches Rakib withdrawal');
+    assert(partnerAccs[0].withdrawableLimit === 30, 'Rakib withdrawable limit is 50 - 20 = 30');
+  }
+
+  console.log('\n--- ALL 8 AUTOMATED TEST SUITES PASSED SUCCESSFULLY ---\n');
   return true;
 }
 
@@ -161,3 +179,4 @@ const proc = (globalThis as any).process;
 if (proc && proc.argv && proc.argv[1]?.includes('accounting.test')) {
   runAutomatedTests();
 }
+

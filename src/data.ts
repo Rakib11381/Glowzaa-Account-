@@ -31,8 +31,13 @@ export function deepClean<T>(obj: T): T {
   if (typeof obj !== 'object') {
     return obj;
   }
-  // Preserve Firestore FieldValues (like serverTimestamp()) or Date objects
-  if (obj instanceof Date || (obj as any)?._methodName || typeof (obj as any)?.toMillis === 'function') {
+  // Preserve Firestore FieldValues (like serverTimestamp()), Timestamps, Dates, or any non-plain class instances
+  if (
+    obj instanceof Date ||
+    (obj as any)?._methodName ||
+    typeof (obj as any)?.toMillis === 'function' ||
+    ((obj as any)?.constructor && (obj as any).constructor !== Object && !Array.isArray(obj))
+  ) {
     return obj;
   }
   if (Array.isArray(obj)) {
@@ -53,8 +58,59 @@ function cleanObject<T extends Record<string, any>>(obj: T): Record<string, any>
   return deepClean(obj);
 }
 
+// Instant 0ms localStorage cache helpers so data is rendered immediately on page open
+const CACHE_KEYS = {
+  entries: 'glowzaa_entries_cache_v1',
+  investors: 'glowzaa_investors_cache_v1',
+  products: 'glowzaa_products_cache_v1',
+  distributions: 'glowzaa_distributions_cache_v1',
+  auditLogs: 'glowzaa_audit_logs_cache_v1',
+};
+
+function readCache<T>(key: string): T[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCache<T>(key: string, rows: T[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(rows));
+  } catch {
+    // Ignore quota errors (e.g., if base64 product images exceed storage)
+  }
+}
+
+export function getCachedEntries(): Entry[] {
+  return readCache<Entry>(CACHE_KEYS.entries);
+}
+
+export function getCachedInvestors(): Investor[] {
+  return readCache<Investor>(CACHE_KEYS.investors);
+}
+
+export function getCachedProducts(): Product[] {
+  return readCache<Product>(CACHE_KEYS.products);
+}
+
+export function getCachedDistributions(): ProfitDistribution[] {
+  return readCache<ProfitDistribution>(CACHE_KEYS.distributions);
+}
+
+export function getCachedAuditLogs(): AuditLog[] {
+  return readCache<AuditLog>(CACHE_KEYS.auditLogs);
+}
+
 // Entries listener
 export function watchEntries(cb: (rows: Entry[]) => void, error: (e: Error) => void): Unsubscribe {
+  const cached = getCachedEntries();
+  if (cached.length > 0) cb(cached);
+
   const d = requireDb();
   const path = 'entries';
   return onSnapshot(
@@ -63,6 +119,7 @@ export function watchEntries(cb: (rows: Entry[]) => void, error: (e: Error) => v
       const rows = s.docs
         .map((x) => ({ id: x.id, ...(x.data() as Omit<Entry, 'id'>) }))
         .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      writeCache(CACHE_KEYS.entries, rows);
       cb(rows);
     },
     (e) => {
@@ -77,6 +134,9 @@ export function watchEntries(cb: (rows: Entry[]) => void, error: (e: Error) => v
 
 // Investors listener
 export function watchInvestors(cb: (rows: Investor[]) => void, error: (e: Error) => void): Unsubscribe {
+  const cached = getCachedInvestors();
+  if (cached.length > 0) cb(cached);
+
   const d = requireDb();
   const path = 'investors';
   return onSnapshot(
@@ -85,6 +145,7 @@ export function watchInvestors(cb: (rows: Investor[]) => void, error: (e: Error)
       const rows = s.docs
         .map((x) => ({ id: x.id, ...(x.data() as Omit<Investor, 'id'>) }))
         .sort((a, b) => a.name.localeCompare(b.name, 'bn'));
+      writeCache(CACHE_KEYS.investors, rows);
       cb(rows);
     },
     (e) => {
@@ -99,6 +160,9 @@ export function watchInvestors(cb: (rows: Investor[]) => void, error: (e: Error)
 
 // Products / Inventory listener
 export function watchProducts(cb: (rows: Product[]) => void, error: (e: Error) => void): Unsubscribe {
+  const cached = getCachedProducts();
+  if (cached.length > 0) cb(cached);
+
   const d = requireDb();
   const path = 'products';
   return onSnapshot(
@@ -107,6 +171,7 @@ export function watchProducts(cb: (rows: Product[]) => void, error: (e: Error) =
       const rows = s.docs
         .map((x) => ({ id: x.id, ...(x.data() as Omit<Product, 'id'>) }))
         .sort((a, b) => a.name.localeCompare(b.name, 'bn'));
+      writeCache(CACHE_KEYS.products, rows);
       cb(rows);
     },
     (e) => {
@@ -121,6 +186,9 @@ export function watchProducts(cb: (rows: Product[]) => void, error: (e: Error) =
 
 // Profit distributions listener
 export function watchDistributions(cb: (rows: ProfitDistribution[]) => void, error: (e: Error) => void): Unsubscribe {
+  const cached = getCachedDistributions();
+  if (cached.length > 0) cb(cached);
+
   const d = requireDb();
   const path = 'profitDistributions';
   return onSnapshot(
@@ -129,6 +197,7 @@ export function watchDistributions(cb: (rows: ProfitDistribution[]) => void, err
       const rows = s.docs
         .map((x) => ({ id: x.id, ...(x.data() as Omit<ProfitDistribution, 'id'>) }))
         .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      writeCache(CACHE_KEYS.distributions, rows);
       cb(rows);
     },
     (e) => {
@@ -143,6 +212,9 @@ export function watchDistributions(cb: (rows: ProfitDistribution[]) => void, err
 
 // Audit Logs listener
 export function watchAuditLogs(cb: (rows: AuditLog[]) => void, error: (e: Error) => void): Unsubscribe {
+  const cached = getCachedAuditLogs();
+  if (cached.length > 0) cb(cached);
+
   const d = requireDb();
   const path = 'auditLogs';
   return onSnapshot(
@@ -151,10 +223,11 @@ export function watchAuditLogs(cb: (rows: AuditLog[]) => void, error: (e: Error)
       const rows = s.docs
         .map((x) => ({ id: x.id, ...(x.data() as Omit<AuditLog, 'id'>) }))
         .sort((a, b) => {
-          const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-          const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+          const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+          const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
           return tB - tA;
         });
+      writeCache(CACHE_KEYS.auditLogs, rows.slice(0, 100));
       cb(rows);
     },
     (e) => {
@@ -401,24 +474,73 @@ export async function removeProfitDistribution(id: string, uid: string, email?: 
   }
 }
 
-// Update Entry
+// Update Entry with automatic inventory stock reconciliation when status, product, or quantity changes
 export async function updateEntry(id: string, patch: Partial<Entry>, uid: string, email?: string) {
   const d = requireDb();
   const path = `entries/${id}`;
   try {
+    const entryRef = doc(d, 'entries', id);
+    const oldSnap = await getDoc(entryRef);
+    const oldData = oldSnap.exists() ? (oldSnap.data() as Entry) : null;
+
     const batch = writeBatch(d);
-    batch.update(doc(d, 'entries', id), cleanObject({
+    batch.update(entryRef, cleanObject({
       ...patch,
       updatedAt: serverTimestamp(),
       updatedBy: uid,
     }));
 
+    // Reconcile inventory stock if old or new state involves a posted sale/purchase with a product
+    if (oldData) {
+      const merged: Entry = { ...oldData, ...patch, id };
+      const oldPosted = oldData.status === 'posted' && oldData.productId && (oldData.quantity || 0) > 0;
+      const newPosted = merged.status === 'posted' && merged.productId && (merged.quantity || 0) > 0;
+
+      if (oldPosted || newPosted) {
+        const productDeltas = new Map<string, number>();
+
+        // 1. Reverse old entry's stock effect
+        if (oldPosted && oldData.productId) {
+          const oldQty = Number(oldData.quantity) || 0;
+          if (oldData.type === 'purchase') {
+            productDeltas.set(oldData.productId, (productDeltas.get(oldData.productId) || 0) - oldQty);
+          } else if (oldData.type === 'sale') {
+            productDeltas.set(oldData.productId, (productDeltas.get(oldData.productId) || 0) + oldQty);
+          }
+        }
+
+        // 2. Apply new entry's stock effect
+        if (newPosted && merged.productId) {
+          const newQty = Number(merged.quantity) || 0;
+          if (merged.type === 'purchase') {
+            productDeltas.set(merged.productId, (productDeltas.get(merged.productId) || 0) + newQty);
+          } else if (merged.type === 'sale') {
+            productDeltas.set(merged.productId, (productDeltas.get(merged.productId) || 0) - newQty);
+          }
+        }
+
+        for (const [prodId, delta] of productDeltas.entries()) {
+          if (delta !== 0) {
+            const prodRef = doc(d, 'products', prodId);
+            const prodSnap = await getDoc(prodRef);
+            if (prodSnap.exists()) {
+              const curStock = (prodSnap.data() as Product).currentStock || 0;
+              batch.update(prodRef, cleanObject({
+                currentStock: Math.max(0, curStock + delta),
+                updatedAt: serverTimestamp(),
+              }));
+            }
+          }
+        }
+      }
+    }
+
     batch.set(doc(collection(d, 'auditLogs')), cleanObject({
-      action: 'edit_entry',
+      action: patch.status === 'void' ? 'void_entry' : 'edit_entry',
       recordId: id,
       actor: uid,
       actorEmail: email || '',
-      reason: 'Record edited by authorized admin',
+      reason: patch.voidReason || 'Record edited by authorized admin',
       createdAt: serverTimestamp(),
       details: patch,
     }));
@@ -852,6 +974,12 @@ export async function resetAllWebsiteData(uid: string, email?: string) {
     }
   }
 
+  // Clear local caches when resetting website data
+  try {
+    Object.values(CACHE_KEYS).forEach((k) => localStorage.removeItem(k));
+    localStorage.removeItem('glowzaa_approval_requests_cache');
+  } catch {}
+
   // Create a fresh audit log entry for the reset action
   try {
     await addDoc(collection(d, 'auditLogs'), cleanObject({
@@ -915,13 +1043,13 @@ export async function getAdminAuthData(): Promise<{
       localStorage.setItem('glowzaa_admin_auth', JSON.stringify(res));
       return res;
     } else {
-      await setDoc(docRef, {
+      await setDoc(docRef, cleanObject({
         rakibPassword: fallback.rakib || 'G120',
         limonPassword: fallback.limon || 'G120',
         rakibAvatar: fallback.rakibAvatar || '',
         limonAvatar: fallback.limonAvatar || '',
         updatedAt: serverTimestamp(),
-      });
+      }));
       return fallback;
     }
   } catch (e) {
@@ -950,19 +1078,19 @@ export async function updateAdminPasswordInDb(
     const docRef = doc(d, 'businessSettings', 'adminAuth');
     await setDoc(
       docRef,
-      {
-        rakibPassword: updated.rakib,
-        limonPassword: updated.limon,
+      cleanObject({
+        rakibPassword: updated.rakib || 'G120',
+        limonPassword: updated.limon || 'G120',
         updatedAt: serverTimestamp(),
-        lastUpdatedBy: admin,
-      },
+        lastUpdatedBy: admin || uid || 'admin',
+      }),
       { merge: true }
     );
 
     await addDoc(collection(d, 'auditLogs'), cleanObject({
       action: 'admin_password_change',
       recordId: admin.toLowerCase(),
-      actor: uid || admin,
+      actor: uid || admin || 'admin',
       actorEmail: `${admin.toLowerCase()}@glowzaa.shop`,
       reason: `${admin} updated personal admin password`,
       createdAt: serverTimestamp(),
@@ -992,12 +1120,12 @@ export async function updateAdminAvatarInDb(
     const docRef = doc(d, 'businessSettings', 'adminAuth');
     await setDoc(
       docRef,
-      {
-        rakibAvatar: updated.rakibAvatar,
-        limonAvatar: updated.limonAvatar,
+      cleanObject({
+        rakibAvatar: updated.rakibAvatar || '',
+        limonAvatar: updated.limonAvatar || '',
         updatedAt: serverTimestamp(),
-        lastUpdatedBy: admin,
-      },
+        lastUpdatedBy: admin || uid || 'admin',
+      }),
       { merge: true }
     );
   } catch (err) {
@@ -1277,6 +1405,16 @@ export async function approveApprovalRequest(
         req.payload,
         req.requestedBy
       );
+      break;
+
+    case 'delete_distribution':
+      if (req.targetId) {
+        await removeProfitDistribution(
+          req.targetId,
+          req.requestedBy,
+          `${req.requestedBy.toLowerCase()}@glowzaa.shop`
+        );
+      }
       break;
 
     case 'record_waste': {
