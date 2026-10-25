@@ -355,7 +355,7 @@ export default function AdminProfile({
     if (!withdrawReason.trim()) {
       setWithdrawError(
         withdrawMode === 'loan'
-          ? 'বিশেষ লোনের কারণ বা প্রয়োজনীয়তা উল্লেখ করা আবশ্যক (অপর অংশীদারের অনুমোদনের জন্য)।'
+          ? 'বিশেষ লোনের কারণ বা প্রয়োজনীয়তা উল্লেখ করা আবশ্যক।'
           : 'স্বচ্ছতার স্বার্থে লাভাংশ উত্তোলনের কারণ বা নোট উল্লেখ করা আবশ্যক।'
       );
       return;
@@ -379,13 +379,17 @@ export default function AdminProfile({
       setProfileBannerMsg({
         type: 'success',
         text:
-          withdrawMode === 'loan'
-            ? `${money(amt)} বিশেষ লোনের অনুরোধ পাঠানো হয়েছে! ${partnerName} অনুমোদন দিলে তা কার্যকর হবে এবং পরবর্তী লাভাংশ থেকে অটোমেটিক কেটে নেওয়া হবে।`
-            : `${money(amt)} লাভাংশ উত্তোলনের অনুরোধ পাঠানো হয়েছে! ${partnerName} অনুমোদন দিলেই তা আপনার হিসাবে যুক্ত হবে।`,
+          adminUser.username === 'Limon'
+            ? withdrawMode === 'loan'
+              ? `${money(amt)} বিশেষ লোনের অনুরোধ পাঠানো হয়েছে! ${partnerName} অনুমোদন দিলে তা কার্যকর হবে এবং পরবর্তী লাভাংশ থেকে অটোমেটিক কেটে নেওয়া হবে।`
+              : `${money(amt)} লাভাংশ উত্তোলনের অনুরোধ পাঠানো হয়েছে! ${partnerName} অনুমোদন দিলেই তা আপনার হিসাবে যুক্ত হবে।`
+            : withdrawMode === 'loan'
+            ? `${money(amt)} বিশেষ লোন সফলভাবে রেকর্ড করা হয়েছে এবং পরবর্তী লাভাংশ থেকে অটোমেটিক সমন্বয় হবে।`
+            : `${money(amt)} লাভাংশ উত্তোলন সফলভাবে সম্পন্ন হয়েছে!`,
       });
       setTimeout(() => setProfileBannerMsg(null), 6000);
     } catch (err: any) {
-      setWithdrawError(err?.message || 'অনুরোধ পাঠানো যায়নি।');
+      setWithdrawError(err?.message || 'সম্পন্ন করা যায়নি।');
     } finally {
       setIsWithdrawing(false);
     }
@@ -776,10 +780,10 @@ export default function AdminProfile({
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '16.5px', color: '#0f2438', fontWeight: 800 }}>
-                    দ্বৈত-অনুমোদন ও নিরাপত্তা কেন্দ্র (Dual-Admin Approval)
+                    অনুমোদন ও নিরাপত্তা কেন্দ্র (Approval Center)
                   </h3>
                   <small style={{ color: '#64748b', fontSize: '12px' }}>
-                    রাকিব বা লিমন যা-ই যুক্ত, উত্তোলন বা ডিলিট করবেন, অপর জনের অনুমোদন ছাড়া তা কার্যকর হবে না।
+                    সকল লেনদেন, উত্তোলন এবং তথ্যের নিরাপত্তা ও অনুমোদন ব্যবস্থাপনা।
                   </small>
                 </div>
               </div>
@@ -1834,8 +1838,12 @@ export default function AdminProfile({
                 <div className="modal-field">
                   <label htmlFor="withdraw-reason-input">
                     {withdrawMode === 'loan'
-                      ? `বিশেষ লোনের কারণ / বিবরণ (আবশ্যক - ${partnerName}-এর অনুমোদনের জন্য) *`
-                      : `লাভাংশ উত্তোলনের কারণ / নোট (আবশ্যক - ${partnerName}-এর অনুমোদনের জন্য) *`}
+                      ? adminUser.username === 'Limon'
+                        ? `বিশেষ লোনের কারণ / বিবরণ (আবশ্যক - ${partnerName}-এর অনুমোদনের জন্য) *`
+                        : 'বিশেষ লোনের কারণ / বিবরণ (আবশ্যক) *'
+                      : adminUser.username === 'Limon'
+                      ? `লাভাংশ উত্তোলনের কারণ / নোট (আবশ্যক - ${partnerName}-এর অনুমোদনের জন্য) *`
+                      : 'লাভাংশ উত্তোলনের কারণ / নোট (আবশ্যক) *'}
                   </label>
                   <textarea
                     id="withdraw-reason-input"
@@ -1850,24 +1858,26 @@ export default function AdminProfile({
                   />
                 </div>
 
-                <div
-                  style={{
-                    background: '#f0fdf4',
-                    border: '1px solid #bbf7d0',
-                    borderRadius: '10px',
-                    padding: '10px 12px',
-                    fontSize: '12px',
-                    color: '#166534',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '8px',
-                  }}
-                >
-                  <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <span>
-                    শর্তাবলী অনুযায়ী, অ্যাডমিন ২জন একে অপরকে ছাড়া কোনো উত্তোলন বা লোন করতে পারবেন না। আপনার অনুরোধটি <b>{partnerName}</b>-এর ব্যক্তিগত প্রোফাইলে যাবে এবং তিনি অনুমোদন দিলে কার্যকর হবে।
-                  </span>
-                </div>
+                {adminUser.username === 'Limon' && (
+                  <div
+                    style={{
+                      background: '#f0fdf4',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: '10px',
+                      padding: '10px 12px',
+                      fontSize: '12px',
+                      color: '#166534',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                    }}
+                  >
+                    <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <span>
+                      শর্তাবলী অনুযায়ী, আপনার অনুরোধটি <b>{partnerName}</b>-এর ব্যক্তিগত প্রোফাইলে যাবে এবং তিনি অনুমোদন দিলে কার্যকর হবে।
+                    </span>
+                  </div>
+                )}
 
                 <div className="modal-actions">
                   <button
@@ -1881,10 +1891,14 @@ export default function AdminProfile({
                     {isWithdrawing ? <span className="btn-spinner" /> : <Check size={16} />}
                     <span>
                       {isWithdrawing
-                        ? 'পাঠানো হচ্ছে…'
+                        ? 'প্রসেস হচ্ছে…'
+                        : adminUser.username === 'Limon'
+                        ? withdrawMode === 'loan'
+                          ? 'বিশেষ লোনের অনুরোধ পাঠান'
+                          : 'লাভাংশ উত্তোলন অনুরোধ পাঠান'
                         : withdrawMode === 'loan'
-                        ? 'বিশেষ লোনের অনুরোধ পাঠান'
-                        : 'লাভাংশ উত্তোলন অনুরোধ পাঠান'}
+                        ? 'বিশেষ লোন নিশ্চিত করুন'
+                        : 'লাভাংশ উত্তোলন নিশ্চিত করুন'}
                     </span>
                   </button>
                   <button

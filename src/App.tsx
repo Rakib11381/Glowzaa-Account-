@@ -98,6 +98,7 @@ import PWAInstallButton from './components/PWAInstallButton';
 import SalesTrendChartSection from './components/SalesTrendChartSection';
 import EmailNotificationSection from './components/EmailNotificationSection';
 import BrandWelcomePopup from './components/BrandWelcomePopup';
+import ProductProfitabilityModal from './components/ProductProfitabilityModal';
 import {
   money,
   moneyBn,
@@ -343,6 +344,7 @@ export default function App() {
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [showInvestorModal, setShowInvestorModal] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
+  const [showProfitabilityModal, setShowProfitabilityModal] = useState(false);
   const [showProfitModal, setShowProfitModal] = useState(false);
   const [viewRecordModal, setViewRecordModal] = useState<Entry | null>(null);
   const [viewPartnerModal, setViewPartnerModal] = useState<PartnerAccountBalance | null>(null);
@@ -713,6 +715,9 @@ export default function App() {
       ? { username: 'Limon' as const, displayName: 'লিমন (Limon)' }
       : { username: 'Rakib' as const, displayName: 'রাকিব (Rakib)' };
   }, [currentAdmin]);
+
+  // Asymmetric approval rule: Rakib does NOT need Limon's permission; Limon DOES need Rakib's permission
+  const needsPartnerApproval = currentAdmin?.username === 'Limon';
 
   const pendingForMeCount = useMemo(() => {
     if (!currentAdmin) return 0;
@@ -1158,9 +1163,9 @@ export default function App() {
         demo: false,
       };
 
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
         const actLabel = typeLabels[entryForm.type] || entryForm.type;
 
         await createApprovalRequest({
@@ -1183,18 +1188,24 @@ export default function App() {
           previousData: editingEntry || null,
         });
 
-        setMessage(`অনুরোধ সফলভাবে তৈরি হয়েছে! জালিয়াতি রোধে এটি কার্যকর হতে ${targetApproverName}-এর অনুমোদন প্রয়োজন।`);
+        setMessage(`অনুরোধ সফলভাবে তৈরি হয়েছে! এটি কার্যকর হতে ${targetApproverName}-এর অনুমোদন প্রয়োজন।`);
         setEditingEntry(null);
         setEntryReason('');
-      } else if (user) {
+      } else {
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        const actorEmail = currentAdmin
+          ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+          : user?.email || undefined;
+
         if (editingEntry) {
-          await updateEntry(editingEntry.id, entryPayload, user.uid, user.email || undefined);
+          await updateEntry(editingEntry.id, entryPayload, actorUid, actorEmail);
           setMessage('রেকর্ড সফলভাবে আপডেট করা হয়েছে');
           setEditingEntry(null);
         } else {
-          await addEntry(entryPayload, user.uid, user.email || undefined);
+          await addEntry(entryPayload, actorUid, actorEmail, currentAdmin?.displayName);
           setMessage(entryForm.status === 'draft' ? 'ড্রাফট হিসেবে সংরক্ষণ করা হয়েছে' : 'লেনদেন সফলভাবে পোস্টেড করা হয়েছে');
         }
+        setEntryReason('');
       }
 
       setEntryForm({
@@ -1238,9 +1249,9 @@ export default function App() {
         active: true,
       };
 
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: 'create_investor',
@@ -1263,6 +1274,7 @@ export default function App() {
       } else {
         await addInvestor(payload);
         setMessage('অংশীদার সফলভাবে যোগ করা হয়েছে');
+        setInvestorReason('');
       }
       setInvestorName('');
       setInvestorPhone('');
@@ -1295,9 +1307,9 @@ export default function App() {
         imageUrl: productForm.imageUrl.trim() || undefined,
       };
 
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: editingProduct ? 'edit_product' : 'create_product',
@@ -1322,13 +1334,19 @@ export default function App() {
         setMessage(`পণ্য সংরক্ষণের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে তা ইনভেন্টরিতে যুক্ত হবে।`);
         setProductReason('');
       } else {
-        if (editingProduct && user) {
-          await updateProduct(editingProduct.id, payload, user.uid, user.email || undefined);
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        const actorEmail = currentAdmin
+          ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+          : user?.email || undefined;
+
+        if (editingProduct) {
+          await updateProduct(editingProduct.id, payload, actorUid, actorEmail);
           setMessage(`পণ্য "${payload.name}" সফলভাবে আপডেট করা হয়েছে`);
         } else {
           await addProduct(payload);
           setMessage('ইনভেন্টরি পণ্য সফলভাবে যোগ করা হয়েছে');
         }
+        setProductReason('');
       }
       setProductForm({ name: '', sku: '', unit: 'পিস', currentStock: '', averageCost: '', sellingPrice: '', imageUrl: '' });
       setEditingProduct(null);
@@ -1586,9 +1604,9 @@ export default function App() {
         };
       });
 
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
         const namesList = payloads.map((p) => p.name).join(', ');
 
         await createApprovalRequest({
@@ -1623,6 +1641,7 @@ export default function App() {
         setMessage(
           `সফলভাবে ${toBengaliNumerals(payloads.length)}টি পণ্য গড় ক্রয়মূল্য (${money(calculatedAvgCost)}) ও বিক্রয়মূল্যে (${money(calculatedAvgSell)}) ইনভেন্টরিতে যোগ করা হয়েছে!`
         );
+        setProductReason('');
       }
 
       setBatchProductsForm(createDefaultBatchRows(5));
@@ -1684,9 +1703,9 @@ export default function App() {
         shares: allocatedShares,
       };
 
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: 'distribute_profit',
@@ -1705,8 +1724,9 @@ export default function App() {
         });
 
         setMessage(`মুনাফা বণ্টনের অনুরোধ তৈরি হয়েছে! ${targetApproverName}-এর অনুমোদনের পর তা কার্যকর হবে।`);
-      } else if (user) {
-        await addProfitDistribution(distPayload, user.uid);
+      } else {
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        await addProfitDistribution(distPayload, actorUid);
         setMessage('মুনাফা বণ্টন সফলভাবে সংরক্ষিত হয়েছে');
       }
 
@@ -1747,36 +1767,65 @@ export default function App() {
         ? Number(wasteForm.lossAmount)
         : Math.round(qty * (product.averageCost || 0) * 100) / 100;
 
-      const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-      const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
-      await createApprovalRequest({
-        actionType: 'record_waste',
-        targetCollection: 'products',
-        targetId: product.id,
-        title: `নষ্ট/ক্ষতিগ্রস্থ পণ্য: ${product.name} (${qty} ${product.unit}, ক্ষতি ${money(lossAmt)})`,
-        description: `পণ্যের নাম: ${product.name}, নষ্ট পরিমাণ: ${qty} ${product.unit}, আর্থিক ক্ষতি: ${money(lossAmt)}, কারণ: ${wasteForm.reason}${wasteForm.notes ? ` (নোট: ${wasteForm.notes})` : ''}`,
-        reason: `নষ্ট/ভাঙা পণ্য স্টক থেকে কর্তন (${wasteForm.reason})`,
-        requestedBy: currentAdmin.username,
-        requestedByName: currentAdmin.displayName,
-        requestedAt: new Date().toISOString(),
-        requestedAtFormatted: formatBengaliDateTime(new Date()),
-        targetApprover,
-        targetApproverName,
-        status: 'pending',
-        payload: {
-          productId: product.id,
-          productName: product.name,
-          unit: product.unit,
-          quantity: qty,
-          lossAmount: lossAmt,
-          reason: wasteForm.reason,
-          date: wasteForm.date || today(),
-          notes: wasteForm.notes.trim() || undefined,
-        },
-      });
+        await createApprovalRequest({
+          actionType: 'record_waste',
+          targetCollection: 'products',
+          targetId: product.id,
+          title: `নষ্ট/ক্ষতিগ্রস্থ পণ্য: ${product.name} (${qty} ${product.unit}, ক্ষতি ${money(lossAmt)})`,
+          description: `পণ্যের নাম: ${product.name}, নষ্ট পরিমাণ: ${qty} ${product.unit}, আর্থিক ক্ষতি: ${money(lossAmt)}, কারণ: ${wasteForm.reason}${wasteForm.notes ? ` (নোট: ${wasteForm.notes})` : ''}`,
+          reason: `নষ্ট/ভাঙা পণ্য স্টক থেকে কর্তন (${wasteForm.reason})`,
+          requestedBy: currentAdmin.username,
+          requestedByName: currentAdmin.displayName,
+          requestedAt: new Date().toISOString(),
+          requestedAtFormatted: formatBengaliDateTime(new Date()),
+          targetApprover,
+          targetApproverName,
+          status: 'pending',
+          payload: {
+            productId: product.id,
+            productName: product.name,
+            unit: product.unit,
+            quantity: qty,
+            lossAmount: lossAmt,
+            reason: wasteForm.reason,
+            date: wasteForm.date || today(),
+            notes: wasteForm.notes.trim() || undefined,
+          },
+        });
 
-      setMessage(`নষ্ট পণ্যের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে স্টক থেকে স্বয়ংক্রিয়ভাবে বাদ দেওয়া হবে এবং খরচে যুক্ত হবে।`);
+        setMessage(`নষ্ট পণ্যের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে স্টক থেকে স্বয়ংক্রিয়ভাবে বাদ দেওয়া হবে এবং খরচে যুক্ত হবে।`);
+      } else {
+        const newStock = Math.max(0, (product.currentStock || 0) - qty);
+        await updateProduct(
+          product.id,
+          { currentStock: newStock },
+          currentAdmin.username,
+          `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+        );
+        await addEntry(
+          {
+            type: 'expense',
+            title: `নষ্ট পণ্য ক্ষতি: ${product.name} (${qty} ${product.unit})`,
+            amount: Number(lossAmt) || 0,
+            date: wasteForm.date || today(),
+            status: 'posted',
+            productId: product.id,
+            quantity: qty,
+            category: 'নষ্ট/ক্ষতিগ্রস্থ পণ্য',
+            notes: `নষ্টের কারণ: ${wasteForm.reason}${wasteForm.notes ? ` | নোট: ${wasteForm.notes}` : ''} (${currentAdmin.displayName} কর্তৃক সরাসরি রেকর্ডকৃত)`,
+            demo: false,
+          },
+          currentAdmin.username,
+          `${currentAdmin.username.toLowerCase()}@glowzaa.shop`,
+          currentAdmin.displayName
+        );
+        setMessage(`নষ্ট পণ্য "${product.name}" (${qty} ${product.unit}) স্টক থেকে বাদ দেওয়া হয়েছে এবং খরচে যুক্ত হয়েছে।`);
+      }
+
       setShowWasteModal(false);
       setWasteForm({
         productId: '',
@@ -1812,9 +1861,9 @@ export default function App() {
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 400));
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: 'delete_entry',
@@ -1837,10 +1886,15 @@ export default function App() {
         setMessage(`ডিলিটের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে তবেই রেকর্ডটি মুছে যাবে।`);
         setShowDeleteModal(null);
         setDeleteReasonInput('');
-      } else if (user) {
-        await removeEntry(showDeleteModal.id, user.uid, user.email || undefined);
+      } else {
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        const actorEmail = currentAdmin
+          ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+          : user?.email || undefined;
+        await removeEntry(showDeleteModal.id, actorUid, actorEmail);
         setMessage(`রেকর্ড "${showDeleteModal.title}" সফলভাবে স্থায়ীভাবে মুছে ফেলা হয়েছে।`);
         setShowDeleteModal(null);
+        setDeleteReasonInput('');
       }
     } catch (e: any) {
       setError(e?.message || 'মুছে ফেলা ব্যর্থ হয়েছে');
@@ -1851,7 +1905,7 @@ export default function App() {
 
   async function handleConfirmVoid() {
     if (!showVoidModal) return;
-    if (!voidReasonInput.trim()) {
+    if (needsPartnerApproval && !voidReasonInput.trim()) {
       setError('বাতিল বা রিভার্স করার কারণ উল্লেখ করা আবশ্যক');
       return;
     }
@@ -1861,9 +1915,10 @@ export default function App() {
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 380));
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      const finalVoidReason = voidReasonInput.trim() || 'রাকিব কর্তৃক হিসাব রিভার্স (Void)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: 'edit_entry',
@@ -1871,7 +1926,7 @@ export default function App() {
           targetId: showVoidModal.id,
           title: `হিসাব বাতিল (Void/Reverse): ${showVoidModal.title} (${money(showVoidModal.amount)})`,
           description: `হিসাব রিভার্স করার অনুরোধ। আগের স্ট্যাটাস: ${showVoidModal.status}`,
-          reason: voidReasonInput.trim(),
+          reason: finalVoidReason,
           requestedBy: currentAdmin.username,
           requestedByName: currentAdmin.displayName,
           requestedAt: new Date().toISOString(),
@@ -1881,7 +1936,7 @@ export default function App() {
           status: 'pending',
           payload: {
             status: 'void',
-            voidReason: voidReasonInput.trim(),
+            voidReason: finalVoidReason,
             voidedBy: currentAdmin.username,
           },
           previousData: showVoidModal,
@@ -1890,10 +1945,15 @@ export default function App() {
         setMessage(`রিভার্স করার অনুরোধ পাঠানো হয়েছে! ${targetApproverName}-এর অনুমোদনের পর তা কার্যকর হবে।`);
         setShowVoidModal(null);
         setVoidReasonInput('');
-      } else if (user) {
-        await voidPostedEntry(showVoidModal, voidReasonInput.trim(), user.uid, user.email || undefined);
+      } else {
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        const actorEmail = currentAdmin
+          ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+          : user?.email || undefined;
+        await voidPostedEntry(showVoidModal, finalVoidReason, actorUid, actorEmail);
         setMessage(`লেনদেন "${showVoidModal.title}" সফলভাবে বাতিল (Void/Reverse) করা হয়েছে; ব্যালেন্স স্বয়ংক্রিয়ভাবে আপডেট হয়েছে।`);
         setShowVoidModal(null);
+        setVoidReasonInput('');
       }
     } catch (e: any) {
       setError(e?.message || 'বাতিলকরণ ব্যর্থ হয়েছে');
@@ -1909,9 +1969,9 @@ export default function App() {
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 400));
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: 'delete_investor',
@@ -1934,10 +1994,15 @@ export default function App() {
         setMessage(`অংশীদার ডিলিটের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে তবেই মুছে যাবে।`);
         setShowInvestorDeleteModal(null);
         setDeleteReasonInput('');
-      } else if (user) {
-        await removeInvestor(showInvestorDeleteModal.id, user.uid, user.email || undefined);
+      } else {
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        const actorEmail = currentAdmin
+          ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+          : user?.email || undefined;
+        await removeInvestor(showInvestorDeleteModal.id, actorUid, actorEmail);
         setMessage(`অংশীদার "${showInvestorDeleteModal.name}" সফলভাবে ডিলিট করা হয়েছে।`);
         setShowInvestorDeleteModal(null);
+        setDeleteReasonInput('');
       }
     } catch (err: any) {
       setError(err?.message || 'অংশীদার ডিলিট করতে সমস্যা হয়েছে');
@@ -1953,9 +2018,9 @@ export default function App() {
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 400));
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: 'delete_product',
@@ -1978,10 +2043,15 @@ export default function App() {
         setMessage(`পণ্য ডিলিটের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে তবেই মুছে যাবে।`);
         setShowProductDeleteModal(null);
         setDeleteReasonInput('');
-      } else if (user) {
-        await removeProduct(showProductDeleteModal.id, user.uid, user.email || undefined);
+      } else {
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        const actorEmail = currentAdmin
+          ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+          : user?.email || undefined;
+        await removeProduct(showProductDeleteModal.id, actorUid, actorEmail);
         setMessage(`পণ্য "${showProductDeleteModal.name}" সফলভাবে ডিলিট করা হয়েছে।`);
         setShowProductDeleteModal(null);
+        setDeleteReasonInput('');
       }
     } catch (err: any) {
       setError(err?.message || 'পণ্য ডিলিট করতে সমস্যা হয়েছে');
@@ -2029,9 +2099,9 @@ export default function App() {
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 380));
-      if (currentAdmin) {
-        const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-        const targetApproverName = currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+      if (currentAdmin && needsPartnerApproval) {
+        const targetApprover = 'Rakib';
+        const targetApproverName = 'রাকিব (Rakib)';
 
         await createApprovalRequest({
           actionType: 'delete_distribution',
@@ -2054,10 +2124,15 @@ export default function App() {
         setMessage(`মুনাফা বণ্টন ডিলিটের অনুরোধ তৈরি হয়েছে! ${targetApproverName} অনুমোদন দিলে তবেই মুছে যাবে।`);
         setShowDistributionDeleteModal(null);
         setDeleteReasonInput('');
-      } else if (user) {
-        await removeProfitDistribution(showDistributionDeleteModal.id, user.uid, user.email || undefined);
+      } else {
+        const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+        const actorEmail = currentAdmin
+          ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+          : user?.email || undefined;
+        await removeProfitDistribution(showDistributionDeleteModal.id, actorUid, actorEmail);
         setMessage(`মুনাফা বণ্টন "${showDistributionDeleteModal.periodName}" সফলভাবে ডিলিট করা হয়েছে।`);
         setShowDistributionDeleteModal(null);
+        setDeleteReasonInput('');
       }
     } catch (err: any) {
       setError(err?.message || 'মুনাফা বণ্টন ডিলিট করতে সমস্যা হয়েছে');
@@ -2858,9 +2933,6 @@ export default function App() {
             partnerAccounts={partnerAccounts}
             availableBusinessCash={cashSummary.availableCash}
             onSubmitWithdrawal={async ({ amount, date, method, reason, investorId, investorName, entryType = 'withdrawal' }) => {
-              const targetApprover = currentAdmin.username === 'Rakib' ? 'Limon' : 'Rakib';
-              const targetApproverName =
-                currentAdmin.username === 'Rakib' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
               const isLoan = entryType === 'loan';
               const titleText = isLoan
                 ? `${currentAdmin.displayName}-এর বিশেষ লোন (${method} — পরবর্তী লাভাংশ থেকে অটো কর্তন)`
@@ -2879,24 +2951,35 @@ export default function App() {
                 demo: false,
               };
 
-              await createApprovalRequest({
-                actionType: 'create_entry',
-                targetCollection: 'entries',
-                title: isLoan
-                  ? `বিশেষ লোন আবেদন: ${investorName} (${money(amount)})`
-                  : `লাভাংশ উত্তোলন: ${investorName} (${money(amount)})`,
-                description: `${isLoan ? 'লোন গ্রহণকারী' : 'উত্তোলনকারী'}: ${currentAdmin.displayName}, পরিমাণ: ${money(amount)}, মাধ্যম: ${method}, তারিখ: ${dateLabel(date || today())}${isLoan ? ' [শর্ত: পরবর্তী লাভাংশ থেকে অটোমেটিক কেটে নেওয়া হবে]' : ''}`,
-                reason,
-                requestedBy: currentAdmin.username,
-                requestedByName: currentAdmin.displayName,
-                requestedAt: new Date().toISOString(),
-                requestedAtFormatted: formatBengaliDateTime(new Date()),
-                targetApprover,
-                targetApproverName,
-                status: 'pending',
-                payload: entryPayload,
-                previousData: null,
-              });
+              if (needsPartnerApproval) {
+                const targetApprover = 'Rakib';
+                const targetApproverName = 'রাকিব (Rakib)';
+                await createApprovalRequest({
+                  actionType: 'create_entry',
+                  targetCollection: 'entries',
+                  title: isLoan
+                    ? `বিশেষ লোন আবেদন: ${investorName} (${money(amount)})`
+                    : `লাভাংশ উত্তোলন: ${investorName} (${money(amount)})`,
+                  description: `${isLoan ? 'লোন গ্রহণকারী' : 'উত্তোলনকারী'}: ${currentAdmin.displayName}, পরিমাণ: ${money(amount)}, মাধ্যম: ${method}, তারিখ: ${dateLabel(date || today())}${isLoan ? ' [শর্ত: পরবর্তী লাভাংশ থেকে অটোমেটিক কেটে নেওয়া হবে]' : ''}`,
+                  reason,
+                  requestedBy: currentAdmin.username,
+                  requestedByName: currentAdmin.displayName,
+                  requestedAt: new Date().toISOString(),
+                  requestedAtFormatted: formatBengaliDateTime(new Date()),
+                  targetApprover,
+                  targetApproverName,
+                  status: 'pending',
+                  payload: entryPayload,
+                  previousData: null,
+                });
+              } else {
+                await addEntry(
+                  entryPayload,
+                  currentAdmin.username,
+                  `${currentAdmin.username.toLowerCase()}@glowzaa.shop`,
+                  currentAdmin.displayName
+                );
+              }
             }}
             currentPassword={currentAdmin.username === 'Rakib' ? adminPasswords.rakib : adminPasswords.limon}
             onUpdatePassword={async (newPass) => {
@@ -2946,6 +3029,18 @@ export default function App() {
                     <Plus size={17} /> নতুন হিসাব যোগ
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowProfitabilityModal(true)}
+                  style={{
+                    borderColor: '#0d9488',
+                    color: '#0f766e',
+                    background: '#f0fdfa',
+                  }}
+                >
+                  <PieChart size={17} /> পণ্যভিত্তিক লাভ ও স্টক রিপোর্ট
+                </button>
                 <button className="secondary" onClick={handleDownloadPdf} disabled={isPdfLoading}>
                   <Download size={17} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
                 </button>
@@ -4176,65 +4271,79 @@ export default function App() {
                 <h2>মজুদ পণ্য ও ইনভেন্টরি কস্টিং (COGS)</h2>
                 <p>একটা করে পণ্য আপলোড অথবা একসাথে ৫-৬টি পণ্যের গড় ক্রয়মূল্য ও বিক্রয়মূল্য সংযোজন</p>
               </div>
-              {admin && (
-                <div className="inventory-top-actions">
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => {
-                      setEditingProduct(null);
-                      setProductUploadMode('single');
-                      setShowProductModal(true);
-                    }}
-                  >
-                    <Plus size={16} />
-                    <span>একটা করে পণ্য যোগ</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="primary inventory-batch-btn"
-                    style={{
-                      background: 'linear-gradient(135deg, #0284c7, #0369a1)',
-                      borderColor: '#0284c7',
-                      boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)',
-                    }}
-                    onClick={() => {
-                      setEditingProduct(null);
-                      setProductUploadMode('batch_avg');
-                      if (batchProductsForm.length < 5) {
-                        setBatchProductsForm(createDefaultBatchRows(5));
-                      }
-                      setShowProductModal(true);
-                    }}
-                  >
-                    <Boxes size={16} />
-                    <span>৫-৬টি পণ্য গড় হিসাবে যোগ</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    style={{
-                      background: 'linear-gradient(135deg, #e11d48, #be123c)',
-                      borderColor: '#e11d48',
-                      boxShadow: '0 2px 8px rgba(225, 29, 72, 0.25)',
-                    }}
-                    onClick={() => {
-                      setWasteForm({
-                        productId: products[0]?.id || '',
-                        quantity: '',
-                        reason: 'মেয়াদোত্তীর্ণ (Expired)',
-                        lossAmount: '',
-                        date: today(),
-                        notes: '',
-                      });
-                      setShowWasteModal(true);
-                    }}
-                  >
-                    <AlertTriangle size={16} />
-                    <span>নষ্ট / ক্ষতিগ্রস্থ পণ্য এন্ট্রি</span>
-                  </button>
-                </div>
-              )}
+              <div className="inventory-top-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  style={{
+                    background: '#0f2438',
+                    borderColor: '#0f2438',
+                  }}
+                  onClick={() => setShowProfitabilityModal(true)}
+                >
+                  <PieChart size={16} />
+                  <span>পণ্যভিত্তিক লাভজনকতা ও অচল স্টক রিপোর্ট</span>
+                </button>
+                {admin && (
+                  <>
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => {
+                        setEditingProduct(null);
+                        setProductUploadMode('single');
+                        setShowProductModal(true);
+                      }}
+                    >
+                      <Plus size={16} />
+                      <span>একটা করে পণ্য যোগ</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="primary inventory-batch-btn"
+                      style={{
+                        background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                        borderColor: '#0284c7',
+                        boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)',
+                      }}
+                      onClick={() => {
+                        setEditingProduct(null);
+                        setProductUploadMode('batch_avg');
+                        if (batchProductsForm.length < 5) {
+                          setBatchProductsForm(createDefaultBatchRows(5));
+                        }
+                        setShowProductModal(true);
+                      }}
+                    >
+                      <Boxes size={16} />
+                      <span>৫-৬টি পণ্য গড় হিসাবে যোগ</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="primary"
+                      style={{
+                        background: 'linear-gradient(135deg, #e11d48, #be123c)',
+                        borderColor: '#e11d48',
+                        boxShadow: '0 2px 8px rgba(225, 29, 72, 0.25)',
+                      }}
+                      onClick={() => {
+                        setWasteForm({
+                          productId: products[0]?.id || '',
+                          quantity: '',
+                          reason: 'মেয়াদোত্তীর্ণ (Expired)',
+                          lossAmount: '',
+                          date: today(),
+                          notes: '',
+                        });
+                        setShowWasteModal(true);
+                      }}
+                    >
+                      <AlertTriangle size={16} />
+                      <span>নষ্ট / ক্ষতিগ্রস্থ পণ্য এন্ট্রি</span>
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <div className="table-wrap">
               <table>
@@ -4550,6 +4659,19 @@ export default function App() {
                 <p>মাসিক ও সার্বিক ব্যবসায়িক লাভ-ক্ষতি বিবরণী, ক্যাশ ফ্লো এবং পার্টনার লেজার ডাউনলোড ও পর্যালোচনা করুন</p>
               </div>
               <div className="report-top-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowProfitabilityModal(true)}
+                  style={{
+                    borderColor: '#0d9488',
+                    color: '#0f766e',
+                    background: '#f0fdfa',
+                  }}
+                >
+                  <PieChart size={16} />
+                  <span>পণ্যভিত্তিক লাভজনকতা ও স্টক রিপোর্ট</span>
+                </button>
                 <button className="primary" onClick={handleDownloadPdf} disabled={isPdfLoading}>
                   <FileText size={16} />
                   <span>{isPdfLoading ? 'পিডিএফ প্রস্তুত হচ্ছে…' : 'সার্বিক বাংলা PDF ডাউনলোড'}</span>
@@ -5560,10 +5682,10 @@ export default function App() {
               />
             </label>
 
-            {currentAdmin && (
+            {currentAdmin && needsPartnerApproval && (
               <div className="full" style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
                 <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', fontWeight: 600, color: '#0f766e' }}>
-                  🛡️ দ্বৈত-অনুমোদনের কারণ / নোট (Reason for Approval):
+                  🛡️ রাকিব (Rakib)-এর অনুমোদনের কারণ / নোট:
                   <input
                     placeholder="উদাঃ আজকের পণ্য বিক্রয় / নতুন স্টক ক্রয়..."
                     value={entryReason}
@@ -5572,7 +5694,7 @@ export default function App() {
                   />
                 </label>
                 <small style={{ color: '#0d9488', fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                  জালিয়াতি রোধে এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর মূল হিসাবে যুক্ত হবে।
+                  এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর মূল হিসাবে যুক্ত হবে।
                 </small>
               </div>
             )}
@@ -5585,7 +5707,7 @@ export default function App() {
                     <span className="btn-spinner" />
                     <span>সংরক্ষণ হচ্ছে…</span>
                   </>
-                ) : currentAdmin ? (
+                ) : needsPartnerApproval ? (
                   `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
                 ) : editingEntry ? (
                   'আপডেট করুন'
@@ -5619,10 +5741,10 @@ export default function App() {
                 onChange={(e) => setInvestorPhone(e.target.value)}
               />
             </label>
-            {currentAdmin && (
+            {currentAdmin && needsPartnerApproval && (
               <div className="full" style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
                 <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', fontWeight: 600, color: '#0f766e' }}>
-                  🛡️ দ্বৈত-অনুমোদনের কারণ / নোট:
+                  🛡️ রাকিব (Rakib)-এর অনুমোদনের কারণ / নোট:
                   <input
                     placeholder="উদাঃ নতুন পার্টনার অন্তর্ভুক্তি..."
                     value={investorReason}
@@ -5640,7 +5762,7 @@ export default function App() {
                     <span className="btn-spinner" />
                     <span>সংরক্ষণ হচ্ছে…</span>
                   </>
-                ) : currentAdmin ? (
+                ) : needsPartnerApproval ? (
                   `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
                 ) : (
                   'যোগ করুন'
@@ -6174,10 +6296,10 @@ export default function App() {
                 />
               </label>
 
-              {currentAdmin && (
+              {currentAdmin && needsPartnerApproval && (
                 <div className="full" style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
                   <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', fontWeight: 600, color: '#0f766e' }}>
-                    🛡️ দ্বৈত-অনুমোদনের কারণ / নোট (Reason for Approval):
+                    🛡️ রাকিব (Rakib)-এর অনুমোদনের কারণ / নোট (Reason for Approval):
                     <input
                       placeholder="উদাঃ নতুন স্টক ক্রয় / পণ্যের মূল্য পরিবর্তন..."
                       value={productReason}
@@ -6186,7 +6308,7 @@ export default function App() {
                     />
                   </label>
                   <small style={{ color: '#0d9488', fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                    জালিয়াতি রোধে এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর ইনভেন্টরিতে যুক্ত হবে।
+                    এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর ইনভেন্টরিতে যুক্ত হবে।
                   </small>
                 </div>
               )}
@@ -6199,7 +6321,7 @@ export default function App() {
                       <span className="btn-spinner" />
                       <span>পণ্য সংরক্ষণ হচ্ছে…</span>
                     </>
-                  ) : currentAdmin ? (
+                  ) : needsPartnerApproval ? (
                     `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
                   ) : editingProduct ? (
                     'আপডেট করুন'
@@ -6793,10 +6915,10 @@ export default function App() {
                 <Plus size={15} /> আরও একটি পণ্যের সারি যোগ করুন (বর্তমানে {toBengaliNumerals(batchProductsForm.length)}টি)
               </button>
 
-              {currentAdmin && (
+              {currentAdmin && needsPartnerApproval && (
                 <div style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
                   <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', fontWeight: 600, color: '#0f766e' }}>
-                    🛡️ দ্বৈত-অনুমোদনের কারণ / নোট (Reason for Approval):
+                    🛡️ রাকিব (Rakib)-এর অনুমোদনের কারণ / নোট (Reason for Approval):
                     <input
                       placeholder="উদাঃ ৫-৬টি পণ্য গড় হিসাবে নতুন স্টক আপলোড..."
                       value={productReason}
@@ -6805,7 +6927,7 @@ export default function App() {
                     />
                   </label>
                   <small style={{ color: '#0d9488', fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                    জালিয়াতি রোধে এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর একসাথে সবগুলো পণ্য ইনভেন্টরিতে যুক্ত হবে।
+                    এটি জমা দিলে {otherPartner.displayName}-এর অনুমোদনের পর একসাথে সবগুলো পণ্য ইনভেন্টরিতে যুক্ত হবে।
                   </small>
                 </div>
               )}
@@ -6820,7 +6942,7 @@ export default function App() {
                       <span className="btn-spinner" />
                       <span>পণ্যগুলো আপলোড হচ্ছে…</span>
                     </>
-                  ) : currentAdmin ? (
+                  ) : needsPartnerApproval ? (
                     `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য অনুমোদনের জন্য পাঠান`
                   ) : (
                     `গড় হিসাবে ${toBengaliNumerals(batchAverageSummary.validCount || batchProductsForm.length)}টি পণ্য সংরক্ষণ করুন`
@@ -7053,10 +7175,10 @@ export default function App() {
               )}
             </div>
 
-            {currentAdmin && (
+            {currentAdmin && needsPartnerApproval && (
               <div className="modal-field">
                 <label htmlFor="delete-entry-reason">
-                  🛡️ ডিলিট করার কারণ লিখুন (আবশ্যক):
+                  🛡️ ডিলিট করার কারণ লিখুন (আবশ্যক - রাকিবের অনুমোদনের জন্য):
                 </label>
                 <input
                   id="delete-entry-reason"
@@ -7066,7 +7188,7 @@ export default function App() {
                   onChange={(e) => setDeleteReasonInput(e.target.value)}
                 />
                 <small style={{ color: '#64748b', fontSize: '11.5px' }}>
-                  জালিয়াতি রোধে {otherPartner.displayName}-এর অনুমোদনের পর এটি স্থায়ীভাবে মুছে যাবে।
+                  {otherPartner.displayName}-এর অনুমোদনের পর এটি স্থায়ীভাবে মুছে যাবে।
                 </small>
               </div>
             )}
@@ -7076,13 +7198,13 @@ export default function App() {
                 type="button"
                 className="danger"
                 onClick={handleConfirmDelete}
-                disabled={busy || (Boolean(currentAdmin) && !deleteReasonInput.trim())}
+                disabled={busy || (needsPartnerApproval && !deleteReasonInput.trim())}
               >
                 {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
                 <span>
                   {busy
                     ? 'ডিলিট প্রসেস হচ্ছে…'
-                    : currentAdmin
+                    : needsPartnerApproval
                     ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})`
                     : 'স্থায়ীভাবে ডিলিট করুন'}
                 </span>
@@ -7124,22 +7246,29 @@ export default function App() {
               <small style={{ color: '#64748b' }}>তারিখ: {dateLabel(showVoidModal.date)}</small>
             </div>
             <div className="modal-field">
-              <label htmlFor="void-reason-input">রিভার্স বা বাতিল করার কারণ (আবশ্যক):</label>
+              <label htmlFor="void-reason-input">
+                রিভার্স বা বাতিল করার কারণ {needsPartnerApproval ? '(আবশ্যক)' : '(ঐচ্ছিক)'}:
+              </label>
               <input
                 id="void-reason-input"
-                required
+                required={needsPartnerApproval}
                 placeholder="কারণ লিখুন..."
                 value={voidReasonInput}
                 onChange={(e) => setVoidReasonInput(e.target.value)}
               />
             </div>
             <div className="modal-actions">
-              <button type="button" className="danger" onClick={handleConfirmVoid} disabled={busy || !voidReasonInput.trim()}>
+              <button
+                type="button"
+                className="danger"
+                onClick={handleConfirmVoid}
+                disabled={busy || (needsPartnerApproval && !voidReasonInput.trim())}
+              >
                 {busy ? <span className="btn-spinner" /> : <RotateCcw size={15} />}
                 <span>
                   {busy
                     ? 'রিভার্স প্রসেস হচ্ছে…'
-                    : currentAdmin
+                    : needsPartnerApproval
                     ? `রিভার্সের অনুমোদন পাঠান (${otherPartner.displayName})`
                     : 'রিভার্স নিশ্চিত করুন'}
                 </span>
@@ -7166,7 +7295,7 @@ export default function App() {
                 সতর্কবার্তা: এই অংশীদারকে ডিলিট করলে অংশীদার তালিকা থেকে তিনি বাদ পড়বেন।
               </p>
             </div>
-            {currentAdmin && (
+            {currentAdmin && needsPartnerApproval && (
               <div className="modal-field">
                 <label htmlFor="delete-investor-reason">🛡️ ডিলিটের কারণ লিখুন (আবশ্যক):</label>
                 <input
@@ -7183,13 +7312,13 @@ export default function App() {
                 type="button"
                 className="danger"
                 onClick={handleConfirmDeleteInvestor}
-                disabled={busy || (Boolean(currentAdmin) && !deleteReasonInput.trim())}
+                disabled={busy || (needsPartnerApproval && !deleteReasonInput.trim())}
               >
                 {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
                 <span>
                   {busy
                     ? 'ডিলিট প্রসেস হচ্ছে…'
-                    : currentAdmin
+                    : needsPartnerApproval
                     ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})`
                     : 'অংশীদার ডিলিট নিশ্চিত করুন'}
                 </span>
@@ -7226,7 +7355,7 @@ export default function App() {
                 <span>গড় ক্রয়মূল্য: <b>{money(showProductDeleteModal.averageCost)}</b></span>
               </div>
             </div>
-            {currentAdmin && (
+            {currentAdmin && needsPartnerApproval && (
               <div className="modal-field">
                 <label htmlFor="delete-product-reason">🛡️ পণ্য ডিলিটের কারণ লিখুন (আবশ্যক):</label>
                 <input
@@ -7243,13 +7372,13 @@ export default function App() {
                 type="button"
                 className="danger"
                 onClick={handleConfirmDeleteProduct}
-                disabled={busy || (Boolean(currentAdmin) && !deleteReasonInput.trim())}
+                disabled={busy || (needsPartnerApproval && !deleteReasonInput.trim())}
               >
                 {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
                 <span>
                   {busy
                     ? 'পণ্য ডিলিট হচ্ছে…'
-                    : currentAdmin
+                    : needsPartnerApproval
                     ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})`
                     : 'পণ্য ডিলিট নিশ্চিত করুন'}
                 </span>
@@ -7273,10 +7402,33 @@ export default function App() {
                 বণ্টনকৃত মোট অর্থ: <b style={{ color: '#087f70' }}>{money(showDistributionDeleteModal.distributedAmount)}</b>
               </p>
             </div>
+            {currentAdmin && needsPartnerApproval && (
+              <div className="modal-field">
+                <label htmlFor="delete-dist-reason">🛡️ ডিলিটের কারণ লিখুন (আবশ্যক):</label>
+                <input
+                  id="delete-dist-reason"
+                  required
+                  placeholder="কারণ লিখুন..."
+                  value={deleteReasonInput}
+                  onChange={(e) => setDeleteReasonInput(e.target.value)}
+                />
+              </div>
+            )}
             <div className="modal-actions">
-              <button type="button" className="danger" onClick={handleConfirmDeleteDistribution} disabled={busy}>
+              <button
+                type="button"
+                className="danger"
+                onClick={handleConfirmDeleteDistribution}
+                disabled={busy || (needsPartnerApproval && !deleteReasonInput.trim())}
+              >
                 {busy ? <span className="btn-spinner" /> : <Trash2 size={16} />}
-                <span>{busy ? 'ডিলিট হচ্ছে…' : 'বণ্টন ডিলিট নিশ্চিত করুন'}</span>
+                <span>
+                  {busy
+                    ? 'ডিলিট হচ্ছে…'
+                    : needsPartnerApproval
+                    ? `ডিলিটের অনুমোদন পাঠান (${otherPartner.displayName})`
+                    : 'বণ্টন ডিলিট নিশ্চিত করুন'}
+                </span>
               </button>
               <button type="button" className="secondary" onClick={() => setShowDistributionDeleteModal(null)} disabled={busy}>বাতিল করুন</button>
             </div>
@@ -7409,12 +7561,12 @@ export default function App() {
           <form className="modal-body" onSubmit={handleSaveWaste}>
             <div
               style={{
-                background: '#fff1f2',
-                border: '1.5px solid #fecaca',
+                background: needsPartnerApproval ? '#fff1f2' : '#f0fdf4',
+                border: `1.5px solid ${needsPartnerApproval ? '#fecaca' : '#bbf7d0'}`,
                 borderRadius: '10px',
                 padding: '12px 14px',
                 fontSize: '12.5px',
-                color: '#991b1b',
+                color: needsPartnerApproval ? '#991b1b' : '#166534',
                 display: 'flex',
                 gap: '10px',
                 alignItems: 'flex-start',
@@ -7422,7 +7574,15 @@ export default function App() {
             >
               <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
               <div>
-                <b>দ্বৈত-অনুমোদন শর্ত:</b> নষ্ট বা ক্ষতিগ্রস্থ পণ্য এন্ট্রি দিলে {otherPartner.displayName}-এর কাছে অনুমোদনের অনুরোধ যাবে। তিনি অনুমোদন দিলে স্বয়ংক্রিয়ভাবে স্টক থেকে মাইনাস হবে এবং ব্যবসায়িক খরচে যুক্ত হবে।
+                {needsPartnerApproval ? (
+                  <>
+                    <b>অনুমোদন শর্ত:</b> নষ্ট বা ক্ষতিগ্রস্থ পণ্য এন্ট্রি দিলে {otherPartner.displayName}-এর কাছে অনুমোদনের অনুরোধ যাবে। তিনি অনুমোদন দিলে স্বয়ংক্রিয়ভাবে স্টক থেকে মাইনাস হবে এবং ব্যবসায়িক খরচে যুক্ত হবে।
+                  </>
+                ) : (
+                  <>
+                    <b>সরাসরি কার্যকর:</b> রাকিব (Rakib) হিসেবে নষ্ট পণ্য এন্ট্রি দিলে লিমনের অনুমোদন ছাড়াই তাৎক্ষণিকভাবে স্টক থেকে মাইনাস হবে এবং খরচে যুক্ত হবে।
+                  </>
+                )}
               </div>
             </div>
 
@@ -7540,7 +7700,11 @@ export default function App() {
               >
                 {busy ? <span className="btn-spinner" /> : <AlertTriangle size={16} />}
                 <span>
-                  {busy ? 'অনুরোধ পাঠানো হচ্ছে…' : `নষ্ট পণ্যের অনুমোদন পাঠান (${otherPartner.displayName})`}
+                  {busy
+                    ? 'প্রসেস হচ্ছে…'
+                    : needsPartnerApproval
+                    ? `নষ্ট পণ্যের অনুমোদন পাঠান (${otherPartner.displayName})`
+                    : 'নষ্ট পণ্য রেকর্ড নিশ্চিত করুন'}
                 </span>
               </button>
               <button
@@ -8883,6 +9047,49 @@ export default function App() {
           </Modal>
         );
       })()}
+
+      {/* PRODUCT-LEVEL PROFITABILITY & STAGNATING STOCK REPORT MODAL */}
+      <ProductProfitabilityModal
+        isOpen={showProfitabilityModal}
+        onClose={() => setShowProfitabilityModal(false)}
+        products={products}
+        entries={entries}
+        admin={admin}
+        onRecordSaleForProduct={(prod) => {
+          setShowProfitabilityModal(false);
+          setEditingEntry(null);
+          const sellPrice = Number(prod.sellingPrice) || 0;
+          const avgCost = Number(prod.averageCost) || 0;
+          const unitProfit = Math.max(0, sellPrice - avgCost);
+          setEntryForm({
+            type: 'sale',
+            title: `${prod.name} বিক্রয়`,
+            amount: sellPrice > 0 ? String(sellPrice) : '',
+            profit: sellPrice > 0 ? String(unitProfit) : '',
+            cost: avgCost > 0 ? String(avgCost) : '',
+            date: today(),
+            status: 'posted',
+            investorId: '',
+            productId: prod.id,
+            quantity: '1',
+            unitPrice: sellPrice > 0 ? String(sellPrice) : '',
+            unitCost: avgCost > 0 ? String(avgCost) : '',
+            category: 'পণ্য বিক্রয়',
+            notes: '',
+          });
+          setShowEntryModal(true);
+        }}
+        onEditProduct={(prod) => {
+          setShowProfitabilityModal(false);
+          handleOpenEditProduct(prod);
+        }}
+        onAddNewProduct={() => {
+          setShowProfitabilityModal(false);
+          setEditingProduct(null);
+          setProductUploadMode('single');
+          setShowProductModal(true);
+        }}
+      />
     </div>
   );
 }

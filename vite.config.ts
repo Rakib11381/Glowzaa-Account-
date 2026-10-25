@@ -6,6 +6,32 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(() => {
   return {
     plugins: [
+      {
+        name: 'suppress-vite-hmr-websocket-error',
+        enforce: 'post' as const,
+        transform(code: string, id: string) {
+          if (id.includes('vite/dist/client/client.mjs') || id.includes('@vite/client')) {
+            return code
+              .replace(
+                /const createWebSocketModuleRunnerTransport = \(options\) => \{[\s\S]*?\n\};\n/,
+                `const createWebSocketModuleRunnerTransport = () => ({\n  async connect() {},\n  disconnect() {},\n  send() {}\n});\n`
+              )
+              .replace(
+                /throw new Error\(["']send was called before connect["']\);/g,
+                'return;'
+              )
+              .replace(
+                /throw new Error\(["']invoke was called before connect["']\);/g,
+                'return;'
+              )
+              .replace(
+                /reject\(new Error\(["']WebSocket closed without opened\.["']\)\);/g,
+                'resolve();'
+              );
+          }
+          return null;
+        },
+      },
       react(),
       VitePWA({
         registerType: 'autoUpdate',

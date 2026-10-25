@@ -711,3 +711,332 @@ export function calculateDailyBreakdowns(
     };
   });
 }
+
+export type ProductPerformanceStatus =
+  | 'high_margin'
+  | 'steady'
+  | 'stagnating'
+  | 'low_margin'
+  | 'out_of_stock';
+
+export interface ProductProfitabilityItem {
+  product: Product;
+  salesCount: number;
+  unitsSold: number;
+  unitsPurchased: number;
+  salesRevenue: number;
+  cogs: number;
+  grossProfit: number;
+  realizedMarginPercent: number;
+  unitMarginAmount: number;
+  catalogMarginPercent: number;
+  effectiveMarginPercent: number;
+  currentStock: number;
+  stockCostValue: number;
+  potentialRevenueValue: number;
+  potentialStockProfit: number;
+  sellThroughRate: number;
+  lastSaleDate: string | null;
+  daysSinceLastSale: number | null;
+  status: ProductPerformanceStatus;
+  statusLabelBn: string;
+  stagnationReasonBn: string | null;
+  recommendationBn: string;
+  isStagnating: boolean;
+  isTopMargin: boolean;
+}
+
+export interface ProductProfitabilitySummary {
+  items: ProductProfitabilityItem[];
+  highMarginItems: ProductProfitabilityItem[];
+  stagnatingItems: ProductProfitabilityItem[];
+  totalProductSalesRevenue: number;
+  totalProductCogs: number;
+  totalProductGrossProfit: number;
+  overallProductMarginPercent: number;
+  totalStagnantStockValue: number;
+  totalActiveStockValue: number;
+  unlinkedSalesRevenue: number;
+  unlinkedSalesCogs: number;
+  unlinkedSalesProfit: number;
+  unlinkedSalesCount: number;
+}
+
+export function calculateProductProfitabilityReport(
+  products: Product[],
+  entries: Entry[],
+  referenceDateStr?: string
+): ProductProfitabilitySummary {
+  const posted = entries.filter((e) => e.status === 'posted');
+  const postedSales = posted.filter((e) => e.type === 'sale');
+  const postedPurchases = posted.filter((e) => e.type === 'purchase');
+
+  const refDate = referenceDateStr
+    ? new Date(`${referenceDateStr}T12:00:00`)
+    : new Date();
+  const refTime = isNaN(refDate.getTime()) ? Date.now() : refDate.getTime();
+
+  const matchedSaleIds = new Set<string>();
+
+  // Helper to check if an entry belongs to a product
+  const matchesProduct = (e: Entry, p: Product): boolean => {
+    if (e.productId && e.productId === p.id) return true;
+    if (!e.productId && p.name) {
+      const titleLower = (e.title || '').toLowerCase();
+      const nameLower = p.name.trim().toLowerCase();
+      if (nameLower.length >= 2 && titleLower.includes(nameLower)) {
+        return true;
+      }
+      if (p.sku && p.sku.trim().length >= 2 && titleLower.includes(p.sku.trim().toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  let totalRevPaisa = 0;
+  let totalCogsPaisa = 0;
+  let totalStagnantStockPaisa = 0;
+  let totalActiveStockPaisa = 0;
+
+  const rawItems: ProductProfitabilityItem[] = products.map((product) => {
+    const prodSales = postedSales.filter((e) => {
+      const m = matchesProduct(e, product);
+      if (m) matchedSaleIds.add(e.id);
+      return m;
+    });
+
+    const prodPurchases = postedPurchases.filter((e) => matchesProduct(e, product));
+
+    let salesRevPaisa = 0;
+    let cogsPaisa = 0;
+    let unitsSold = 0;
+    let lastSaleDate: string | null = null;
+
+    for (const s of prodSales) {
+      const amtPaisa = toPaisa(s.amount);
+      salesRevPaisa += amtPaisa;
+
+      const qty =
+        s.quantity !== undefined && Number(s.quantity) > 0
+          ? Number(s.quantity)
+          : product.sellingPrice > 0
+          ? Math.max(1, Math.round(s.amount / product.sellingPrice))
+          : 1;
+      unitsSold += qty;
+
+      let entryCogsPaisa = 0;
+      if (s.grossProfit !== undefined && !isNaN(Number(s.grossProfit))) {
+        entryCogsPaisa = Math.max(0, amtPaisa - toPaisa(s.grossProfit));
+      } else if (s.cogsAmount !== undefined && !isNaN(Number(s.cogsAmount))) {
+        entryCogsPaisa = toPaisa(s.cogsAmount);
+      } else if (s.unitCost !== undefined && !isNaN(Number(s.unitCost))) {
+        entryCogsPaisa = toPaisa(qty * Number(s.unitCost));
+      } else {
+        entryCogsPaisa = toPaisa(qty * (product.averageCost || 0));
+      }
+      cogsPaisa += entryCogsPaisa;
+
+      if (s.date && (!lastSaleDate || s.date > lastSaleDate)) {
+        lastSaleDate = s.date;
+      }
+    }
+
+    let unitsPurchased = 0;
+    for (const pur of prodPurchases) {
+      const q =
+        pur.quantity !== undefined && Number(pur.quantity) > 0
+          ? Number(pur.quantity)
+          : product.averageCost > 0
+          ? Math.max(1, Math.round(pur.amount / product.averageCost))
+          : 0;
+      unitsPurchased += q;
+    }
+
+    const grossProfitPaisa = salesRevPaisa - cogsPaisa;
+    const salesRevenue = fromPaisa(salesRevPaisa);
+    const cogs = fromPaisa(cogsPaisa);
+    const grossProfit = fromPaisa(grossProfitPaisa);
+
+    const realizedMarginPercent =
+      salesRevPaisa > 0 ? Number(((grossProfitPaisa / salesRevPaisa) * 100).toFixed(1)) : 0;
+
+    const avgCost = product.averageCost || 0;
+    const sellPrice = product.sellingPrice || 0;
+    const unitMarginAmount = fromPaisa(toPaisa(sellPrice) - toPaisa(avgCost));
+    const catalogMarginPercent =
+      sellPrice > 0
+        ? Number((((sellPrice - avgCost) / sellPrice) * 100).toFixed(1))
+        : 0;
+
+    const effectiveMarginPercent =
+      prodSales.length > 0 ? realizedMarginPercent : catalogMarginPercent;
+
+    const currentStock = Math.max(0, Number(product.currentStock) || 0);
+    const stockCostPaisa = toPaisa(currentStock * avgCost);
+    const stockCostValue = fromPaisa(stockCostPaisa);
+    const potentialRevenueValue = fromPaisa(toPaisa(currentStock * sellPrice));
+    const potentialStockProfit = fromPaisa(toPaisa(currentStock * Math.max(0, sellPrice - avgCost)));
+
+    const totalHandledUnits = unitsSold + currentStock;
+    const sellThroughRate =
+      totalHandledUnits > 0
+        ? Number(((unitsSold / totalHandledUnits) * 100).toFixed(1))
+        : 0;
+
+    let daysSinceLastSale: number | null = null;
+    if (lastSaleDate) {
+      const lastDateObj = new Date(`${lastSaleDate}T12:00:00`);
+      if (!isNaN(lastDateObj.getTime())) {
+        const diffDays = Math.floor((refTime - lastDateObj.getTime()) / (1000 * 60 * 60 * 24));
+        daysSinceLastSale = Math.max(0, diffDays);
+      }
+    }
+
+    // Stagnation detection rules
+    let isStagnating = false;
+    let stagnationReasonBn: string | null = null;
+
+    if (currentStock > 0) {
+      if (prodSales.length === 0) {
+        isStagnating = true;
+        stagnationReasonBn = 'স্টকে মজুদ আছে কিন্তু এখনো কোনো বিক্রয় হয়নি (Zero Sales)';
+      } else if (daysSinceLastSale !== null && daysSinceLastSale >= 14) {
+        isStagnating = true;
+        stagnationReasonBn = `গত ${toBengaliNumerals(daysSinceLastSale)} দিন ধরে কোনো বিক্রয় নেই`;
+      } else if (sellThroughRate < 20 && currentStock >= 5) {
+        isStagnating = true;
+        stagnationReasonBn = `ধীরগতির বিক্রয় — মাত্র ${toBengaliNumerals(sellThroughRate)}% স্টক বিক্রি হয়েছে`;
+      }
+    }
+
+    let status: ProductPerformanceStatus = 'steady';
+    let statusLabelBn = 'স্বাভাবিক প্রবাহ';
+    let recommendationBn = 'নিয়মিত স্টক ও বিক্রয় প্রবাহ বজায় রাখুন';
+
+    if (currentStock <= 0) {
+      status = 'out_of_stock';
+      statusLabelBn = 'স্টক শেষ (Out of Stock)';
+      recommendationBn =
+        prodSales.length > 0 && effectiveMarginPercent >= 15
+          ? 'চাহিদাসম্পন্ন লাভজনক পণ্য — দ্রুত পুনরায় স্টক (Restock) করুন'
+          : 'প্রয়োজন অনুযায়ী স্টক пополন বিবেচনা করুন';
+    } else if (isStagnating) {
+      status = 'stagnating';
+      statusLabelBn = 'অচল / ধীরগতি (Stagnating)';
+      recommendationBn =
+        stockCostValue >= 2000
+          ? `৳${toBengaliNumerals(Math.round(stockCostValue))} মূলধন আটকে আছে — বিশেষ ছাড় বা বান্ডেল অফার দিয়ে স্টক ক্লিয়ার করুন`
+          : 'প্রচারণা বাড়ান অথবা প্রাইসিং পুনর্বিবেচনা করুন';
+    } else if (effectiveMarginPercent < 12 || grossProfit < 0) {
+      status = 'low_margin';
+      statusLabelBn = 'স্বল্প মার্জিন (Low Margin)';
+      recommendationBn = 'বিক্রয়মূল্য সমন্বয় করুন অথবা কম ক্রয়মূল্যে সাপ্লায়ার খুঁজুন';
+    } else if (effectiveMarginPercent >= 25 && (prodSales.length > 0 || catalogMarginPercent >= 25)) {
+      status = 'high_margin';
+      statusLabelBn = 'উচ্চ মুনাফা (High Margin)';
+      recommendationBn = 'সর্বোচ্চ মুনাফাদায়ক পণ্য — স্টক পর্যাপ্ত রাখুন ও বিক্রয়ে অগ্রাধিকার দিন';
+    }
+
+    totalRevPaisa += salesRevPaisa;
+    totalCogsPaisa += cogsPaisa;
+    totalActiveStockPaisa += stockCostPaisa;
+    if (isStagnating) {
+      totalStagnantStockPaisa += stockCostPaisa;
+    }
+
+    return {
+      product,
+      salesCount: prodSales.length,
+      unitsSold,
+      unitsPurchased,
+      salesRevenue,
+      cogs,
+      grossProfit,
+      realizedMarginPercent,
+      unitMarginAmount,
+      catalogMarginPercent,
+      effectiveMarginPercent,
+      currentStock,
+      stockCostValue,
+      potentialRevenueValue,
+      potentialStockProfit,
+      sellThroughRate,
+      lastSaleDate,
+      daysSinceLastSale,
+      status,
+      statusLabelBn,
+      stagnationReasonBn,
+      recommendationBn,
+      isStagnating,
+      isTopMargin: false,
+    };
+  });
+
+  // Mark top margin items (either status === 'high_margin' or top performers with positive margin)
+  const sortedByMargin = [...rawItems]
+    .filter((i) => i.effectiveMarginPercent > 0 && (i.salesCount > 0 || i.catalogMarginPercent >= 20))
+    .sort((a, b) => {
+      if (b.effectiveMarginPercent !== a.effectiveMarginPercent) {
+        return b.effectiveMarginPercent - a.effectiveMarginPercent;
+      }
+      return b.grossProfit - a.grossProfit;
+    });
+
+  const topMarginIds = new Set(
+    sortedByMargin
+      .filter((i) => i.effectiveMarginPercent >= 20 || sortedByMargin.indexOf(i) < 3)
+      .slice(0, 5)
+      .map((i) => i.product.id)
+  );
+
+  const items = rawItems.map((item) => ({
+    ...item,
+    isTopMargin: topMarginIds.has(item.product.id),
+  }));
+
+  const highMarginItems = items
+    .filter((i) => i.isTopMargin || i.status === 'high_margin')
+    .sort((a, b) => b.effectiveMarginPercent - a.effectiveMarginPercent || b.grossProfit - a.grossProfit);
+
+  const stagnatingItems = items
+    .filter((i) => i.isStagnating)
+    .sort((a, b) => b.stockCostValue - a.stockCostValue || a.sellThroughRate - b.sellThroughRate);
+
+  // Calculate unlinked general sales (sales that were recorded without selecting a specific product)
+  let unlinkedRevPaisa = 0;
+  let unlinkedCogsPaisa = 0;
+  let unlinkedCount = 0;
+
+  for (const s of postedSales) {
+    if (matchedSaleIds.has(s.id)) continue;
+    unlinkedCount += 1;
+    const amt = toPaisa(s.amount);
+    unlinkedRevPaisa += amt;
+    if (s.grossProfit !== undefined && !isNaN(Number(s.grossProfit))) {
+      unlinkedCogsPaisa += Math.max(0, amt - toPaisa(s.grossProfit));
+    } else if (s.cogsAmount !== undefined && !isNaN(Number(s.cogsAmount))) {
+      unlinkedCogsPaisa += toPaisa(s.cogsAmount);
+    }
+  }
+
+  const totalGrossProfitPaisa = totalRevPaisa - totalCogsPaisa;
+  const overallProductMarginPercent =
+    totalRevPaisa > 0 ? Number(((totalGrossProfitPaisa / totalRevPaisa) * 100).toFixed(1)) : 0;
+
+  return {
+    items,
+    highMarginItems,
+    stagnatingItems,
+    totalProductSalesRevenue: fromPaisa(totalRevPaisa),
+    totalProductCogs: fromPaisa(totalCogsPaisa),
+    totalProductGrossProfit: fromPaisa(totalGrossProfitPaisa),
+    overallProductMarginPercent,
+    totalStagnantStockValue: fromPaisa(totalStagnantStockPaisa),
+    totalActiveStockValue: fromPaisa(totalActiveStockPaisa),
+    unlinkedSalesRevenue: fromPaisa(unlinkedRevPaisa),
+    unlinkedSalesCogs: fromPaisa(unlinkedCogsPaisa),
+    unlinkedSalesProfit: fromPaisa(unlinkedRevPaisa - unlinkedCogsPaisa),
+    unlinkedSalesCount: unlinkedCount,
+  };
+}
