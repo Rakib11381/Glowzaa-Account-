@@ -86,6 +86,8 @@ export interface BusinessSettings {
   superAdminEmail?: string;
   showBrandPopup?: boolean;
   brandPopupText?: string;
+  showCalculator?: boolean;
+  enableVoiceInput?: boolean;
   rakibEmail?: string;
   limonEmail?: string;
   highValueWithdrawalThreshold?: number;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signInAnonymously, signInWithEmailAndPassword, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import {
@@ -10,6 +10,7 @@ import {
   Banknote,
   Bell,
   Boxes,
+  Calculator,
   Calendar,
   Camera,
   CheckCircle2,
@@ -29,6 +30,7 @@ import {
   Lock,
   LogOut,
   Menu,
+  Mic,
   Package,
   Percent,
   PieChart,
@@ -99,6 +101,11 @@ import SalesTrendChartSection from './components/SalesTrendChartSection';
 import EmailNotificationSection from './components/EmailNotificationSection';
 import BrandWelcomePopup from './components/BrandWelcomePopup';
 import ProductProfitabilityModal from './components/ProductProfitabilityModal';
+import BusinessCalculatorModal, {
+  loadPersistedCalcState,
+  type PersistedCalcState,
+} from './components/BusinessCalculatorModal';
+import VoiceFormAssistant from './components/VoiceFormAssistant';
 import {
   money,
   moneyBn,
@@ -191,6 +198,8 @@ const blankSettings: BusinessSettings = {
   superAdminEmail: 'glowzaabd.shop@gmail.com',
   showBrandPopup: true,
   brandPopupText: 'Glowzaa এটা ব্রান্ড',
+  showCalculator: true,
+  enableVoiceInput: true,
 };
 
 function compressImage(file: File): Promise<string> {
@@ -345,6 +354,8 @@ export default function App() {
   const [showInvestorModal, setShowInvestorModal] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const [showProfitabilityModal, setShowProfitabilityModal] = useState(false);
+  const [showCalculatorModal, setShowCalculatorModal] = useState(false);
+  const [calcState, setCalcState] = useState<PersistedCalcState>(() => loadPersistedCalcState());
   const [showProfitModal, setShowProfitModal] = useState(false);
   const [viewRecordModal, setViewRecordModal] = useState<Entry | null>(null);
   const [viewPartnerModal, setViewPartnerModal] = useState<PartnerAccountBalance | null>(null);
@@ -444,7 +455,14 @@ export default function App() {
   const [aiProductPrompt, setAiProductPrompt] = useState<string>('');
   const [isAiParsingProduct, setIsAiParsingProduct] = useState<boolean>(false);
   const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [productVoiceSec, setProductVoiceSec] = useState<number>(0);
   const [aiSummaryNote, setAiSummaryNote] = useState<string>('');
+  const productMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const productMediaStreamRef = useRef<MediaStream | null>(null);
+  const productAudioChunksRef = useRef<Blob[]>([]);
+  const productVoiceTimerRef = useRef<any>(null);
+  const productRecognitionRef = useRef<any>(null);
+  const productLiveTranscriptRef = useRef<string>('');
 
   // Profit Distribution Form
   const [distributionForm, setDistributionForm] = useState({
@@ -497,6 +515,8 @@ export default function App() {
                   superAdminEmail: merged.superAdminEmail || blankSettings.superAdminEmail,
                   showBrandPopup: merged.showBrandPopup !== false,
                   brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
+                  showCalculator: merged.showCalculator !== false,
+                  enableVoiceInput: merged.enableVoiceInput !== false,
                 })
               );
             } catch {}
@@ -565,6 +585,8 @@ export default function App() {
               superAdminEmail: merged.superAdminEmail || blankSettings.superAdminEmail,
               showBrandPopup: merged.showBrandPopup !== false,
               brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
+              showCalculator: merged.showCalculator !== false,
+              enableVoiceInput: merged.enableVoiceInput !== false,
             }));
           } catch {}
         }
@@ -1447,18 +1469,19 @@ export default function App() {
     return {};
   }
 
-  async function handleAiParseProduct(overridePrompt?: string, overrideImage?: string) {
+  async function handleAiParseProduct(overridePrompt?: string, overrideImage?: string, overrideAudio?: string) {
     const promptToUse = (overridePrompt !== undefined ? overridePrompt : aiProductPrompt).trim();
     const imgToUse = overrideImage !== undefined ? overrideImage : productForm.imageUrl;
+    const audioToUse = overrideAudio || '';
 
-    if (!promptToUse && !imgToUse) {
+    if (!promptToUse && !imgToUse && !audioToUse) {
       setError('অনুগ্রহ করে ১ লাইনে পণ্যের তথ্য লিখুন, মাইকে বলুন অথবা পণ্যের/রসিদের ছবি দিন।');
       return;
     }
 
     setError('');
     setIsAiParsingProduct(true);
-    setAiSummaryNote('');
+    setAiSummaryNote(audioToUse ? '🎙️ আপনার ভয়েস বিশ্লেষণ করে পণ্যের ঘরগুলো পূরণ করা হচ্ছে...' : '');
     try {
       const response = await fetch('/api/ai/parse-product', {
         method: 'POST',
@@ -1466,6 +1489,7 @@ export default function App() {
         body: JSON.stringify({
           prompt: promptToUse,
           imageDataUrl: imgToUse && imgToUse.startsWith('data:image/') ? imgToUse : '',
+          audioDataUrl: audioToUse,
           mode: editingProduct ? 'single' : productUploadMode,
           existingProducts: products.slice(0, 15),
         }),
@@ -1476,6 +1500,9 @@ export default function App() {
       }
 
       const data = await response.json();
+      if (data.transcribedPrompt) {
+        setAiProductPrompt(data.transcribedPrompt);
+      }
 
       if (!editingProduct && productUploadMode === 'batch_avg' && Array.isArray(data.products) && data.products.length > 0) {
         const targetCount = Math.max(5, Math.min(6, data.products.length));
@@ -1519,8 +1546,152 @@ export default function App() {
     }
   }
 
-  function handleStartVoiceInput() {
+  async function handleStartVoiceInput() {
+    if (isVoiceListening) {
+      if (productRecognitionRef.current) {
+        try {
+          productRecognitionRef.current.stop();
+        } catch {}
+      }
+      if (productMediaRecorderRef.current && productMediaRecorderRef.current.state !== 'inactive') {
+        try {
+          productMediaRecorderRef.current.stop();
+        } catch {}
+      } else {
+        setIsVoiceListening(false);
+      }
+      return;
+    }
+
+    setError('');
+    productLiveTranscriptRef.current = '';
+
+    // Start parallel live SpeechRecognition if available so transcript is captured immediately
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'bn-BD';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        let finalTranscript = '';
+
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const tr = event.results[i][0]?.transcript || '';
+            if (event.results[i].isFinal) {
+              finalTranscript += ' ' + tr;
+            } else {
+              interim += tr;
+            }
+          }
+          const combined = `${finalTranscript} ${interim}`.trim();
+          if (combined) {
+            productLiveTranscriptRef.current = combined;
+            setAiProductPrompt(combined);
+          }
+        };
+        recognition.onerror = () => {};
+        recognition.start();
+        productRecognitionRef.current = recognition;
+      } catch {
+        // Ignore if SpeechRecognition fails while MediaRecorder is active
+      }
+    }
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && typeof MediaRecorder !== 'undefined') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        productMediaStreamRef.current = stream;
+        productAudioChunksRef.current = [];
+
+        const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+        let selectedMime = '';
+        for (const mt of mimeTypes) {
+          if (typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(mt)) {
+            selectedMime = mt;
+            break;
+          }
+        }
+
+        const recorder = selectedMime
+          ? new MediaRecorder(stream, { mimeType: selectedMime })
+          : new MediaRecorder(stream);
+
+        productMediaRecorderRef.current = recorder;
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            productAudioChunksRef.current.push(e.data);
+          }
+        };
+
+        recorder.onstop = () => {
+          if (productVoiceTimerRef.current) {
+            clearInterval(productVoiceTimerRef.current);
+            productVoiceTimerRef.current = null;
+          }
+          if (productRecognitionRef.current) {
+            try {
+              productRecognitionRef.current.stop();
+            } catch {}
+            productRecognitionRef.current = null;
+          }
+          setIsVoiceListening(false);
+
+          if (productMediaStreamRef.current) {
+            productMediaStreamRef.current.getTracks().forEach((t) => t.stop());
+            productMediaStreamRef.current = null;
+          }
+
+          const chunks = productAudioChunksRef.current;
+          const capturedText = (productLiveTranscriptRef.current || '').trim();
+          if ((!chunks || chunks.length === 0) && !capturedText) return;
+
+          const blob = new Blob(chunks || [], { type: recorder.mimeType || 'audio/webm' });
+          if (blob.size < 300 && !capturedText) {
+            setAiSummaryNote('⚠️ কথা খুব ছোট হয়েছে। অনুগ্রহ করে আবার স্পষ্টভাবে বলুন।');
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64Audio = reader.result as string;
+            if (base64Audio || capturedText) {
+              handleAiParseProduct(capturedText, undefined, base64Audio);
+            }
+          };
+          reader.readAsDataURL(blob);
+        };
+
+        recorder.start(250);
+        setIsVoiceListening(true);
+        setProductVoiceSec(0);
+        setAiSummaryNote('🔴 ভয়েস রেকর্ড হচ্ছে... কথা বলুন (থামলে স্বয়ংক্রিয়ভাবে ঘর পূরণ হবে)');
+        productVoiceTimerRef.current = setInterval(() => {
+          setProductVoiceSec((prev) => {
+            if (prev >= 45) {
+              if (productMediaRecorderRef.current && productMediaRecorderRef.current.state !== 'inactive') {
+                try {
+                  productMediaRecorderRef.current.stop();
+                } catch {}
+              }
+              return prev;
+            }
+            return prev + 1;
+          });
+        }, 1000);
+        return;
+      } catch (err: any) {
+        if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+          setError('মাইক্রোফোন অনুমতি দেওয়া হয়নি। ব্রাউজারে Microphone Allow করুন।');
+          return;
+        }
+      }
+    }
+
     if (!SpeechRecognition) {
       setError('আপনার ব্রাউজারে ভয়েস টাইপিং সাপোর্ট নেই (Chrome বা Edge ব্যবহার করুন)।');
       return;
@@ -2265,6 +2436,8 @@ export default function App() {
       ...settings,
       showBrandPopup: enabled,
       brandPopupText: (settings.brandPopupText || 'Glowzaa এটা ব্রান্ড').trim() || 'Glowzaa এটা ব্রান্ড',
+      showCalculator: settings.showCalculator !== false,
+      enableVoiceInput: settings.enableVoiceInput !== false,
       updatedBy: actorId,
     };
     setSettings(updatedSettings);
@@ -2299,6 +2472,78 @@ export default function App() {
     );
   }
 
+  async function handleToggleCalculator(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      showCalculator: enabled,
+      enableVoiceInput: settings.enableVoiceInput !== false,
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (!enabled) {
+      setShowCalculatorModal(false);
+    }
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            showCalculator: enabled,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Calculator toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '🧮 ব্যবসার ফ্লোটিং ক্যালকুলেটর চালু (ON) করা হয়েছে!'
+        : 'ব্যবসার ফ্লোটিং ক্যালকুলেটর বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
+  async function handleToggleVoiceFeatures(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      enableVoiceInput: enabled,
+      showCalculator: settings.showCalculator !== false,
+      showBrandPopup: settings.showBrandPopup !== false,
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            enableVoiceInput: enabled,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Voice features toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '🎙️ সকল ভয়েস ইনপুট ও অটো-ফিল ফিচার চালু (ON) করা হয়েছে!'
+        : 'সকল ভয়েস ইনপুট ও অটো-ফিল ফিচার বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
     if (!admin || !db) return;
@@ -2318,6 +2563,8 @@ export default function App() {
         superAdminEmail: settings.superAdminEmail || 'glowzaabd.shop@gmail.com',
         showBrandPopup: settings.showBrandPopup !== false,
         brandPopupText: (settings.brandPopupText || 'Glowzaa এটা ব্রান্ড').trim() || 'Glowzaa এটা ব্রান্ড',
+        showCalculator: settings.showCalculator !== false,
+        enableVoiceInput: settings.enableVoiceInput !== false,
         updatedBy: actorId,
       };
       const payload = deepClean({
@@ -2994,6 +3241,7 @@ export default function App() {
             onApproveRequest={handleApproveRequest}
             onRejectRequest={handleRejectRequest}
             onLogout={handleAdminLogout}
+            enableVoiceInput={settings.enableVoiceInput !== false}
           />
         )}
 
@@ -5232,6 +5480,114 @@ export default function App() {
               </div>
             </div>
 
+            {/* PERSISTENT FLOATING BUSINESS CALCULATOR ON/OFF SETTING CARD */}
+            <div className="brand-popup-setting-card" style={{ marginTop: '16px' }}>
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div
+                    className="brand-popup-setting-icon"
+                    style={{
+                      background: 'linear-gradient(135deg, #0d9488, #0f766e)',
+                      color: '#ffffff',
+                    }}
+                  >
+                    <Calculator size={22} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>ব্যবসার স্থির (Floating) ক্যালকুলেটর বাটন</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.showCalculator !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.showCalculator !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      এটি চালু থাকলে সব পেজে ডান পাশে ক্যালকুলেটর আইকন বাটনটি স্থির থাকবে (স্ক্রল করলেও সরে যাবে না) এবং মিনিমাইজ করলে হিসাব জমা থাকবে। চাইলে এখান থেকে অন বা অফ রাখতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.showCalculator !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.showCalculator !== false ? 'active' : ''
+                    }`}
+                    onClick={() => handleToggleCalculator(settings.showCalculator === false)}
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.showCalculator !== false ? 'ক্যালকুলেটর: ON' : 'ক্যালকুলেটর: OFF'}
+                    </span>
+                  </button>
+
+                  {settings.showCalculator !== false && (
+                    <button
+                      type="button"
+                      className="brand-preview-trigger-btn"
+                      onClick={() => setShowCalculatorModal(true)}
+                    >
+                      <Calculator size={16} />
+                      <span>ক্যালকুলেটর খুলুন</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="brand-popup-setting-card" style={{ marginTop: '16px' }}>
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div
+                    className="brand-popup-setting-icon"
+                    style={{
+                      background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                      color: '#ffffff',
+                    }}
+                  >
+                    <Mic size={22} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>সকল ভয়েস ইনপুট ও অটো-ফিল ফিচার (All Voice Features ON/OFF)</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.enableVoiceInput !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.enableVoiceInput !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      এটি চালু থাকলে সব এন্ট্রি ফর্ম (বিক্রয়, ক্রয়, খরচ, পণ্য যোগ, অংশীদার, মুনাফা বণ্টন, উত্তোলন/লোন, নষ্ট পণ্য) এবং ক্যালকুলেটরে ভয়েস ইনপুট ও অটো-ফিল কাজ করবে। চাইলে এখান থেকে সব ভয়েস ফিচার এক ক্লিকে অন বা অফ রাখতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.enableVoiceInput !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.enableVoiceInput !== false ? 'active' : ''
+                    }`}
+                    onClick={() => handleToggleVoiceFeatures(settings.enableVoiceInput === false)}
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.enableVoiceInput !== false ? 'ভয়েস ফিচার: ON' : 'ভয়েস ফিচার: OFF'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <EmailNotificationSection
               currentActorName={currentAdmin?.displayName || 'রাকিব (Rakib)'}
               currentActorUid={currentAdmin?.username || user?.uid || 'Rakib'}
@@ -5328,6 +5684,77 @@ export default function App() {
       {showEntryModal && (
         <Modal title={editingEntry ? 'রেকর্ড সম্পাদনা' : 'নতুন হিসাব যোগ করুন'} close={() => setShowEntryModal(false)}>
           <form className="form-grid" onSubmit={handleSaveEntry}>
+            {settings.enableVoiceInput !== false && (
+              <VoiceFormAssistant
+                formType="entry"
+                title="✨ AI ভয়েস ও স্মার্ট লেনদেন এন্ট্রি (মুখে বলুন বা লিখুন)"
+                placeholder="যেমন: ১০ কেজি সামুদ্রিক কাকড়া ৪৫০০ টাকায় বিক্রি অথবা দোকান ভাড়া বাবদ ৩০০০ টাকা খরচ"
+                chips={[
+                  { label: '🦀 ১০ কেজি কাকড়া বিক্রি ৪৫০০৳', text: '১০ কেজি সামুদ্রিক কাকড়া ৪৫০০ টাকায় বিক্রি করলাম' },
+                  { label: '📦 ২০ কেজি কাকড়া ক্রয় ৬০০০৳', text: '২০ কেজি সামুদ্রিক কাকড়া ৬০০০ টাকায় ক্রয় করলাম' },
+                  { label: '🧾 দোকান ও পরিবহন খরচ ১২০০৳', text: 'দোকান ও পরিবহন বাবদ ১২০০ টাকা খরচ' },
+                  { label: '💼 রাকিব মূলধন জমা ১০০০০৳', text: 'রাকিব ব্যবসায় ১০০০০ টাকা নতুন মূলধন জমা দিল' },
+                ]}
+                products={products}
+                investors={investors}
+                onApplyFields={(fields) => {
+                  const validTypes: RecordType[] = ['investment', 'sale', 'purchase', 'expense', 'withdrawal', 'loan'];
+                  const nextType: RecordType = validTypes.includes(fields.type) ? fields.type : entryForm.type;
+                  const matchedProd = fields.productId ? products.find((p) => p.id === fields.productId) : undefined;
+                  const qty = fields.quantity !== undefined && fields.quantity !== '' ? Number(fields.quantity) : 0;
+                  const uPrice =
+                    fields.unitPrice !== undefined && fields.unitPrice !== ''
+                      ? Number(fields.unitPrice)
+                      : matchedProd && nextType === 'sale'
+                      ? Number(matchedProd.sellingPrice) || 0
+                      : 0;
+                  const uCost =
+                    fields.unitCost !== undefined && fields.unitCost !== ''
+                      ? Number(fields.unitCost)
+                      : matchedProd
+                      ? Number(matchedProd.averageCost) || 0
+                      : 0;
+                  const totalAmt =
+                    fields.amount !== undefined && fields.amount !== ''
+                      ? Number(fields.amount)
+                      : qty > 0 && uPrice > 0
+                      ? Math.round(qty * uPrice * 100) / 100
+                      : 0;
+                  const totalCost =
+                    fields.cost !== undefined && fields.cost !== ''
+                      ? Number(fields.cost)
+                      : nextType === 'sale' && qty > 0 && uCost > 0
+                      ? Math.round(qty * uCost * 100) / 100
+                      : 0;
+                  const totalProfit =
+                    fields.profit !== undefined && fields.profit !== ''
+                      ? Number(fields.profit)
+                      : nextType === 'sale' && totalAmt > 0
+                      ? Math.round((totalAmt - totalCost) * 100) / 100
+                      : 0;
+
+                  setEntryForm((prev) => ({
+                    ...prev,
+                    type: nextType,
+                    title: fields.title || prev.title,
+                    productId: fields.productId !== undefined ? fields.productId : prev.productId,
+                    investorId: fields.investorId !== undefined ? fields.investorId : prev.investorId,
+                    quantity: qty > 0 ? String(qty) : prev.quantity,
+                    unitPrice: uPrice > 0 ? String(uPrice) : prev.unitPrice,
+                    unitCost: uCost > 0 ? String(uCost) : prev.unitCost,
+                    amount: totalAmt > 0 ? String(totalAmt) : prev.amount,
+                    cost: totalCost > 0 ? String(totalCost) : prev.cost,
+                    profit: nextType === 'sale' && totalAmt > 0 ? String(totalProfit) : prev.profit,
+                    category: fields.category || prev.category,
+                    notes: fields.notes || prev.notes,
+                  }));
+                  if (fields.reason) {
+                    setEntryReason(fields.reason);
+                  }
+                }}
+              />
+            )}
+
             <label>
               হিসাবের ধরন
               <select
@@ -5724,6 +6151,21 @@ export default function App() {
       {showInvestorModal && (
         <Modal title="নতুন অংশীদার যোগ" close={() => setShowInvestorModal(false)}>
           <form className="form-grid" onSubmit={handleSaveInvestor}>
+            {settings.enableVoiceInput !== false && (
+              <VoiceFormAssistant
+                formType="investor"
+                title="✨ ভয়েসে নতুন অংশীদারের নাম ও ফোন নম্বর পূরণ করুন"
+                placeholder="মুখে বলুন: যেমন 'নতুন অংশীদার তানভীর আহমেদ, ফোন ০১৭১১২২৩৩৪৪'"
+                chips={[
+                  { label: '👤 অংশীদার তানভীর', text: 'নতুন অংশীদার তানভীর আহমেদ ফোন ০১৭১১২২৩৩৪৪' },
+                ]}
+                onApplyFields={(fields) => {
+                  if (fields.name) setInvestorName(fields.name);
+                  if (fields.phone) setInvestorPhone(fields.phone);
+                  if (fields.reason) setInvestorReason(fields.reason);
+                }}
+              />
+            )}
             <label>
               অংশীদারের নাম
               <input
@@ -5914,27 +6356,29 @@ export default function App() {
                 }}
               />
 
-              <button
-                type="button"
-                onClick={handleStartVoiceInput}
-                disabled={isAiParsingProduct}
-                title="মুখে বলুন (বাংলা ভয়েস টাইপিং)"
-                style={{
-                  background: isVoiceListening ? '#dc2626' : '#ffffff',
-                  color: isVoiceListening ? '#ffffff' : '#0f766e',
-                  border: '1px solid #0d9488',
-                  borderRadius: '8px',
-                  padding: '8px 11px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                }}
-              >
-                🎙️ {isVoiceListening ? 'শুনছি...' : 'মুখে বলুন'}
-              </button>
+              {settings.enableVoiceInput !== false && (
+                <button
+                  type="button"
+                  onClick={handleStartVoiceInput}
+                  disabled={isAiParsingProduct}
+                  title="মুখে বলুন (বাংলা ভয়েস টাইপিং)"
+                  style={{
+                    background: isVoiceListening ? '#dc2626' : '#ffffff',
+                    color: isVoiceListening ? '#ffffff' : '#0f766e',
+                    border: '1px solid #0d9488',
+                    borderRadius: '8px',
+                    padding: '8px 11px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  🎙️ {isVoiceListening ? `থামান (${toBengaliNumerals(productVoiceSec)}s)` : 'মুখে বলুন'}
+                </button>
+              )}
 
               <label
                 title="ভাউচার, ক্যাশ মেমো বা পণ্যের ছবি স্ক্যান করে অটো-ফিল করুন"
@@ -6958,6 +7402,28 @@ export default function App() {
       {showProfitModal && (
         <Modal title="মুনাফা বণ্টন" close={() => setShowProfitModal(false)}>
           <form className="form-grid" onSubmit={handleSaveProfitDistribution}>
+            {settings.enableVoiceInput !== false && (
+              <VoiceFormAssistant
+                formType="distribution"
+                title="✨ ভয়েসে মুনাফা বণ্টনের মেয়াদ ও টাকার পরিমাণ বলুন"
+                placeholder="মুখে বলুন: যেমন 'অক্টোবর মাসের মুনাফা বণ্টন ১৫০০০ টাকা'"
+                chips={[
+                  { label: '📊 চলতি মাসের মুনাফা ১০০০০৳', text: 'চলতি মাসের মুনাফা বণ্টন ১০০০০ টাকা' },
+                  { label: '📊 সাপ্তাহিক মুনাফা ৫০০০৳', text: 'সাপ্তাহিক মুনাফা বণ্টন ৫০০০ টাকা' },
+                ]}
+                onApplyFields={(fields) => {
+                  if (fields.periodName) {
+                    setDistributionForm((prev) => ({ ...prev, periodName: fields.periodName }));
+                  }
+                  if (fields.distributableAmount !== undefined && Number(fields.distributableAmount) > 0) {
+                    setDistributionForm((prev) => ({
+                      ...prev,
+                      distributableAmount: String(fields.distributableAmount),
+                    }));
+                  }
+                }}
+              />
+            )}
             <label>
               মেয়াদ
               <input
@@ -7559,6 +8025,37 @@ export default function App() {
       {showWasteModal && currentAdmin && (
         <Modal title="📦 নষ্ট বা ক্ষতিগ্রস্থ পণ্য রেকর্ড (Waste / Damaged Goods)" close={() => setShowWasteModal(false)}>
           <form className="modal-body" onSubmit={handleSaveWaste}>
+            {settings.enableVoiceInput !== false && (
+              <VoiceFormAssistant
+                formType="waste"
+                title="✨ ভয়েসে নষ্ট বা ক্ষতিগ্রস্থ পণ্যের হিসাব পূরণ করুন"
+                placeholder="মুখে বলুন: যেমন '৫ কেজি সামুদ্রিক কাকড়া পচে নষ্ট হয়ে গেছে, কার্টনে পানি লেগেছিল'"
+                chips={[
+                  { label: '🦀 ৩ কেজি কাকড়া পচে নষ্ট', text: '৩ কেজি সামুদ্রিক কাকড়া পচে নষ্ট হয়ে গেছে' },
+                  { label: '📦 ২ কেজি পণ্য পরিবহনে ক্ষতিগ্রস্থ', text: '২ কেজি পণ্য পরিবহনে ক্ষতিগ্রস্থ হয়েছে' },
+                ]}
+                products={products}
+                onApplyFields={(fields) => {
+                  const selId = fields.productId || wasteForm.productId || products[0]?.id || '';
+                  const matchedP = products.find((prod) => prod.id === selId);
+                  const qty = fields.quantity && Number(fields.quantity) > 0 ? Number(fields.quantity) : Number(wasteForm.quantity) || 0;
+                  const computedLoss =
+                    fields.lossAmount && Number(fields.lossAmount) > 0
+                      ? Number(fields.lossAmount)
+                      : matchedP && qty > 0
+                      ? Math.round(qty * (matchedP.averageCost || 0) * 100) / 100
+                      : 0;
+                  setWasteForm((prev) => ({
+                    ...prev,
+                    productId: selId,
+                    quantity: qty > 0 ? String(qty) : prev.quantity,
+                    lossAmount: computedLoss > 0 ? String(computedLoss) : prev.lossAmount,
+                    reason: fields.reason || prev.reason,
+                    notes: fields.notes || prev.notes,
+                  }));
+                }}
+              />
+            )}
             <div
               style={{
                 background: needsPartnerApproval ? '#fff1f2' : '#f0fdf4',
@@ -9090,6 +9587,41 @@ export default function App() {
           setShowProductModal(true);
         }}
       />
+
+      {/* GLOBAL FIXED FLOATING CALCULATOR BUTTON (Visible across all pages & stays fixed on scroll) */}
+      {settings.showCalculator !== false && (
+        <button
+          type="button"
+          className={`floating-calc-trigger-btn ${
+            calcState.display !== '0' || Boolean(calcState.expression) || calcState.memory !== 0
+              ? 'has-saved-calc'
+              : ''
+          }`}
+          onClick={() => setShowCalculatorModal(true)}
+          title={
+            calcState.display !== '0' || Boolean(calcState.expression)
+              ? `ব্যবসার ক্যালকুলেটর (সংরক্ষিত হিসাব: ৳${toBengaliNumerals(calcState.display)})`
+              : 'ব্যবসার ক্যালকুলেটর খুলুন'
+          }
+          aria-label="ব্যবসার ক্যালকুলেটর"
+        >
+          <Calculator size={19} />
+          {(calcState.display !== '0' || Boolean(calcState.expression) || calcState.memory !== 0) && (
+            <span className="quick-calc-saved-dot" aria-hidden="true" />
+          )}
+        </button>
+      )}
+
+      {/* PERSISTENT BUSINESS CALCULATOR POPUP MODAL */}
+      {settings.showCalculator !== false && (
+        <BusinessCalculatorModal
+          isOpen={showCalculatorModal}
+          onMinimize={() => setShowCalculatorModal(false)}
+          calcState={calcState}
+          setCalcState={setCalcState}
+          enableVoiceInput={settings.enableVoiceInput !== false}
+        />
+      )}
     </div>
   );
 }

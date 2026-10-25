@@ -294,6 +294,93 @@ function bnToEnDigits(str: string): string {
   return str.replace(/[০-৯]/g, (d) => map[d] || d);
 }
 
+function normalizeBengaliSpokenNumbers(input: string): string {
+  let s = bnToEnDigits(input || '');
+
+  // Replace fractional/compound phrases first
+  const phraseReplacements: Array<[RegExp, string]> = [
+    [/দেড়\s*হাজার|দেড়\s*হাজার/gi, ' 1500 '],
+    [/আড়াই\s*হাজার|আড়াই\s*হাজার/gi, ' 2500 '],
+    [/সাড়ে\s*তিন\s*হাজার|সাড়ে\s*তিন\s*হাজার/gi, ' 3500 '],
+    [/সাড়ে\s*চার\s*হাজার|সাড়ে\s*চার\s*হাজার/gi, ' 4500 '],
+    [/সাড়ে\s*পাঁচ\s*হাজার|সাড়ে\s*পাঁচ\s*হাজার/gi, ' 5500 '],
+    [/দেড়শ|দেড়শ|একশ\s*পঞ্চাশ|একশো\s*পঞ্চাশ/gi, ' 150 '],
+    [/আড়াইশ|আড়াইশ|দুইশ\s*পঞ্চাশ|দুশো\s*পঞ্চাশ/gi, ' 250 '],
+    [/দুইশ\s*চল্লিশ|দুশো\s*চল্লিশ/gi, ' 240 '],
+    [/একশ\s*বিশ|একশো\s*বিশ/gi, ' 120 '],
+    [/তিনশ\s*ষাট|তিনশো\s*ষাট/gi, ' 360 '],
+    [/নয়শ|নয়শ|নয়শো/gi, ' 900 '],
+    [/আটশ|আটশো/gi, ' 800 '],
+    [/সাতশ|সাতশো/gi, ' 700 '],
+    [/ছয়শ|ছয়শ|ছয়শো/gi, ' 600 '],
+    [/পাঁচশ|পাঁচশো/gi, ' 500 '],
+    [/চারশ|চারশো/gi, ' 400 '],
+    [/তিনশ|তিনশো/gi, ' 300 '],
+    [/দুইশ|দুশো/gi, ' 200 '],
+    [/একশ|একশো/gi, ' 100 '],
+    [/নব্বই/gi, ' 90 '],
+    [/আশি/gi, ' 80 '],
+    [/সত্তর/gi, ' 70 '],
+    [/ষাট/gi, ' 60 '],
+    [/পঞ্চাশ/gi, ' 50 '],
+    [/পঁয়তাল্লিশ|পঁয়তাল্লিশ/gi, ' 45 '],
+    [/চল্লিশ/gi, ' 40 '],
+    [/পঁয়ত্রিশ|পঁয়ত্রিশ/gi, ' 35 '],
+    [/ত্রিশ|তিরিশ/gi, ' 30 '],
+    [/পঁচিশ/gi, ' 25 '],
+    [/বিশ|কুড়ি|কুড়ি/gi, ' 20 '],
+    [/উনিশ/gi, ' 19 '],
+    [/আঠারো|আঠার/gi, ' 18 '],
+    [/সতেরো|সতের/gi, ' 17 '],
+    [/ষোলো|ষোল/gi, ' 16 '],
+    [/পনেরো|পনের/gi, ' 15 '],
+    [/চৌদ্দ/gi, ' 14 '],
+    [/তেরো|তের/gi, ' 13 '],
+    [/বারো|বার/gi, ' 12 '],
+    [/এগারো|এগার/gi, ' 11 '],
+    [/দশ/gi, ' 10 '],
+    [/(?:^|\s)নয়(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 9 '],
+    [/(?:^|\s)আট(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 8 '],
+    [/(?:^|\s)সাত(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 7 '],
+    [/(?:^|\s)ছয়|ছয়(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 6 '],
+    [/(?:^|\s)পাঁচ(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 5 '],
+    [/(?:^|\s)চার(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 4 '],
+    [/(?:^|\s)তিন(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 3 '],
+    [/(?:^|\s)দুই(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 2 '],
+    [/(?:^|\s)এক(?=\s|$|টি|টা|কেজি|পিস|হাজার|শত|টাকা)/gi, ' 1 '],
+  ];
+
+  for (const [regex, replacement] of phraseReplacements) {
+    s = s.replace(regex, replacement);
+  }
+
+  // Handle "X হাজার Y" (e.g., "4 হাজার 500" -> "4500")
+  s = s.replace(/(\d+)\s*হাজার\s*(\d+)/g, (_, th, rem) => {
+    const val = Number(th) * 1000 + Number(rem);
+    return ` ${val} `;
+  });
+
+  // Handle "X হাজার" (e.g., "15 হাজার" -> "15000")
+  s = s.replace(/(\d+(?:\.\d+)?)\s*হাজার/g, (_, th) => {
+    const val = Math.round(Number(th) * 1000);
+    return ` ${val} `;
+  });
+
+  // Handle "X শত / শো" (e.g., "5 শত" -> "500")
+  s = s.replace(/(\d+)\s*(?:শত|শো)/g, (_, hun) => {
+    const val = Number(hun) * 100;
+    return ` ${val} `;
+  });
+
+  // Handle "X লাখ / লক্ষ"
+  s = s.replace(/(\d+(?:\.\d+)?)\s*(?:লাখ|লক্ষ)/g, (_, l) => {
+    const val = Math.round(Number(l) * 100000);
+    return ` ${val} `;
+  });
+
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 function detectCategoryPreset(name: string): string {
   const n = name.toLowerCase();
   if (n.includes('কাকড়া') || n.includes('কাঁকড়া') || n.includes('crab')) return 'crab';
@@ -321,7 +408,7 @@ function generateSmartSku(name: string, index = 1): string {
 }
 
 function smartFallbackParse(promptText: string, mode: 'single' | 'batch_avg') {
-  const normalized = bnToEnDigits(promptText || '').trim();
+  const normalized = normalizeBengaliSpokenNumbers(promptText || '');
   const unitMatch = normalized.match(/(কেজি|পিস|বক্স|লিটার|হালি|ডজন|প্যাকেট|kg|pcs|piece)/i);
   let unit = 'কেজি';
   if (unitMatch) {
@@ -429,7 +516,7 @@ async function startServer() {
   app.use(express.json({ limit: '12mb' }));
 
   app.post('/api/ai/parse-product', async (req, res) => {
-    const { prompt = '', imageDataUrl = '', mode = 'single', existingProducts = [] } = req.body || {};
+    const { prompt = '', imageDataUrl = '', audioDataUrl = '', mode = 'single', existingProducts = [] } = req.body || {};
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -455,6 +542,18 @@ async function startServer() {
         }
       }
 
+      if (audioDataUrl && typeof audioDataUrl === 'string' && audioDataUrl.startsWith('data:audio/')) {
+        const match = audioDataUrl.match(/^data:(audio\/[a-zA-Z0-9.+-]+)(?:;[^;]+)*;base64,(.+)$/);
+        if (match) {
+          parts.push({
+            inlineData: {
+              mimeType: match[1],
+              data: match[2],
+            },
+          });
+        }
+      }
+
       const historyContext = Array.isArray(existingProducts) && existingProducts.length > 0
         ? `Existing inventory products for reference: ${JSON.stringify(
             existingProducts.slice(0, 15).map((p: any) => ({
@@ -470,8 +569,9 @@ async function startServer() {
       if (mode === 'batch_avg') {
         parts.push({
           text: `You are an expert Bengali business inventory assistant for a retail/wholesale shop in Bangladesh (often selling crab/কাকড়া, fish/মাছ, shrimp/চিংড়ি, meat, groceries, etc.).
-Extract up to 6 products from the user's Bengali/English text or attached photo/voucher/memo.
-User input: "${prompt || 'ছবি থেকে পণ্যের তালিকা, পরিমাণ ও দাম বের করুন'}"
+Extract up to 6 products from the user's Bengali/English text, spoken audio recording, or attached photo/voucher/memo.
+${audioDataUrl ? 'IMPORTANT: First listen carefully to the attached Bengali audio recording and transcribe the exact spoken words into `transcribedPrompt` in Bengali.' : ''}
+User text input: "${prompt || (audioDataUrl ? 'অডিও ভয়েস থেকে পণ্যের তালিকা ও দাম বের করুন' : 'ছবি থেকে পণ্যের তালিকা, পরিমাণ ও দাম বের করুন')}"
 ${historyContext}
 
 Rules:
@@ -493,6 +593,7 @@ Rules:
             responseSchema: {
               type: Type.OBJECT,
               properties: {
+                transcribedPrompt: { type: Type.STRING },
                 products: {
                   type: Type.ARRAY,
                   items: {
@@ -535,6 +636,7 @@ Rules:
         });
 
         return res.json({
+          transcribedPrompt: parsed.transcribedPrompt || prompt || '',
           products: enriched,
           totalLotCost: parsed.totalLotCost || 0,
           totalLotSell: parsed.totalLotSell || 0,
@@ -546,8 +648,9 @@ Rules:
       // Single Product Mode
       parts.push({
         text: `You are an expert Bengali business inventory assistant for a retail/wholesale shop in Bangladesh (selling items like কাকড়া/crab, চিংড়ি/shrimp, মাছ/fish, মাংস/meat, ডিম/egg, সবজি/vegetables, or general retail goods).
-Extract product details from the user's short Bengali/English text, voice transcript, or attached product/invoice photo.
-User input: "${prompt || 'ছবি দেখে পণ্যের নাম, কোড, একক ও সম্ভাব্য মূল্য নির্ধারণ করুন'}"
+Extract product details from the user's short Bengali/English text, spoken audio recording, or attached product/invoice photo.
+${audioDataUrl ? 'IMPORTANT: First listen carefully to the attached Bengali audio recording and transcribe the exact spoken words into `transcribedPrompt` in Bengali.' : ''}
+User text input: "${prompt || (audioDataUrl ? 'অডিও ভয়েস থেকে পণ্যের নাম, পরিমাণ, ক্রয়মূল্য ও বিক্রয়মূল্য বের করুন' : 'ছবি দেখে পণ্যের নাম, কোড, একক ও সম্ভাব্য মূল্য নির্ধারণ করুন')}"
 ${historyContext}
 
 Rules:
@@ -570,6 +673,7 @@ Rules:
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              transcribedPrompt: { type: Type.STRING },
               product: {
                 type: Type.OBJECT,
                 properties: {
@@ -592,26 +696,881 @@ Rules:
       });
 
       const parsed = JSON.parse(response.text || '{}');
+      const effectiveTranscript = (parsed.transcribedPrompt || prompt || '').trim();
+      const fbSingle = smartFallbackParse(effectiveTranscript, 'single').product;
       const p = parsed.product || {};
-      const cat = p.categoryPreset && PRESET_IMAGES[p.categoryPreset] ? p.categoryPreset : detectCategoryPreset(p.name || '');
+      const finalName = p.name || fbSingle?.name || '';
+      const cat = p.categoryPreset && PRESET_IMAGES[p.categoryPreset] ? p.categoryPreset : detectCategoryPreset(finalName);
 
       return res.json({
+        transcribedPrompt: effectiveTranscript,
         product: {
-          name: p.name || '',
-          sku: p.sku || generateSmartSku(p.name || '', 1),
-          unit: p.unit || 'কেজি',
-          currentStock: Number(p.currentStock) || 0,
-          averageCost: Number(p.averageCost) || 0,
-          sellingPrice: Number(p.sellingPrice) || 0,
+          name: finalName,
+          sku: p.sku || fbSingle?.sku || generateSmartSku(finalName, 1),
+          unit: p.unit || fbSingle?.unit || 'কেজি',
+          currentStock: Number(p.currentStock) > 0 ? Number(p.currentStock) : (Number(fbSingle?.currentStock) || 0),
+          averageCost: Number(p.averageCost) > 0 ? Number(p.averageCost) : (Number(fbSingle?.averageCost) || 0),
+          sellingPrice: Number(p.sellingPrice) > 0 ? Number(p.sellingPrice) : (Number(fbSingle?.sellingPrice) || 0),
           categoryPreset: cat,
           imageUrl: PRESET_IMAGES[cat] || PRESET_IMAGES.box,
         },
-        reason: parsed.reason || `নতুন পণ্য (${p.name || ''}) সংযোজন`,
+        reason: parsed.reason || `নতুন পণ্য (${finalName}) সংযোজন`,
         summaryBn: parsed.summaryBn || 'এআই স্বয়ংক্রিয়ভাবে পণ্যের সব ঘর পূরণ করেছে।',
       });
     } catch (error) {
       console.error('AI parse-product error, using smart fallback:', error);
       return res.json(smartFallbackParse(prompt, mode));
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // UNIVERSAL VOICE & AI FORM AUTO-FILL ENDPOINT (/api/ai/parse-entry-form)
+  // Supports: 'entry' | 'investor' | 'waste' | 'distribution' | 'withdraw'
+  // ---------------------------------------------------------------------------
+  function smartFallbackEntryForm(
+    formType: string,
+    rawPrompt: string,
+    products: any[] = [],
+    investors: any[] = []
+  ) {
+    const normalized = normalizeBengaliSpokenNumbers(rawPrompt || '');
+    const nums = Array.from(normalized.matchAll(/(\d+(?:\.\d+)?)/g)).map((m) => Number(m[1]));
+
+    // Match product by name if mentioned
+    const matchedProduct = (products || []).find((p: any) => {
+      const pName = String(p?.name || '').toLowerCase();
+      return pName && normalized.toLowerCase().includes(pName);
+    }) || (products || []).find((p: any) => {
+      const words = String(p?.name || '').split(/\s+/).filter((w) => w.length >= 3);
+      return words.some((w) => normalized.includes(w));
+    });
+
+    // Match investor by name if mentioned
+    const matchedInvestor = (investors || []).find((inv: any) => {
+      const iName = String(inv?.name || '').toLowerCase();
+      if (iName && normalized.toLowerCase().includes(iName)) return true;
+      if ((iName.includes('rakib') || iName.includes('রাকিব')) && (normalized.toLowerCase().includes('rakib') || normalized.includes('রাকিব'))) return true;
+      if ((iName.includes('limon') || iName.includes('লিমন')) && (normalized.toLowerCase().includes('limon') || normalized.includes('লিমন'))) return true;
+      return false;
+    });
+
+    if (formType === 'investor') {
+      const rawDigits = bnToEnDigits(rawPrompt || '');
+      const phoneMatch = rawDigits.match(/(01\d{3}[-\s]?\d{6}|\d{11})/);
+      const phone = phoneMatch ? phoneMatch[1].replace(/\s+/g, '') : '';
+      const cleanName = rawDigits
+        .replace(/(01\d{3}[-\s]?\d{6}|\d+)/g, '')
+        .replace(/(নতুন|অংশীদার|ইনভেস্টর|পার্টনার|নাম|ফোন|নাম্বার|নম্বর|মোবাইল|যোগ|করুন)/gi, '')
+        .replace(/[-:(),/]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() || 'নতুন অংশীদার';
+      return {
+        transcribedPrompt: rawPrompt,
+        summaryBn: `✨ অংশীদারের নাম "${cleanName}"${phone ? ` ও ফোন (${phone})` : ''} স্বয়ংক্রিয়ভাবে বসানো হয়েছে।`,
+        fields: {
+          name: cleanName,
+          phone,
+          reason: `নতুন অংশীদার (${cleanName}) অন্তর্ভুক্তি`,
+        },
+      };
+    }
+
+    if (formType === 'waste') {
+      const prod = matchedProduct || products[0] || null;
+      const qty = nums[0] || 1;
+      const avgCost = Number(prod?.averageCost) || 0;
+      const lossAmount = nums[1] || (avgCost > 0 ? Math.round(qty * avgCost * 100) / 100 : 0);
+      let reason = 'পচে যাওয়া / নষ্ট (Spoiled/Rotten)';
+      if (/মেয়াদ|expired/i.test(normalized)) reason = 'মেয়াদোত্তীর্ণ (Expired)';
+      else if (/ভাঙা|ভাঙ্গা|ত্রুটি|broken/i.test(normalized)) reason = 'ভাঙা / ত্রুটিপূর্ণ (Broken/Defective)';
+      else if (/পরিবহন|গাড়ি|transit/i.test(normalized)) reason = 'পরিবহনে ক্ষতিগ্রস্থ (Transit Damage)';
+
+      return {
+        transcribedPrompt: rawPrompt,
+        summaryBn: `✨ নষ্ট পণ্য (${prod?.name || 'নির্বাচিত পণ্য'}) পরিমাণ ${qty} এবং সম্ভাব্য ক্ষতি ৳${lossAmount} বসানো হয়েছে।`,
+        fields: {
+          productId: prod?.id || '',
+          quantity: qty,
+          lossAmount,
+          reason,
+          notes: rawPrompt || `${prod?.name || 'পণ্য'} নষ্টজনিত ক্ষতি`,
+        },
+      };
+    }
+
+    if (formType === 'distribution') {
+      const amount = nums.find((n) => n >= 100) || nums[0] || 0;
+      const cleanPeriod = normalized
+        .replace(/(\d+(?:\.\d+)?)/g, '')
+        .replace(/(টাকা|মুনাফা|লাভ|বণ্টন|ভাগ|করুন|৳)/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim() || `${new Date().toLocaleDateString('bn-BD', { month: 'long', year: 'numeric' })} মুনাফা বণ্টন`;
+      return {
+        transcribedPrompt: rawPrompt,
+        summaryBn: `✨ মুনাফা বণ্টনের মেয়াদ "${cleanPeriod}" ও পরিমাণ ৳${amount} বসানো হয়েছে।`,
+        fields: {
+          periodName: cleanPeriod,
+          distributableAmount: amount,
+        },
+      };
+    }
+
+    if (formType === 'withdraw') {
+      const isLoan = /(লোন|loan|ধার|হাওলাত|জরুরি)/i.test(normalized);
+      const amount = nums.find((n) => n >= 50) || nums[0] || 0;
+      let method = 'নগদ ক্যাশ (Cash)';
+      if (/বিকাশ|bkash/i.test(normalized)) method = 'বিকাশ (bKash)';
+      else if (/নগদ|nagad/i.test(normalized) && !/নগদ ক্যাশ/i.test(normalized)) method = 'নগদ (Nagad)';
+      else if (/রকেট|rocket/i.test(normalized)) method = 'রকেট (Rocket)';
+      else if (/ব্যাংক|bank/i.test(normalized)) method = 'ব্যাংক ট্রান্সফার (Bank)';
+
+      return {
+        transcribedPrompt: rawPrompt,
+        summaryBn: `✨ ${isLoan ? 'বিশেষ লোন' : 'লাভাংশ উত্তোলন'} ৳${amount} (${method}) স্বয়ংক্রিয়ভাবে বসানো হয়েছে।`,
+        fields: {
+          mode: isLoan ? 'loan' : 'withdrawal',
+          amount,
+          method,
+          reason: rawPrompt || (isLoan ? 'জরুরি প্রয়োজনে বিশেষ লোন গ্রহণ' : 'সাপ্তাহিক অর্জিত লাভাংশ উত্তোলন'),
+        },
+      };
+    }
+
+    // Default: 'entry' (Transaction form: sale, purchase, expense, investment, withdrawal, loan)
+    let type: 'sale' | 'purchase' | 'expense' | 'investment' | 'withdrawal' | 'loan' = 'sale';
+    if (/(খরচ|ভাড়া|বিল|বিদ্যুৎ|গ্যাস|মজুরি|যাতায়াত|কুরিয়ার|খাবার|নাস্তা|expense)/i.test(normalized) && !/(বিক্রি|বিক্রয়)/i.test(normalized)) {
+      type = 'expense';
+    } else if (/(কেনা|ক্রয়|কিনলাম|কিনেছি|মাল কেনা|purchase)/i.test(normalized) && !/(বিক্রি|বিক্রয়)/i.test(normalized)) {
+      type = 'purchase';
+    } else if (/(মূলধন|বিনিয়োগ|ইনভেস্ট|জমা দিল|investment)/i.test(normalized)) {
+      type = 'investment';
+    } else if (/(লোন|ধার|loan)/i.test(normalized)) {
+      type = 'loan';
+    } else if (/(উত্তোলন|তুলে নিল|তুললাম|লাভ উত্তোলন|withdraw)/i.test(normalized)) {
+      type = 'withdrawal';
+    }
+
+    let quantity = 0;
+    let unitPrice = 0;
+    let unitCost = Number(matchedProduct?.averageCost) || 0;
+    let amount = 0;
+    let cost = 0;
+    let profit = 0;
+
+    if (type === 'sale' || type === 'purchase') {
+      if (nums.length >= 2) {
+        quantity = nums[0];
+        if (nums[1] >= quantity * 20 && !/(দর|করে|প্রতি)/i.test(normalized)) {
+          amount = nums[1];
+          unitPrice = quantity > 0 ? Math.round((amount / quantity) * 100) / 100 : 0;
+        } else {
+          unitPrice = nums[1];
+          amount = Math.round(quantity * unitPrice * 100) / 100;
+        }
+        if (type === 'purchase') {
+          unitCost = unitPrice;
+        }
+      } else if (nums.length === 1) {
+        if (matchedProduct && nums[0] <= 100 && /(কেজি|পিস|বক্স|হালি|টি)/i.test(normalized)) {
+          quantity = nums[0];
+          unitPrice = type === 'sale' ? (Number(matchedProduct.sellingPrice) || Number(matchedProduct.averageCost) * 1.25 || 0) : (Number(matchedProduct.averageCost) || 0);
+          amount = Math.round(quantity * unitPrice * 100) / 100;
+        } else {
+          amount = nums[0];
+          quantity = 1;
+          unitPrice = amount;
+        }
+      }
+      if (type === 'sale') {
+        cost = quantity > 0 && unitCost > 0 ? Math.round(quantity * unitCost * 100) / 100 : 0;
+        profit = amount > 0 && cost > 0 ? Math.round((amount - cost) * 100) / 100 : 0;
+      }
+    } else {
+      amount = nums.find((n) => n >= 10) || nums[0] || 0;
+    }
+
+    const defaultTitles: Record<string, string> = {
+      sale: matchedProduct ? `${matchedProduct.name} বিক্রয়` : (rawPrompt ? rawPrompt.slice(0, 45) : 'পণ্য বিক্রয়'),
+      purchase: matchedProduct ? `${matchedProduct.name} ক্রয়` : (rawPrompt ? rawPrompt.slice(0, 45) : 'পণ্য স্টক ক্রয়'),
+      expense: rawPrompt || 'দোকান ও পরিচালন খরচ',
+      investment: matchedInvestor ? `${matchedInvestor.name}-এর মূলধন জমা` : 'মূলধন বিনিয়োগ',
+      withdrawal: matchedInvestor ? `${matchedInvestor.name}-এর লাভাংশ উত্তোলন` : 'লাভাংশ উত্তোলন',
+      loan: matchedInvestor ? `${matchedInvestor.name}-এর বিশেষ লোন` : 'বিশেষ লোন গ্রহণ',
+    };
+
+    const defaultCategories: Record<string, string> = {
+      sale: 'পণ্য বিক্রয়',
+      purchase: 'স্টক ক্রয়',
+      expense: 'পরিচালন খরচ',
+      investment: 'মূলধন',
+      withdrawal: 'লাভাংশ উত্তোলন',
+      loan: 'বিশেষ লোন',
+    };
+
+    return {
+      transcribedPrompt: rawPrompt,
+      summaryBn: `✨ ভয়েস/টেক্সট অনুযায়ী "${defaultTitles[type]}"${amount > 0 ? ` (মোট ৳${amount})` : ''} স্বয়ংক্রিয়ভাবে পূরণ করা হয়েছে।`,
+      fields: {
+        type,
+        title: defaultTitles[type],
+        productId: matchedProduct?.id || '',
+        investorId: matchedInvestor?.id || '',
+        quantity: quantity > 0 ? quantity : '',
+        unitPrice: unitPrice > 0 ? unitPrice : '',
+        unitCost: unitCost > 0 ? unitCost : '',
+        amount: amount > 0 ? amount : '',
+        cost: cost > 0 ? cost : '',
+        profit: profit !== 0 ? profit : '',
+        category: defaultCategories[type],
+        notes: rawPrompt,
+        reason: rawPrompt || defaultTitles[type],
+      },
+    };
+  }
+
+  app.post('/api/ai/parse-entry-form', async (req, res) => {
+    const {
+      formType = 'entry',
+      prompt = '',
+      audioDataUrl = '',
+      products = [],
+      investors = [],
+    } = req.body || {};
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.json(smartFallbackEntryForm(formType, prompt, products, investors));
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+
+      const parts: any[] = [];
+      if (audioDataUrl && typeof audioDataUrl === 'string' && audioDataUrl.startsWith('data:audio/')) {
+        const match = audioDataUrl.match(/^data:(audio\/[a-zA-Z0-9.+-]+)(?:;[^;]+)*;base64,(.+)$/);
+        if (match) {
+          parts.push({
+            inlineData: {
+              mimeType: match[1],
+              data: match[2],
+            },
+          });
+        }
+      }
+
+      const productListContext = Array.isArray(products) && products.length > 0
+        ? `Available Products in Inventory: ${JSON.stringify(
+            products.slice(0, 25).map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              unit: p.unit,
+              averageCost: p.averageCost,
+              sellingPrice: p.sellingPrice,
+            }))
+          )}`
+        : 'Available Products: None';
+
+      const investorListContext = Array.isArray(investors) && investors.length > 0
+        ? `Available Business Partners (Investors): ${JSON.stringify(
+            investors.map((inv: any) => ({
+              id: inv.id,
+              name: inv.name,
+              phone: inv.phone,
+            }))
+          )}`
+        : 'Available Partners: Rakib (রাকিব), Limon (লিমন)';
+
+      parts.push({
+        text: `You are an expert Bengali accounting & business assistant for "Glowzaa Shop" in Bangladesh.
+The user is filling out a form of type: "${formType}".
+${audioDataUrl ? '1. First, listen carefully to the attached Bengali voice audio and transcribe what the user said into `transcribedPrompt` in clean Bengali.' : ''}
+User text input (if any): "${prompt}"
+${productListContext}
+${investorListContext}
+
+Instructions by formType:
+- If formType === "entry" (Transaction Modal):
+  Determine 'type' from: "sale" (বিক্রয়), "purchase" (ক্রয়/মাল কেনা), "expense" (খরচ/ভাড়া/বিল/মজুরি), "investment" (মূলধন জমা/বিনিয়োগ), "withdrawal" (লাভাংশ উত্তোলন), "loan" (বিশেষ লোন/ধার).
+  Match 'productId' from Available Products if a product is mentioned (for sale/purchase).
+  Match 'investorId' from Available Business Partners if Rakib/রাকিব or Limon/লিমন or another partner is mentioned (for investment/withdrawal/loan).
+  Calculate 'quantity', 'unitPrice' (per unit selling price), 'unitCost' (per unit purchase cost — use matched product's averageCost if not explicitly stated in a sale), 'amount' (total transaction amount in BDT), 'cost' (total COGS for sale = quantity * unitCost), and 'profit' (for sale = amount - cost).
+  IMPORTANT: If the user says "৫ কেজি কাকড়া ২২০০ টাকায় বিক্রি" -> quantity=5, amount=2200, unitPrice=440. If the user says "৫ কেজি কাকড়া ৪৪০ টাকা দরে বিক্রি" -> quantity=5, unitPrice=440, amount=2200.
+  Provide a clean Bengali 'title', 'category', 'notes', and approval 'reason'.
+
+- If formType === "investor" (New Partner Modal):
+  Extract partner's 'name' in Bengali, 'phone' number (e.g. 017...), and 'reason' in Bengali.
+
+- If formType === "waste" (Damaged/Waste Goods Modal):
+  Match 'productId' from Available Products. Extract 'quantity' damaged, 'lossAmount' (if not stated, multiply quantity by product's averageCost), 'reason' (MUST be one of: "মেয়াদোত্তীর্ণ (Expired)", "ভাঙা / ত্রুটিপূর্ণ (Broken/Defective)", "পচে যাওয়া / নষ্ট (Spoiled/Rotten)", "পরিবহনে ক্ষতিগ্রস্থ (Transit Damage)", "অন্যান্য কারণ (Other)"), and detailed Bengali 'notes'.
+
+- If formType === "distribution" (Profit Distribution Modal):
+  Extract 'periodName' in Bengali (e.g., "অক্টোবর ২০২৬ মুনাফা বণ্টন") and 'distributableAmount' (number).
+
+- If formType === "withdraw" (Partner Profit Withdrawal / Special Loan Modal):
+  Determine 'mode': "withdrawal" (লাভাংশ উত্তোলন) or "loan" (বিশেষ লোন).
+  Extract 'amount' (number), 'method' (MUST be one of: "নগদ ক্যাশ (Cash)", "বিকাশ (bKash)", "নগদ (Nagad)", "রকেট (Rocket)", "ব্যাংক ট্রান্সফার (Bank)"), and Bengali 'reason'.
+
+Always return a helpful 1-sentence Bengali summary in 'summaryBn' confirming what was filled.`,
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              transcribedPrompt: { type: Type.STRING },
+              summaryBn: { type: Type.STRING },
+              fields: {
+                type: Type.OBJECT,
+                properties: {
+                  // entry fields
+                  type: { type: Type.STRING },
+                  title: { type: Type.STRING },
+                  productId: { type: Type.STRING },
+                  investorId: { type: Type.STRING },
+                  quantity: { type: Type.NUMBER },
+                  unitPrice: { type: Type.NUMBER },
+                  unitCost: { type: Type.NUMBER },
+                  amount: { type: Type.NUMBER },
+                  cost: { type: Type.NUMBER },
+                  profit: { type: Type.NUMBER },
+                  category: { type: Type.STRING },
+                  notes: { type: Type.STRING },
+                  reason: { type: Type.STRING },
+                  // investor fields
+                  name: { type: Type.STRING },
+                  phone: { type: Type.STRING },
+                  // waste fields
+                  lossAmount: { type: Type.NUMBER },
+                  // distribution fields
+                  periodName: { type: Type.STRING },
+                  distributableAmount: { type: Type.NUMBER },
+                  // withdraw fields
+                  mode: { type: Type.STRING },
+                  method: { type: Type.STRING },
+                },
+              },
+            },
+            required: ['transcribedPrompt', 'summaryBn', 'fields'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      const finalTranscript = (parsed.transcribedPrompt || prompt || '').trim();
+      const fallback = smartFallbackEntryForm(formType, finalTranscript, products, investors);
+      const aiFields = parsed.fields || {};
+      const fbFields: Record<string, any> = fallback.fields || {};
+
+      // Merge AI fields with deterministic fallback so fields are NEVER blank
+      const mergedFields: Record<string, any> = { ...fbFields };
+      for (const [k, v] of Object.entries(aiFields)) {
+        if (v !== undefined && v !== null && v !== '') {
+          if (typeof v === 'number') {
+            if (v > 0 || (k === 'profit' && v !== 0)) {
+              mergedFields[k] = v;
+            }
+          } else {
+            mergedFields[k] = v;
+          }
+        }
+      }
+
+      return res.json({
+        transcribedPrompt: finalTranscript,
+        summaryBn: parsed.summaryBn || fallback.summaryBn || '✨ ভয়েস থেকে স্বয়ংক্রিয়ভাবে ফর্মের ঘরগুলো পূরণ করা হয়েছে।',
+        fields: mergedFields,
+      });
+    } catch (error) {
+      console.error('AI parse-entry-form error, using smart fallback:', error);
+      return res.json(smartFallbackEntryForm(formType, prompt, products, investors));
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // AI VOICE & SMART BUSINESS CALCULATOR ENDPOINT (/api/ai/calculate)
+  // ---------------------------------------------------------------------------
+  function toBnNum(n: number | string): string {
+    const map: Record<string, string> = {
+      '0': '০',
+      '1': '১',
+      '2': '২',
+      '3': '৩',
+      '4': '৪',
+      '5': '৫',
+      '6': '৬',
+      '7': '৭',
+      '8': '৮',
+      '9': '৯',
+    };
+    return String(n).replace(/[0-9]/g, (d) => map[d] || d);
+  }
+
+  function round2(n: number): number {
+    return Math.round((Number(n) || 0) * 100) / 100;
+  }
+
+  function convertBengaliWordsToDigits(input: string): string {
+    let s = bnToEnDigits(input || '');
+    // Replace common compound Bengali number words first
+    const compoundMap: Array<[RegExp, string]> = [
+      [/দুইশ\s*চল্লিশ|দুশো\s*চল্লিশ/gi, '240'],
+      [/দুইশ\s*পঞ্চাশ|দুশো\s*পঞ্চাশ|আড়াইশ|আড়াইশ/gi, '250'],
+      [/দেড়শ|দেড়শ|একশ\s*পঞ্চাশ/gi, '150'],
+      [/একশ\s*বিশ|একশো\s*বিশ/gi, '120'],
+      [/তিনশ\s*ষাট/gi, '360'],
+      [/এক\s*হাজার/gi, '1000'],
+      [/পাঁচশ|পাঁচশো/gi, '500'],
+      [/চারশ|চারশো/gi, '400'],
+      [/তিনশ|তিনশো/gi, '300'],
+      [/দুইশ|দুশো/gi, '200'],
+      [/একশ|একশো/gi, '100'],
+      [/নব্বই/gi, '90'],
+      [/আশি/gi, '80'],
+      [/সত্তর/gi, '70'],
+      [/ষাট/gi, '60'],
+      [/পঞ্চাশ/gi, '50'],
+      [/চল্লিশ/gi, '40'],
+      [/ত্রিশ|তিরিশ/gi, '30'],
+      [/পঁচিশ/gi, '25'],
+      [/বিশ|কুড়ি|কুড়ি/gi, '20'],
+      [/পনেরো|পনের/gi, '15'],
+      [/বারো|বার/gi, '12'],
+      [/দশ/gi, '10'],
+    ];
+    for (const [regex, val] of compoundMap) {
+      s = s.replace(regex, ` ${val} `);
+    }
+    return s;
+  }
+
+  function computeVerifiedDealResult(params: {
+    prompt: string;
+    buyPrice: number;
+    buyPriceType: string; // 'per_dozen' | 'per_hali' | 'per_unit' | 'total_lot'
+    sellPrice: number;
+    sellPriceType: string; // 'per_dozen' | 'per_hali' | 'per_unit' | 'total_lot'
+    quantity?: number;
+    unitName?: string;
+  }) {
+    const {
+      prompt,
+      buyPrice,
+      buyPriceType = 'per_unit',
+      sellPrice,
+      sellPriceType = 'per_unit',
+      quantity = 1,
+      unitName = 'পিস',
+    } = params;
+
+    const cleanUnit = unitName || 'পিস';
+    let totalQty = quantity && quantity > 0 ? quantity : 1;
+    let packLabel = '';
+
+    // Determine total units when dozen (12) or hali (4) is involved
+    if (buyPriceType === 'per_dozen' || sellPriceType === 'per_dozen') {
+      const dozenCount = quantity && quantity > 0 && quantity <= 50 && quantity !== 12 ? quantity : 1;
+      totalQty = dozenCount * 12;
+      packLabel = `${toBnNum(dozenCount)} ডজন (${toBnNum(totalQty)} পিস)`;
+    } else if (buyPriceType === 'per_hali' || sellPriceType === 'per_hali') {
+      const haliCount = quantity && quantity > 0 && quantity <= 50 && quantity !== 4 ? quantity : 1;
+      totalQty = haliCount * 4;
+      packLabel = `${toBnNum(haliCount)} হালি (${toBnNum(totalQty)} পিস)`;
+    }
+
+    // Calculate totalCost and unitCost
+    let totalCost = 0;
+    let unitCost = 0;
+    if (buyPriceType === 'per_dozen') {
+      const dozenCount = totalQty / 12;
+      totalCost = round2(buyPrice * dozenCount);
+      unitCost = round2(totalCost / totalQty);
+    } else if (buyPriceType === 'per_hali') {
+      const haliCount = totalQty / 4;
+      totalCost = round2(buyPrice * haliCount);
+      unitCost = round2(totalCost / totalQty);
+    } else if (buyPriceType === 'total_lot') {
+      totalCost = round2(buyPrice);
+      unitCost = totalQty > 0 ? round2(totalCost / totalQty) : totalCost;
+    } else {
+      unitCost = round2(buyPrice);
+      totalCost = round2(unitCost * totalQty);
+    }
+
+    // Calculate totalSell and unitSell
+    let totalSell = 0;
+    let unitSell = 0;
+    if (sellPriceType === 'per_dozen') {
+      const dozenCount = totalQty / 12;
+      totalSell = round2(sellPrice * dozenCount);
+      unitSell = round2(totalSell / totalQty);
+    } else if (sellPriceType === 'per_hali') {
+      const haliCount = totalQty / 4;
+      totalSell = round2(sellPrice * haliCount);
+      unitSell = round2(totalSell / totalQty);
+    } else if (sellPriceType === 'total_lot') {
+      totalSell = round2(sellPrice);
+      unitSell = totalQty > 0 ? round2(totalSell / totalQty) : totalSell;
+    } else {
+      unitSell = round2(sellPrice);
+      totalSell = round2(unitSell * totalQty);
+    }
+
+    const unitProfit = round2(unitSell - unitCost);
+    const totalProfit = round2(totalSell - totalCost);
+    const margin = totalCost > 0 ? round2((totalProfit / totalCost) * 100) : 0;
+    const isProfit = totalProfit >= 0;
+    const statusWord = isProfit ? 'লাভ' : 'ক্ষতি';
+    const absUnitProfit = Math.abs(unitProfit);
+    const absTotalProfit = Math.abs(totalProfit);
+
+    const displayLabel = packLabel
+      ? `মোট ${statusWord} • ${packLabel}`
+      : totalQty > 1
+      ? `মোট ${statusWord} (${toBnNum(totalQty)} ${cleanUnit})`
+      : `প্রতি ${cleanUnit}-এ ${statusWord}`;
+
+    const summaryBn =
+      totalQty > 1
+        ? `প্রতি ${cleanUnit}-এ ${statusWord} ৳${toBnNum(absUnitProfit)} এবং ${
+            packLabel || `${toBnNum(totalQty)} ${cleanUnit}`
+          }-এ মোট ${statusWord} ৳${toBnNum(absTotalProfit)} (${toBnNum(Math.abs(margin))}%)।`
+        : `কেনা ৳${toBnNum(unitCost)} এবং বিক্রি ৳${toBnNum(unitSell)} হলে প্রতি ${cleanUnit}-এ ${statusWord} ৳${toBnNum(absUnitProfit)} (${toBnNum(Math.abs(margin))}%)।`;
+
+    const stepsBn =
+      totalQty > 1
+        ? [
+            `মোট পরিমাণ: ${packLabel || `${toBnNum(totalQty)} ${cleanUnit}`}`,
+            `প্রতি ${cleanUnit} কেনা দাম: ৳${toBnNum(totalCost)} ÷ ${toBnNum(totalQty)} = ৳${toBnNum(unitCost)} (মোট কেনা: ৳${toBnNum(totalCost)})`,
+            `প্রতি ${cleanUnit} বিক্রি দাম: ৳${toBnNum(unitSell)} (মোট বিক্রি: ৳${toBnNum(unitSell)} × ${toBnNum(totalQty)} = ৳${toBnNum(totalSell)})`,
+            `প্রতি ${cleanUnit}-এ ${statusWord}: ৳${toBnNum(unitSell)} − ৳${toBnNum(unitCost)} = ৳${toBnNum(absUnitProfit)}`,
+            `সর্বমোট ${statusWord}: ৳${toBnNum(totalSell)} − ৳${toBnNum(totalCost)} = ৳${toBnNum(absTotalProfit)} (${toBnNum(Math.abs(margin))}%)`,
+          ]
+        : [
+            `ক্রয়মূল্য (কেনা দাম): ৳${toBnNum(unitCost)}`,
+            `বিক্রয়মূল্য (বিক্রি দাম): ৳${toBnNum(unitSell)}`,
+            `মোট ${statusWord}: ৳${toBnNum(unitSell)} − ৳${toBnNum(unitCost)} = ৳${toBnNum(absTotalProfit)} (${toBnNum(Math.abs(margin))}%)`,
+          ];
+
+    return {
+      prompt,
+      mainResult: absTotalProfit,
+      mainResultLabel: displayLabel,
+      expression:
+        totalQty > 1
+          ? `(${unitSell} × ${totalQty}) - ${totalCost} = ${totalProfit}`
+          : `${unitSell} - ${unitCost} = ${totalProfit}`,
+      summaryBn,
+      stepsBn,
+      metrics: {
+        unitCost,
+        unitSell,
+        unitProfit,
+        totalQty,
+        unitName: cleanUnit,
+        totalCost,
+        totalSell,
+        totalProfit,
+        profitMarginPercent: margin,
+      },
+    };
+  }
+
+  function smartFallbackCalculate(rawPrompt: string) {
+    // Strip filler phrases like "1 টা প্রডাক্ট" / "একটা প্রডাক্ট" so "1" isn't mistaken for price
+    const cleanedFiller = convertBengaliWordsToDigits(rawPrompt || '')
+      .replace(/(?:একটা|একটি|1\s*টা|1\s*টি)\s*(?:প্রডাক্ট|প্রোডাক্ট|পণ্য|মাল|জিনিস)/gi, ' প্রডাক্ট ')
+      .trim();
+    const lower = cleanedFiller.toLowerCase();
+
+    const hasDozen = /(ডজন|dozen)/i.test(lower);
+    const hasHali = /(হালি|hali)/i.test(lower);
+    const hasBuySell =
+      /(কিন|কেনা|ক্রয়|কিনে|buy|bought)/i.test(lower) &&
+      /(বিক্রি|বিক্রয়|বেচ|sell|sold)/i.test(lower);
+
+    // Extract numbers after removing "1 টা প্রডাক্ট"
+    const numMatches = Array.from(cleanedFiller.matchAll(/(\d+(?:\.\d+)?)/g)).map((m) => ({
+      val: Number(m[1]),
+      index: m.index || 0,
+    }));
+
+    if ((hasDozen || hasHali) && numMatches.length >= 2) {
+      // Find price near ডজন/হালি or কিনলাম, and price near পিস or বিক্রি
+      const dozenBuyMatch = cleanedFiller.match(/(\d+(?:\.\d+)?)\s*(?:টাকা|৳|tk)?\s*(?:ডজন|হালি)/i);
+      const pieceSellMatch = cleanedFiller.match(/(\d+(?:\.\d+)?)\s*(?:টাকা|৳|tk)?\s*(?:পিস|করে)/i);
+
+      let buyVal = dozenBuyMatch ? Number(dozenBuyMatch[1]) : numMatches[0].val;
+      let sellVal = pieceSellMatch ? Number(pieceSellMatch[1]) : numMatches[numMatches.length - 1].val;
+
+      if (buyVal === sellVal && numMatches.length >= 2) {
+        buyVal = numMatches[0].val;
+        sellVal = numMatches[1].val;
+      }
+
+      return computeVerifiedDealResult({
+        prompt: rawPrompt,
+        buyPrice: buyVal,
+        buyPriceType: hasDozen ? 'per_dozen' : 'per_hali',
+        sellPrice: sellVal,
+        sellPriceType: 'per_unit',
+        quantity: 1,
+        unitName: 'পিস',
+      });
+    }
+
+    if (hasBuySell && numMatches.length >= 2) {
+      const unitMatch = cleanedFiller.match(/(কেজি|পিস|বক্স|লিটার|প্যাকেট|kg|pcs)/i);
+      const unitName = unitMatch ? unitMatch[1] : 'পিস';
+
+      if (numMatches.length >= 3) {
+        const n0 = numMatches[0].val;
+        const n1 = numMatches[1].val;
+        const n2 = numMatches[2].val;
+        const isTotalLot = n1 > n2 * 1.8 && n0 > 1;
+        return computeVerifiedDealResult({
+          prompt: rawPrompt,
+          buyPrice: n1,
+          buyPriceType: isTotalLot ? 'total_lot' : 'per_unit',
+          sellPrice: n2,
+          sellPriceType: 'per_unit',
+          quantity: n0 > 0 ? n0 : 1,
+          unitName,
+        });
+      }
+
+      return computeVerifiedDealResult({
+        prompt: rawPrompt,
+        buyPrice: numMatches[0].val,
+        buyPriceType: 'per_unit',
+        sellPrice: numMatches[1].val,
+        sellPriceType: 'per_unit',
+        quantity: 1,
+        unitName,
+      });
+    }
+
+    // Percentage / Discount calculation
+    if (/(%|শতকরা|পার্সেন্ট|ছাড়|ডিসকাউন্ট)/i.test(lower) && numMatches.length >= 2) {
+      const base = numMatches[0].val;
+      const pct = numMatches[1].val;
+      const pctAmount = round2((base * pct) / 100);
+      const isDiscount = /(ছাড়|ডিসকাউন্ট|বাদ|কম)/i.test(lower);
+      const finalVal = isDiscount ? round2(base - pctAmount) : pctAmount;
+      return {
+        prompt: rawPrompt,
+        mainResult: finalVal,
+        mainResultLabel: isDiscount ? `ছাড়ের পর মূল্য` : `${toBnNum(pct)}% এর মান`,
+        expression: isDiscount
+          ? `${base} - (${base} × ${pct}%) = ${finalVal}`
+          : `${base} × ${pct}% = ${pctAmount}`,
+        summaryBn: isDiscount
+          ? `৳${toBnNum(base)} থেকে ${toBnNum(pct)}% (৳${toBnNum(pctAmount)}) ছাড় দিলে বাকি থাকে ৳${toBnNum(finalVal)}।`
+          : `৳${toBnNum(base)}-এর ${toBnNum(pct)}% হলো ৳${toBnNum(pctAmount)}।`,
+        stepsBn: [
+          `মূল সংখ্যা: ৳${toBnNum(base)}`,
+          `${toBnNum(pct)}% এর পরিমাণ: (৳${toBnNum(base)} × ${toBnNum(pct)}) ÷ ১০০ = ৳${toBnNum(pctAmount)}`,
+          ...(isDiscount
+            ? [`ছাড় বাদে চূড়ান্ত মূল্য: ৳${toBnNum(base)} − ৳${toBnNum(pctAmount)} = ৳${toBnNum(finalVal)}`]
+            : []),
+        ],
+      };
+    }
+
+    // Simple arithmetic expression fallback
+    if (numMatches.length >= 2) {
+      const a = numMatches[0].val;
+      const b = numMatches[1].val;
+      let resVal = a + b;
+      let opSym = '+';
+      if (/(গুণ|গুন|into|×|\*|দাম কত)/i.test(lower)) {
+        resVal = round2(a * b);
+        opSym = '×';
+      } else if (/(ভাগ|divide|÷|\/)/i.test(lower)) {
+        resVal = b !== 0 ? round2(a / b) : 0;
+        opSym = '÷';
+      } else if (/(বিয়োগ|বাদ|কম|বাকি|-|−)/i.test(lower)) {
+        resVal = round2(a - b);
+        opSym = '−';
+      } else {
+        resVal = round2(a + b);
+        opSym = '+';
+      }
+      return {
+        prompt: rawPrompt,
+        mainResult: resVal,
+        mainResultLabel: 'হিসাবের ফলাফল',
+        expression: `${a} ${opSym} ${b} = ${resVal}`,
+        summaryBn: `${toBnNum(a)} ${opSym} ${toBnNum(b)} = ৳${toBnNum(resVal)}`,
+        stepsBn: [`গাণিতিক হিসাব: ${toBnNum(a)} ${opSym} ${toBnNum(b)} = ৳${toBnNum(resVal)}`],
+      };
+    }
+
+    const singleVal = numMatches[0]?.val || 0;
+    return {
+      prompt: rawPrompt,
+      mainResult: singleVal,
+      mainResultLabel: 'ফলাফল',
+      expression: `${singleVal}`,
+      summaryBn: `সংখ্যাটি হলো ৳${toBnNum(singleVal)}। লাভ-ক্ষতির হিসাব জানতে কেনা ও বিক্রি দাম বলুন।`,
+      stepsBn: ['যেমন বলুন: "একটা প্রডাক্ট ২৪০৳ ডজন কিনলাম বিক্রি করলাম ৩০৳ পিস তাহলে লাভ কত হলো"'],
+    };
+  }
+
+  app.post('/api/ai/calculate', async (req, res) => {
+    const { prompt = '', audioDataUrl = '' } = req.body || {};
+    const hasTextPrompt = typeof prompt === 'string' && prompt.trim().length > 0;
+    const hasAudio =
+      typeof audioDataUrl === 'string' && audioDataUrl.startsWith('data:audio/');
+
+    if (!hasTextPrompt && !hasAudio) {
+      return res.status(400).json({ error: 'অনুগ্রহ করে আপনার হিসাবটি লিখুন বা মুখে বলুন।' });
+    }
+
+    const cleanPrompt = hasTextPrompt ? prompt.trim() : '';
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.json(
+        smartFallbackCalculate(cleanPrompt || '২৪০ টাকা ডজন কিনে ৩০ টাকা পিস বিক্রি')
+      );
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+
+      const parts: any[] = [];
+      if (hasAudio) {
+        const match = audioDataUrl.match(
+          /^data:(audio\/[a-zA-Z0-9.+=-]+(?:;codecs=[^;]+)?);base64,(.+)$/
+        );
+        if (match) {
+          const baseMime = match[1].split(';')[0] || 'audio/webm';
+          parts.push({
+            inlineData: {
+              mimeType: baseMime,
+              data: match[2],
+            },
+          });
+        }
+      }
+
+      parts.push({
+        text: `You are an expert Bengali business & shop calculator assistant for a Bangladeshi merchant.
+${
+  hasAudio
+    ? `CRITICAL AUDIO TRANSCRIPTION INSTRUCTIONS:
+1. Listen carefully to the attached Bengali voice audio.
+2. The speaker is asking a shop/business math or profit-loss question in Bengali (involving words like প্রডাক্ট/পণ্য, ডজন/dozen=12, হালি/hali=4, পিস/piece, কেজি/kg, টাকা/৳, কিনলাম/কেনা, বিক্রি করলাম/বিক্রি, লাভ/ক্ষতি, যোগ/বিয়োগ/গুণ/ভাগ).
+3. Write the exact, clean Bengali sentence into "transcribedPrompt" using Bengali digits (e.g., "একটা প্রডাক্ট ২৪০ টাকা ডজন কিনলাম বিক্রি করলাম ৩০ টাকা পিস তাহলে লাভ কত হলো"). Do NOT repeat words.`
+    : ''
+}
+User text query (if provided): "${cleanPrompt}"
+
+INSTRUCTIONS FOR CALCULATION:
+1. If the problem is about buying & selling a product (লাভ / ক্ষতি / কেনা / বিক্রি):
+   - Set "isBuySellProblem": true
+   - Extract "buyPrice": numeric buying price mentioned (e.g. 240). Ignore filler words like "একটা প্রডাক্ট" (1 product) when extracting price!
+   - Set "buyPriceType":
+     - "per_dozen" if bought by ডজন (dozen = 12 pieces)
+     - "per_hali" if bought by হালি (hali = 4 pieces)
+     - "total_lot" if the buyPrice is the total price for multiple kg/pieces (e.g. "৫০ কেজি ১৫০০০ টাকায় কিনে")
+     - "per_unit" if bought per piece/kg/unit
+   - Extract "sellPrice": numeric selling price mentioned (e.g. 30).
+   - Set "sellPriceType": "per_dozen", "per_hali", "total_lot", or "per_unit" (e.g. "৩০ টাকা পিস বিক্রি" -> "per_unit").
+   - Set "quantity": number of dozens, halis, or units (default 1 if "এক ডজন" or "ডজন" is mentioned, or e.g. 50 if "৫০ কেজি").
+   - Set "unitName": "পিস" or "কেজি" etc.
+2. If it is NOT a buy/sell problem (e.g., general addition, subtraction, multiplication, division, percentage):
+   - Set "isBuySellProblem": false
+   - Compute the exact "mainResult", "mainResultLabel", "expression", "summaryBn", and "stepsBn" in Bengali.`,
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              transcribedPrompt: { type: Type.STRING },
+              isBuySellProblem: { type: Type.BOOLEAN },
+              buyPrice: { type: Type.NUMBER },
+              buyPriceType: { type: Type.STRING },
+              sellPrice: { type: Type.NUMBER },
+              sellPriceType: { type: Type.STRING },
+              quantity: { type: Type.NUMBER },
+              unitName: { type: Type.STRING },
+              mainResult: { type: Type.NUMBER },
+              mainResultLabel: { type: Type.STRING },
+              expression: { type: Type.STRING },
+              summaryBn: { type: Type.STRING },
+              stepsBn: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+            },
+            required: ['isBuySellProblem', 'mainResult', 'mainResultLabel', 'expression', 'summaryBn', 'stepsBn'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      const finalPrompt = (parsed.transcribedPrompt || cleanPrompt || '').trim();
+
+      // If AI identified a Buy/Sell problem with valid prices, compute 100% verified arithmetic!
+      if (
+        parsed.isBuySellProblem &&
+        typeof parsed.buyPrice === 'number' &&
+        parsed.buyPrice > 0 &&
+        typeof parsed.sellPrice === 'number' &&
+        parsed.sellPrice > 0
+      ) {
+        return res.json(
+          computeVerifiedDealResult({
+            prompt: finalPrompt || cleanPrompt,
+            buyPrice: parsed.buyPrice,
+            buyPriceType: parsed.buyPriceType || 'per_unit',
+            sellPrice: parsed.sellPrice,
+            sellPriceType: parsed.sellPriceType || 'per_unit',
+            quantity: typeof parsed.quantity === 'number' && parsed.quantity > 0 ? parsed.quantity : 1,
+            unitName: parsed.unitName || 'পিস',
+          })
+        );
+      }
+
+      const dynFallback = finalPrompt
+        ? smartFallbackCalculate(finalPrompt)
+        : smartFallbackCalculate(cleanPrompt);
+
+      return res.json({
+        prompt: finalPrompt || cleanPrompt,
+        mainResult:
+          typeof parsed.mainResult === 'number'
+            ? round2(parsed.mainResult)
+            : dynFallback.mainResult,
+        mainResultLabel: parsed.mainResultLabel || dynFallback.mainResultLabel,
+        expression: parsed.expression || dynFallback.expression,
+        summaryBn: parsed.summaryBn || dynFallback.summaryBn,
+        stepsBn:
+          Array.isArray(parsed.stepsBn) && parsed.stepsBn.length > 0
+            ? parsed.stepsBn
+            : dynFallback.stepsBn,
+        metrics: dynFallback.metrics,
+      });
+    } catch (error) {
+      console.error('AI calculate error, using smart fallback:', error);
+      return res.json(
+        smartFallbackCalculate(cleanPrompt || '২৪০ টাকা ডজন কিনে ৩০ টাকা পিস বিক্রি')
+      );
     }
   });
 

@@ -25,6 +25,7 @@ import {
 import { money, dateLabel, type PartnerAccountBalance } from '../accounting';
 import type { Entry, Investor, Product, ApprovalRequest } from '../types';
 import TermsConditionsCard from './TermsConditionsCard';
+import VoiceFormAssistant from './VoiceFormAssistant';
 
 interface AdminProfileProps {
   adminUser: {
@@ -54,6 +55,7 @@ interface AdminProfileProps {
   onApproveRequest: (req: ApprovalRequest, note?: string) => Promise<void>;
   onRejectRequest: (req: ApprovalRequest, reason: string) => Promise<void>;
   onLogout?: () => void;
+  enableVoiceInput?: boolean;
 }
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
@@ -102,6 +104,7 @@ export default function AdminProfile({
   approvalRequests,
   onApproveRequest,
   onRejectRequest,
+  enableVoiceInput = true,
 }: AdminProfileProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -1640,6 +1643,36 @@ export default function AdminProfile({
                     </div>
                   </button>
                 </div>
+
+                {/* ✨ AI Voice & Smart Auto-Fill for Withdrawal / Loan */}
+                {enableVoiceInput !== false && (
+                  <VoiceFormAssistant
+                    formType="withdraw"
+                    title="✨ ভয়েসে উত্তোলন বা লোন ফর্ম পূরণ করুন"
+                    placeholder="মুখে বলুন: যেমন 'বিকাশে ২০০০ টাকা সাপ্তাহিক লাভাংশ উত্তোলন' বা 'জরুরি প্রয়োজনে নগদে ১৫০০ টাকা বিশেষ লোন'"
+                    chips={[
+                      { label: '💸 বিকাশে ২০০০৳ লাভ উত্তোলন', text: 'বিকাশে ২০০০ টাকা সাপ্তাহিক অর্জিত লাভাংশ উত্তোলন' },
+                      { label: '🏦 নগদে ১০০০৳ লাভ উত্তোলন', text: 'নগদ ক্যাশে ১০০০ টাকা লাভাংশ উত্তোলন' },
+                      { label: '⚡ জরুরি ১৫০০৳ বিশেষ লোন', text: 'জরুরি ব্যক্তিগত প্রয়োজনে নগদ ক্যাশে ১৫০০ টাকা বিশেষ লোন' },
+                    ]}
+                    investors={investors}
+                    onApplyFields={(fields) => {
+                      if (fields.mode === 'loan' || fields.mode === 'withdrawal') {
+                        setWithdrawMode(fields.mode);
+                      }
+                      if (fields.amount && Number(fields.amount) > 0) {
+                        setWithdrawAmount(String(fields.amount));
+                      }
+                      if (fields.method) {
+                        setWithdrawMethod(fields.method);
+                      }
+                      if (fields.reason) {
+                        setWithdrawReason(fields.reason);
+                      }
+                      setWithdrawError(null);
+                    }}
+                  />
+                )}
 
                 {/* Partner Capital (Locked) vs Withdrawable Profit Snapshot */}
                 <div className="modal-stat-grid-3">
