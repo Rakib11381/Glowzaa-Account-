@@ -45,14 +45,24 @@ interface ProductProfitabilityModalProps {
   onAddNewProduct?: () => void;
 }
 
-type FilterCategory = 'all' | 'high_margin' | 'stagnating' | 'low_margin' | 'out_of_stock';
+type FilterCategory =
+  | 'all'
+  | 'high_margin'
+  | 'stagnating'
+  | 'most_sold'
+  | 'least_sold'
+  | 'low_margin'
+  | 'out_of_stock';
 type SortOption =
   | 'margin_desc'
   | 'profit_desc'
   | 'revenue_desc'
+  | 'units_sold_desc'
+  | 'units_sold_asc'
   | 'stagnant_stock_desc'
   | 'velocity_asc';
 type PeriodPreset = 'all' | '30d' | '7d' | 'month';
+type DrilldownCategory = 'highest_profit' | 'stagnant_stock' | 'most_sold' | 'least_sold' | null;
 
 function getLocalIsoDate(d: Date): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
@@ -72,6 +82,9 @@ export default function ProductProfitabilityModal({
   const [sortBy, setSortBy] = useState<SortOption>('margin_desc');
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [drilldownCategory, setDrilldownCategory] = useState<DrilldownCategory>(null);
+  const [drilldownSearch, setDrilldownSearch] = useState<string>('');
+  const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
   const [showChart, setShowChart] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth > 768 : true
   );
@@ -98,11 +111,94 @@ export default function ProductProfitabilityModal({
     [products, periodFilteredEntries, todayIso]
   );
 
+  // Ranked lists for the 4 interactive buttons
+  const highestProfitList = useMemo(() => {
+    return [...report.items]
+      .filter((i) => i.grossProfit > 0 || i.effectiveMarginPercent > 0 || i.unitMarginAmount > 0)
+      .sort(
+        (a, b) =>
+          b.grossProfit - a.grossProfit ||
+          b.effectiveMarginPercent - a.effectiveMarginPercent ||
+          b.unitMarginAmount - a.unitMarginAmount
+      );
+  }, [report.items]);
+
+  const stagnantStockList = useMemo(() => {
+    return [...report.stagnatingItems].sort(
+      (a, b) => b.stockCostValue - a.stockCostValue || a.sellThroughRate - b.sellThroughRate
+    );
+  }, [report.stagnatingItems]);
+
+  const mostSoldList = useMemo(() => {
+    return [...report.items].sort(
+      (a, b) =>
+        b.unitsSold - a.unitsSold ||
+        b.salesRevenue - a.salesRevenue ||
+        b.salesCount - a.salesCount ||
+        b.grossProfit - a.grossProfit
+    );
+  }, [report.items]);
+
+  const leastSoldList = useMemo(() => {
+    return [...report.items].sort(
+      (a, b) =>
+        a.unitsSold - b.unitsSold ||
+        a.salesRevenue - b.salesRevenue ||
+        b.stockCostValue - a.stockCostValue ||
+        b.currentStock - a.currentStock
+    );
+  }, [report.items]);
+
+  const topProfitItem = highestProfitList[0] || report.highMarginItems[0] || null;
+  const topSoldItem = mostSoldList[0] || null;
+  const leastSoldItem = leastSoldList[0] || null;
+
+  const activeDrilldownItems = useMemo(() => {
+    let baseList: ProductProfitabilityItem[] = [];
+    if (drilldownCategory === 'highest_profit') baseList = highestProfitList;
+    else if (drilldownCategory === 'stagnant_stock') baseList = stagnantStockList;
+    else if (drilldownCategory === 'most_sold') baseList = mostSoldList;
+    else if (drilldownCategory === 'least_sold') baseList = leastSoldList;
+
+    const q = drilldownSearch.trim().toLowerCase();
+    if (!q) return baseList;
+    return baseList.filter(
+      (item) =>
+        item.product.name.toLowerCase().includes(q) ||
+        (item.product.sku || '').toLowerCase().includes(q)
+    );
+  }, [
+    drilldownCategory,
+    drilldownSearch,
+    highestProfitList,
+    stagnantStockList,
+    mostSoldList,
+    leastSoldList,
+  ]);
+
+  const handleOpenCategoryList = (category: Exclude<DrilldownCategory, null>) => {
+    setDrilldownSearch('');
+    setDrilldownCategory(category);
+    if (category === 'highest_profit') {
+      setActiveFilter('high_margin');
+      setSortBy('profit_desc');
+    } else if (category === 'stagnant_stock') {
+      setActiveFilter('stagnating');
+      setSortBy('stagnant_stock_desc');
+    } else if (category === 'most_sold') {
+      setActiveFilter('most_sold');
+      setSortBy('units_sold_desc');
+    } else if (category === 'least_sold') {
+      setActiveFilter('least_sold');
+      setSortBy('units_sold_asc');
+    }
+  };
+
   const filteredAndSortedItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
     const filtered = report.items.filter((item) => {
-      if (activeFilter === 'high_margin' && !item.isTopMargin && item.status !== 'high_margin') {
+      if (activeFilter === 'high_margin' && !item.isTopMargin && item.status !== 'high_margin' && item.grossProfit <= 0) {
         return false;
       }
       if (activeFilter === 'stagnating' && !item.isStagnating) {
@@ -134,6 +230,18 @@ export default function ProductProfitabilityModal({
           return b.grossProfit - a.grossProfit || b.effectiveMarginPercent - a.effectiveMarginPercent;
         case 'revenue_desc':
           return b.salesRevenue - a.salesRevenue || b.grossProfit - a.grossProfit;
+        case 'units_sold_desc':
+          return (
+            b.unitsSold - a.unitsSold ||
+            b.salesRevenue - a.salesRevenue ||
+            b.grossProfit - a.grossProfit
+          );
+        case 'units_sold_asc':
+          return (
+            a.unitsSold - b.unitsSold ||
+            a.salesRevenue - b.salesRevenue ||
+            b.stockCostValue - a.stockCostValue
+          );
         case 'stagnant_stock_desc':
           if (a.isStagnating !== b.isStagnating) return a.isStagnating ? -1 : 1;
           return b.stockCostValue - a.stockCostValue;
@@ -330,6 +438,65 @@ export default function ProductProfitabilityModal({
     );
   };
 
+  const renderProductThumbnail = (
+    product: Product,
+    size: number = 44,
+    interactive: boolean = true
+  ) => {
+    const borderRadius = size <= 30 ? '6px' : size <= 38 ? '8px' : '10px';
+    if (product.imageUrl) {
+      return (
+        <div
+          className="profit-product-thumb has-image"
+          style={{
+            width: `${size}px`,
+            height: `${size}px`,
+            borderRadius,
+            cursor: interactive ? 'zoom-in' : 'pointer',
+          }}
+          onClick={
+            interactive
+              ? (e) => {
+                  e.stopPropagation();
+                  setPreviewProduct(product);
+                }
+              : undefined
+          }
+          title={`${product.name} — বড় করে ছবি দেখতে ট্যাপ করুন`}
+        >
+          <img src={product.imageUrl} alt={product.name} loading="lazy" />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className="profit-product-thumb no-image"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius,
+          cursor: interactive && admin && onEditProduct ? 'pointer' : 'default',
+        }}
+        onClick={
+          interactive && admin && onEditProduct
+            ? (e) => {
+                e.stopPropagation();
+                onEditProduct(product);
+              }
+            : undefined
+        }
+        title={
+          interactive && admin && onEditProduct
+            ? `${product.name} — ছবি যোগ করতে ট্যাপ করুন`
+            : `${product.name} (ছবি যুক্ত নেই)`
+        }
+      >
+        <Package size={Math.max(13, Math.round(size * 0.42))} />
+      </div>
+    );
+  };
+
   return (
     <div
       className="modal-backdrop"
@@ -412,7 +579,7 @@ export default function ProductProfitabilityModal({
             </div>
           </div>
 
-          {/* 4-Column KPI Grid (2x2 on Mobile, Zero Clipping) */}
+          {/* 6-Card KPI & Interactive Product Filter Grid (2x3 on Mobile, 3x2 on Desktop) */}
           <div className="profit-kpi-grid">
             {/* KPI 1: Total Sales & COGS */}
             <div className="profit-kpi-card">
@@ -444,48 +611,66 @@ export default function ProductProfitabilityModal({
               </span>
             </div>
 
-            {/* KPI 3: Top Margin Product */}
-            <div className="profit-kpi-card tone-teal">
+            {/* INTERACTIVE BUTTON 1: সর্বোচ্চ লাভের পণ্য */}
+            <button
+              type="button"
+              className={`profit-kpi-card profit-kpi-btn tone-teal ${
+                drilldownCategory === 'highest_profit' ? 'active-card' : ''
+              }`}
+              onClick={() => handleOpenCategoryList('highest_profit')}
+            >
               <div className="profit-kpi-top">
                 <span className="profit-kpi-label">সর্বোচ্চ লাভের পণ্য</span>
+                <span
+                  className="profit-kpi-tag"
+                  style={{ background: '#ccfbf1', color: '#0f766e' }}
+                >
+                  {toBengaliNumerals(highestProfitList.length)}টি · দেখুন →
+                </span>
               </div>
-              {report.highMarginItems.length > 0 ? (
+              {topProfitItem ? (
                 <>
                   <strong
                     className="profit-kpi-val"
                     style={{ fontSize: '15px' }}
-                    title={report.highMarginItems[0].product.name}
+                    title={topProfitItem.product.name}
                   >
-                    {report.highMarginItems[0].product.name}
+                    {topProfitItem.product.name}
                   </strong>
                   <span className="profit-kpi-sub" style={{ color: '#0f766e', fontWeight: 700 }}>
-                    +{toBengaliNumerals(report.highMarginItems[0].effectiveMarginPercent)}% মার্জিন ·{' '}
+                    +{toBengaliNumerals(topProfitItem.effectiveMarginPercent)}% মার্জিন ·{' '}
                     {money(
-                      report.highMarginItems[0].salesCount > 0
-                        ? report.highMarginItems[0].grossProfit
-                        : report.highMarginItems[0].unitMarginAmount
+                      topProfitItem.salesCount > 0
+                        ? topProfitItem.grossProfit
+                        : topProfitItem.unitMarginAmount
                     )}
                   </span>
                 </>
               ) : (
                 <>
                   <strong className="profit-kpi-val" style={{ fontSize: '14px', color: '#64748b' }}>
-                    পর্যাপ্ত ডেটা নেই
+                    তালিকা দেখুন
                   </strong>
-                  <span className="profit-kpi-sub">বিক্রয় এন্ট্রি যোগ করুন</span>
+                  <span className="profit-kpi-sub">চাপ দিয়ে লাভের তালিকা দেখুন</span>
                 </>
               )}
-            </div>
+            </button>
 
-            {/* KPI 4: Stagnant Stock Capital */}
-            <div className={`profit-kpi-card ${report.stagnatingItems.length > 0 ? 'tone-amber' : ''}`}>
+            {/* INTERACTIVE BUTTON 2: অচল স্টকে মূলধন */}
+            <button
+              type="button"
+              className={`profit-kpi-card profit-kpi-btn tone-amber ${
+                drilldownCategory === 'stagnant_stock' ? 'active-card' : ''
+              }`}
+              onClick={() => handleOpenCategoryList('stagnant_stock')}
+            >
               <div className="profit-kpi-top">
                 <span className="profit-kpi-label">অচল স্টকে মূলধন</span>
                 <span
                   className="profit-kpi-tag"
                   style={{ background: '#fef3c7', color: '#b45309' }}
                 >
-                  {toBengaliNumerals(report.stagnatingItems.length)}টি
+                  {toBengaliNumerals(report.stagnatingItems.length)}টি · দেখুন →
                 </span>
               </div>
               <strong
@@ -494,11 +679,317 @@ export default function ProductProfitabilityModal({
               >
                 {money(report.totalStagnantStockValue)}
               </strong>
-              <span className="profit-kpi-sub" style={{ color: '#78350f' }}>
+              <span className="profit-kpi-sub" style={{ color: '#78350f', fontWeight: 600 }}>
                 মোট স্টক মূল্য: {money(report.totalActiveStockValue)}
               </span>
-            </div>
+            </button>
+
+            {/* INTERACTIVE BUTTON 3: সর্বোচ্চ বিক্রি হওয়া প্রডাক্ট */}
+            <button
+              type="button"
+              className={`profit-kpi-card profit-kpi-btn tone-sky ${
+                drilldownCategory === 'most_sold' ? 'active-card' : ''
+              }`}
+              onClick={() => handleOpenCategoryList('most_sold')}
+            >
+              <div className="profit-kpi-top">
+                <span className="profit-kpi-label">সর্বোচ্চ বিক্রি হওয়া প্রডাক্ট</span>
+                <span
+                  className="profit-kpi-tag"
+                  style={{ background: '#e0f2fe', color: '#0369a1' }}
+                >
+                  {toBengaliNumerals(mostSoldList.filter((i) => i.unitsSold > 0).length)}টি · দেখুন →
+                </span>
+              </div>
+              {topSoldItem ? (
+                <>
+                  <strong
+                    className="profit-kpi-val"
+                    style={{ fontSize: '15px', color: '#0369a1' }}
+                    title={topSoldItem.product.name}
+                  >
+                    {topSoldItem.product.name}
+                  </strong>
+                  <span className="profit-kpi-sub" style={{ color: '#075985', fontWeight: 700 }}>
+                    বিক্রি: {toBengaliNumerals(topSoldItem.unitsSold)} {topSoldItem.product.unit} ·{' '}
+                    {money(topSoldItem.salesRevenue)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong className="profit-kpi-val" style={{ fontSize: '14px', color: '#0369a1' }}>
+                    তালিকা দেখুন
+                  </strong>
+                  <span className="profit-kpi-sub" style={{ color: '#075985' }}>
+                    চাপ দিয়ে সর্বোচ্চ বিক্রির লিস্ট দেখুন
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* INTERACTIVE BUTTON 4: সর্বনিম্ন বিক্রি হওয়া প্রডাক্ট */}
+            <button
+              type="button"
+              className={`profit-kpi-card profit-kpi-btn tone-rose ${
+                drilldownCategory === 'least_sold' ? 'active-card' : ''
+              }`}
+              onClick={() => handleOpenCategoryList('least_sold')}
+            >
+              <div className="profit-kpi-top">
+                <span className="profit-kpi-label">সর্বনিম্ন বিক্রি হওয়া প্রডাক্ট</span>
+                <span
+                  className="profit-kpi-tag"
+                  style={{ background: '#ffe4e6', color: '#be123c' }}
+                >
+                  {toBengaliNumerals(leastSoldList.length)}টি · দেখুন →
+                </span>
+              </div>
+              {leastSoldItem ? (
+                <>
+                  <strong
+                    className="profit-kpi-val"
+                    style={{ fontSize: '15px', color: '#be123c' }}
+                    title={leastSoldItem.product.name}
+                  >
+                    {leastSoldItem.product.name}
+                  </strong>
+                  <span className="profit-kpi-sub" style={{ color: '#9f1239', fontWeight: 700 }}>
+                    বিক্রি: {toBengaliNumerals(leastSoldItem.unitsSold)} {leastSoldItem.product.unit} · মজুদ:{' '}
+                    {toBengaliNumerals(leastSoldItem.currentStock)} {leastSoldItem.product.unit}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong className="profit-kpi-val" style={{ fontSize: '14px', color: '#be123c' }}>
+                    তালিকা দেখুন
+                  </strong>
+                  <span className="profit-kpi-sub" style={{ color: '#9f1239' }}>
+                    চাপ দিয়ে সর্বনিম্ন বিক্রির লিস্ট দেখুন
+                  </span>
+                </>
+              )}
+            </button>
           </div>
+
+          {/* Dedicated Interactive Category Product List Panel / Popup when any of the 4 buttons is pressed */}
+          {drilldownCategory && (
+            <div className={`profit-drilldown-panel theme-${drilldownCategory}`}>
+              <div className="profit-drilldown-head">
+                <div className="profit-drilldown-title-wrap">
+                  <h3>
+                    {drilldownCategory === 'highest_profit' && 'সর্বোচ্চ লাভের প্রডাক্টের তালিকা'}
+                    {drilldownCategory === 'stagnant_stock' && 'অচল স্টকের প্রডাক্টের তালিকা'}
+                    {drilldownCategory === 'most_sold' && 'সর্বোচ্চ বিক্রি হওয়া প্রডাক্টের তালিকা'}
+                    {drilldownCategory === 'least_sold' && 'সর্বনিম্ন বিক্রি হওয়া প্রডাক্টের তালিকা'}
+                  </h3>
+                  <p>
+                    {drilldownCategory === 'highest_profit' &&
+                      `লাভ ও মার্জিনের ক্রমানুসারে শীর্ষ ${toBengaliNumerals(activeDrilldownItems.length)}টি প্রডাক্ট (ছবিসহ)`}
+                    {drilldownCategory === 'stagnant_stock' &&
+                      `বিক্রি না হওয়া বা ধীরগতির ${toBengaliNumerals(activeDrilldownItems.length)}টি প্রডাক্ট (আটকে থাকা মূলধন: ${money(report.totalStagnantStockValue)})`}
+                    {drilldownCategory === 'most_sold' &&
+                      `সর্বোচ্চ বিক্রিত একক ও রাজস্ব অনুযায়ী ${toBengaliNumerals(activeDrilldownItems.length)}টি প্রডাক্ট (ছবিসহ)`}
+                    {drilldownCategory === 'least_sold' &&
+                      `সবচেয়ে কম বিক্রি হওয়া ক্রমানুসারে ${toBengaliNumerals(activeDrilldownItems.length)}টি প্রডাক্ট (ছবিসহ)`}
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className="profit-drilldown-close-btn"
+                    onClick={() => setDrilldownCategory(null)}
+                  >
+                    <X size={14} /> বন্ধ করুন
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Category Switcher Pills inside the Drilldown */}
+              <div className="profit-drilldown-tabs">
+                <button
+                  type="button"
+                  className={`profit-drilldown-tab ${drilldownCategory === 'highest_profit' ? 'active' : ''}`}
+                  onClick={() => handleOpenCategoryList('highest_profit')}
+                >
+                  সর্বোচ্চ লাভের পণ্য ({toBengaliNumerals(highestProfitList.length)})
+                </button>
+                <button
+                  type="button"
+                  className={`profit-drilldown-tab ${drilldownCategory === 'stagnant_stock' ? 'active' : ''}`}
+                  onClick={() => handleOpenCategoryList('stagnant_stock')}
+                >
+                  অচল স্টক ({toBengaliNumerals(stagnantStockList.length)})
+                </button>
+                <button
+                  type="button"
+                  className={`profit-drilldown-tab ${drilldownCategory === 'most_sold' ? 'active' : ''}`}
+                  onClick={() => handleOpenCategoryList('most_sold')}
+                >
+                  সর্বোচ্চ বিক্রি ({toBengaliNumerals(mostSoldList.length)})
+                </button>
+                <button
+                  type="button"
+                  className={`profit-drilldown-tab ${drilldownCategory === 'least_sold' ? 'active' : ''}`}
+                  onClick={() => handleOpenCategoryList('least_sold')}
+                >
+                  সর্বনিম্ন বিক্রি ({toBengaliNumerals(leastSoldList.length)})
+                </button>
+              </div>
+
+              {/* Search inside Drilldown */}
+              <div className="profit-search-box" style={{ marginBottom: '2px' }}>
+                <Search
+                  size={14}
+                  style={{
+                    position: 'absolute',
+                    left: '11px',
+                    color: '#64748b',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  type="search"
+                  value={drilldownSearch}
+                  onChange={(e) => setDrilldownSearch(e.target.value)}
+                  placeholder="এই তালিকায় প্রডাক্টের নাম খুঁজুন…"
+                />
+              </div>
+
+              {activeDrilldownItems.length === 0 ? (
+                <div
+                  style={{
+                    padding: '18px 12px',
+                    textAlign: 'center',
+                    background: '#ffffff',
+                    borderRadius: '10px',
+                    border: '1px dashed #cbd5e1',
+                    color: '#64748b',
+                    fontSize: '12.5px',
+                  }}
+                >
+                  এই তালিকায় কোনো প্রডাক্ট পাওয়া যায়নি।
+                </div>
+              ) : (
+                <div className="profit-drilldown-list">
+                  {activeDrilldownItems.map((item, idx) => (
+                    <div key={item.product.id} className="profit-drilldown-item">
+                      <div className="profit-drilldown-item-left">
+                        <span className="profit-drilldown-rank">
+                          #{toBengaliNumerals(idx + 1)}
+                        </span>
+                        {renderProductThumbnail(item.product, 46)}
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <strong
+                              style={{
+                                fontSize: '13.5px',
+                                color: '#0f172a',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {item.product.name}
+                            </strong>
+                            {renderStatusBadge(item)}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '11.5px',
+                              color: '#475569',
+                              marginTop: '3px',
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            ক্রয়: <b>{money(item.product.averageCost)}</b> · বিক্রয়:{' '}
+                            <b>{money(item.product.sellingPrice)}</b> · মজুদ:{' '}
+                            <b>
+                              {toBengaliNumerals(item.currentStock)} {item.product.unit}
+                            </b>{' '}
+                            ({money(item.stockCostValue)})
+                          </div>
+                          {drilldownCategory === 'stagnant_stock' && item.stagnationReasonBn && (
+                            <div style={{ fontSize: '11px', color: '#b45309', marginTop: '2px', fontWeight: 600 }}>
+                              ⚠️ {item.stagnationReasonBn}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="profit-drilldown-item-right">
+                        {drilldownCategory === 'highest_profit' && (
+                          <>
+                            <strong style={{ fontSize: '13.5px', color: '#15803d', display: 'block' }}>
+                              লাভ: +{money(item.salesCount > 0 ? item.grossProfit : item.unitMarginAmount)}
+                            </strong>
+                            <span style={{ fontSize: '11px', color: '#0f766e', fontWeight: 700 }}>
+                              +{toBengaliNumerals(item.effectiveMarginPercent)}% মার্জিন · বিক্রি:{' '}
+                              {toBengaliNumerals(item.unitsSold)} {item.product.unit}
+                            </span>
+                          </>
+                        )}
+                        {drilldownCategory === 'stagnant_stock' && (
+                          <>
+                            <strong style={{ fontSize: '13.5px', color: '#b45309', display: 'block' }}>
+                              আটকে আছে: {money(item.stockCostValue)}
+                            </strong>
+                            <span style={{ fontSize: '11px', color: '#78350f', fontWeight: 600 }}>
+                              মজুদ: {toBengaliNumerals(item.currentStock)} {item.product.unit} · বিক্রি:{' '}
+                              {toBengaliNumerals(item.unitsSold)} {item.product.unit}
+                            </span>
+                          </>
+                        )}
+                        {drilldownCategory === 'most_sold' && (
+                          <>
+                            <strong style={{ fontSize: '13.5px', color: '#0369a1', display: 'block' }}>
+                              বিক্রি: {toBengaliNumerals(item.unitsSold)} {item.product.unit} (
+                              {toBengaliNumerals(item.salesCount)} বার)
+                            </strong>
+                            <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 700 }}>
+                              বিক্রয়: {money(item.salesRevenue)} · লাভ: +{money(item.grossProfit)}
+                            </span>
+                          </>
+                        )}
+                        {drilldownCategory === 'least_sold' && (
+                          <>
+                            <strong style={{ fontSize: '13.5px', color: '#be123c', display: 'block' }}>
+                              বিক্রি: {toBengaliNumerals(item.unitsSold)} {item.product.unit}
+                            </strong>
+                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                              বিক্রয়: {money(item.salesRevenue)} · মজুদ:{' '}
+                              {toBengaliNumerals(item.currentStock)} {item.product.unit}
+                            </span>
+                          </>
+                        )}
+
+                        {admin && onRecordSaleForProduct && (
+                          <button
+                            type="button"
+                            onClick={() => onRecordSaleForProduct(item.product)}
+                            style={{
+                              marginTop: '4px',
+                              padding: '3px 8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: '#0f766e',
+                              background: '#f0fdfa',
+                              border: '1px solid #99f6e4',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            + বিক্রয় এন্ট্রি
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Dual Spotlight Section: Top Margin vs Stagnating Stock */}
           <div className="profit-spotlight-grid">
@@ -511,10 +1002,7 @@ export default function ProductProfitabilityModal({
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveFilter('high_margin');
-                    setSortBy('margin_desc');
-                  }}
+                  onClick={() => handleOpenCategoryList('highest_profit')}
                   style={{
                     fontSize: '11px',
                     fontWeight: 700,
@@ -528,7 +1016,7 @@ export default function ProductProfitabilityModal({
                     flexShrink: 0,
                   }}
                 >
-                  সব দেখুন ({toBengaliNumerals(report.highMarginItems.length)})
+                  সব দেখুন ({toBengaliNumerals(highestProfitList.length)})
                 </button>
               </div>
 
@@ -549,47 +1037,50 @@ export default function ProductProfitabilityModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {report.highMarginItems.slice(0, 3).map((item, idx) => (
                     <div key={item.product.id} className="profit-spotlight-row emerald-row">
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                          <span
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                        {renderProductThumbnail(item.product, 38)}
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <span
+                              style={{
+                                fontSize: '10.5px',
+                                fontWeight: 800,
+                                color: '#15803d',
+                                background: '#dcfce7',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                fontVariantNumeric: 'tabular-nums',
+                                flexShrink: 0,
+                              }}
+                            >
+                              #{toBengaliNumerals(idx + 1)}
+                            </span>
+                            <strong
+                              style={{
+                                fontSize: '13px',
+                                color: '#0f172a',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {item.product.name}
+                            </strong>
+                          </div>
+                          <div
                             style={{
-                              fontSize: '10.5px',
-                              fontWeight: 800,
-                              color: '#15803d',
-                              background: '#dcfce7',
-                              padding: '1px 5px',
-                              borderRadius: '4px',
+                              fontSize: '11px',
+                              color: '#475569',
+                              marginTop: '2px',
                               fontVariantNumeric: 'tabular-nums',
-                              flexShrink: 0,
-                            }}
-                          >
-                            #{idx + 1}
-                          </span>
-                          <strong
-                            style={{
-                              fontSize: '13px',
-                              color: '#0f172a',
                               whiteSpace: 'nowrap',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                             }}
                           >
-                            {item.product.name}
-                          </strong>
-                        </div>
-                        <div
-                          style={{
-                            fontSize: '11px',
-                            color: '#475569',
-                            marginTop: '2px',
-                            fontVariantNumeric: 'tabular-nums',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          ক্রয়: {money(item.product.averageCost)} · বিক্রয়: {money(item.product.sellingPrice)} · বিক্রি:{' '}
-                          {toBengaliNumerals(item.unitsSold)} {item.product.unit}
+                            ক্রয়: {money(item.product.averageCost)} · বিক্রয়: {money(item.product.sellingPrice)} · বিক্রি:{' '}
+                            {toBengaliNumerals(item.unitsSold)} {item.product.unit}
+                          </div>
                         </div>
                       </div>
 
@@ -618,10 +1109,7 @@ export default function ProductProfitabilityModal({
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveFilter('stagnating');
-                    setSortBy('stagnant_stock_desc');
-                  }}
+                  onClick={() => handleOpenCategoryList('stagnant_stock')}
                   style={{
                     fontSize: '11px',
                     fontWeight: 700,
@@ -657,46 +1145,49 @@ export default function ProductProfitabilityModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {report.stagnatingItems.slice(0, 3).map((item) => (
                     <div key={item.product.id} className="profit-spotlight-row amber-row">
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                          <strong
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                        {renderProductThumbnail(item.product, 38)}
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <strong
+                              style={{
+                                fontSize: '13px',
+                                color: '#0f172a',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {item.product.name}
+                            </strong>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                color: '#92400e',
+                                background: '#fef3c7',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                fontVariantNumeric: 'tabular-nums',
+                                whiteSpace: 'nowrap',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {toBengaliNumerals(item.currentStock)} {item.product.unit}
+                            </span>
+                          </div>
+                          <div
                             style={{
-                              fontSize: '13px',
-                              color: '#0f172a',
+                              fontSize: '11px',
+                              color: '#92400e',
+                              marginTop: '2px',
                               whiteSpace: 'nowrap',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                             }}
                           >
-                            {item.product.name}
-                          </strong>
-                          <span
-                            style={{
-                              fontSize: '10px',
-                              fontWeight: 700,
-                              color: '#92400e',
-                              background: '#fef3c7',
-                              padding: '1px 5px',
-                              borderRadius: '4px',
-                              fontVariantNumeric: 'tabular-nums',
-                              whiteSpace: 'nowrap',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {toBengaliNumerals(item.currentStock)} {item.product.unit}
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            fontSize: '11px',
-                            color: '#92400e',
-                            marginTop: '2px',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {item.stagnationReasonBn}
+                            {item.stagnationReasonBn}
+                          </div>
                         </div>
                       </div>
 
@@ -897,11 +1388,19 @@ export default function ProductProfitabilityModal({
                   { key: 'all', label: `সব পণ্য (${toBengaliNumerals(report.items.length)})` },
                   {
                     key: 'high_margin',
-                    label: `সর্বোচ্চ মার্জিন (${toBengaliNumerals(report.highMarginItems.length)})`,
+                    label: `সর্বোচ্চ লাভের পণ্য (${toBengaliNumerals(highestProfitList.length)})`,
                   },
                   {
                     key: 'stagnating',
                     label: `অচল স্টক (${toBengaliNumerals(report.stagnatingItems.length)})`,
+                  },
+                  {
+                    key: 'most_sold',
+                    label: `সর্বোচ্চ বিক্রি (${toBengaliNumerals(mostSoldList.length)})`,
+                  },
+                  {
+                    key: 'least_sold',
+                    label: `সর্বনিম্ন বিক্রি (${toBengaliNumerals(leastSoldList.length)})`,
                   },
                   {
                     key: 'low_margin',
@@ -921,7 +1420,13 @@ export default function ProductProfitabilityModal({
                   key={tabItem.key}
                   type="button"
                   className={`profit-filter-tab ${activeFilter === tabItem.key ? 'active' : ''}`}
-                  onClick={() => setActiveFilter(tabItem.key)}
+                  onClick={() => {
+                    setActiveFilter(tabItem.key);
+                    if (tabItem.key === 'high_margin') setSortBy('profit_desc');
+                    else if (tabItem.key === 'stagnating') setSortBy('stagnant_stock_desc');
+                    else if (tabItem.key === 'most_sold') setSortBy('units_sold_desc');
+                    else if (tabItem.key === 'least_sold') setSortBy('units_sold_asc');
+                  }}
                 >
                   {tabItem.label}
                 </button>
@@ -955,8 +1460,10 @@ export default function ProductProfitabilityModal({
               >
                 <option value="margin_desc">সাজান: সর্বোচ্চ মার্জিন (%)</option>
                 <option value="profit_desc">সাজান: সর্বোচ্চ মুনাফা (৳)</option>
-                <option value="revenue_desc">সাজান: সর্বোচ্চ বিক্রয় (৳)</option>
-                <option value="stagnant_stock_desc">সাজান: আটকে থাকা স্টক</option>
+                <option value="units_sold_desc">সাজান: সর্বোচ্চ বিক্রি হওয়া প্রডাক্ট</option>
+                <option value="units_sold_asc">সাজান: সর্বনিম্ন বিক্রি হওয়া প্রডাক্ট</option>
+                <option value="revenue_desc">সাজান: সর্বোচ্চ বিক্রয় রাজস্ব (৳)</option>
+                <option value="stagnant_stock_desc">সাজান: আটকে থাকা অচল স্টক</option>
                 <option value="velocity_asc">সাজান: ধীরগতির পণ্য আগে</option>
               </select>
             </div>
@@ -1031,38 +1538,8 @@ export default function ProductProfitabilityModal({
                     >
                       {/* Top Row: Thumbnail + Name + Badge */}
                       <div className="profit-mobile-item-head">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                          {item.product.imageUrl ? (
-                            <img
-                              src={item.product.imageUrl}
-                              alt={item.product.name}
-                              style={{
-                                width: '34px',
-                                height: '34px',
-                                borderRadius: '7px',
-                                objectFit: 'cover',
-                                border: '1px solid #cbd5e1',
-                                flexShrink: 0,
-                              }}
-                            />
-                          ) : (
-                            <div
-                              style={{
-                                width: '34px',
-                                height: '34px',
-                                borderRadius: '7px',
-                                background: '#f1f5f9',
-                                border: '1px solid #e2e8f0',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: '#94a3b8',
-                                flexShrink: 0,
-                              }}
-                            >
-                              <Package size={16} />
-                            </div>
-                          )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, flex: 1 }}>
+                          {renderProductThumbnail(item.product, 42)}
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <strong
                               style={{
@@ -1235,37 +1712,7 @@ export default function ProductProfitabilityModal({
                         >
                           <td style={{ minWidth: '180px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                              {item.product.imageUrl ? (
-                                <img
-                                  src={item.product.imageUrl}
-                                  alt={item.product.name}
-                                  style={{
-                                    width: '36px',
-                                    height: '36px',
-                                    borderRadius: '8px',
-                                    objectFit: 'cover',
-                                    border: '1px solid #cbd5e1',
-                                    flexShrink: 0,
-                                  }}
-                                />
-                              ) : (
-                                <div
-                                  style={{
-                                    width: '36px',
-                                    height: '36px',
-                                    borderRadius: '8px',
-                                    background: '#f1f5f9',
-                                    border: '1px solid #e2e8f0',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#94a3b8',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  <Package size={17} />
-                                </div>
-                              )}
+                              {renderProductThumbnail(item.product, 40)}
                               <div>
                                 <strong style={{ display: 'block', fontSize: '13px', color: '#0f172a' }}>
                                   {item.product.name}
@@ -1537,6 +1984,40 @@ export default function ProductProfitabilityModal({
             </div>
           )}
         </div>
+
+        {/* Full-Size Product Photo Preview Lightbox */}
+        {previewProduct && previewProduct.imageUrl && (
+          <div
+            className="profit-image-preview-backdrop"
+            onClick={() => setPreviewProduct(null)}
+          >
+            <div
+              className="profit-image-preview-card"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="profit-image-preview-head">
+                <div>
+                  <strong>{previewProduct.name}</strong>
+                  <span>
+                    ক্রয়: {money(previewProduct.averageCost)} · বিক্রয়:{' '}
+                    {money(previewProduct.sellingPrice)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  onClick={() => setPreviewProduct(null)}
+                  aria-label="বন্ধ করুন"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="profit-image-preview-body">
+                <img src={previewProduct.imageUrl} alt={previewProduct.name} />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
