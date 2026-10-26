@@ -7152,6 +7152,96 @@ td b {
   }
 }
 
+/* Camera Auto-Sale Scanner Verification & Green Border Flash Animations */
+@keyframes camModalGreenBorderFlash {
+  0% {
+    border-color: #22c55e;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.75), 0 0 38px rgba(16, 185, 129, 0.85), 0 24px 60px rgba(0, 0, 0, 0.55);
+  }
+  45% {
+    border-color: #4ade80;
+    box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.45), 0 0 48px rgba(34, 197, 94, 0.9), 0 24px 60px rgba(0, 0, 0, 0.55);
+  }
+  100% {
+    border-color: rgba(20, 184, 166, 0.65);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  }
+}
+
+@keyframes camViewportGreenFlash {
+  0% {
+    opacity: 1;
+    border-color: #4ade80;
+    box-shadow: inset 0 0 36px rgba(34, 197, 94, 0.85), 0 0 24px rgba(34, 197, 94, 0.8);
+  }
+  50% {
+    opacity: 1;
+    border-color: #22c55e;
+    box-shadow: inset 0 0 22px rgba(34, 197, 94, 0.55), 0 0 16px rgba(34, 197, 94, 0.5);
+  }
+  100% {
+    opacity: 0;
+    border-color: rgba(34, 197, 94, 0);
+    box-shadow: inset 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes camSuccessCardPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.78) translateY(8px);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.04) translateY(0);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes camCheckRippleRing {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.85);
+    opacity: 0;
+  }
+}
+
+.cam-pos-modal.cam-scan-success-glow {
+  animation: camModalGreenBorderFlash 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.cam-viewport-green-flash-ring {
+  position: absolute;
+  inset: 0;
+  border: 4px solid #22c55e;
+  pointer-events: none;
+  z-index: 6;
+  animation: camViewportGreenFlash 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.cam-success-verify-card {
+  animation: camSuccessCardPop 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.cam-success-check-ripple {
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 2.5px solid #4ade80;
+  animation: camCheckRippleRing 0.95s ease-out infinite;
+  pointer-events: none;
+}
+
 @media print {
   .sidebar, .topbar, .top-actions, .icon-btn, .primary, .secondary, .danger, .filter-bar, .mobile-menu-btn, .mobile-tab-strip, .mobile-bottom-nav, .dash-filter-card, .action-loading-overlay, .brand-popup-backdrop, .welcome-calc-slot, .calc-modal-backdrop {
     display: none !important;

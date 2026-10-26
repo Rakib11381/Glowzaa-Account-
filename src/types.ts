@@ -88,6 +88,8 @@ export interface BusinessSettings {
   brandPopupText?: string;
   showCalculator?: boolean;
   enableVoiceInput?: boolean;
+  enableCameraScan?: boolean;
+  enableDrawingPad?: boolean;
   rakibEmail?: string;
   limonEmail?: string;
   highValueWithdrawalThreshold?: number;

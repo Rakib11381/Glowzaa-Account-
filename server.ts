@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, MediaResolution, ThinkingLevel, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1774,6 +1774,504 @@ INSTRUCTIONS FOR CALCULATION:
         ok: false,
         error: error?.message || 'ইমেইল ট্রিগার প্রসেস করতে সমস্যা হয়েছে',
       });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // STRICT MASTER SKU WHITELIST: ONLY A..Z and AA..GZ (208 allowed codes)
+  // Both handwritten and printed codes must be in this exact whitelist and
+  // 100% equal to a product's SKU in the website catalog.
+  // ---------------------------------------------------------------------------
+  const LETTERS_A_Z = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const PREFIXES_A_G = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+  const ALLOWED_SKU_CODES: string[] = [
+    ...LETTERS_A_Z,
+    ...PREFIXES_A_G.flatMap((prefix) => LETTERS_A_Z.map((ch) => `${prefix}${ch}`)),
+  ];
+  const ALLOWED_SKU_SET = new Set<string>(ALLOWED_SKU_CODES);
+
+  function stripSkuPrefixes(val: string): string {
+    return bnToEnDigits(String(val || ''))
+      .trim()
+      .toUpperCase()
+      .replace(/^(SKU|CODE|ITEM|ID|NO|কোড|নাম্বার|নং)\s*[:#\-=.]*\s*/i, '');
+  }
+
+  function toStrictAllowedSku(val: string): string {
+    const cleaned = stripSkuPrefixes(val).replace(/[\s\-_.:#/\\,;|()[\]{}"'`~]+/g, '');
+    return ALLOWED_SKU_SET.has(cleaned) ? cleaned : '';
+  }
+
+  function getServerEffectiveProductSku(p: any, idx: number): string {
+    const raw = String(p?.sku || p?.effectiveSku || '').trim();
+    const strict = toStrictAllowedSku(raw);
+    if (strict) return strict;
+    return ALLOWED_SKU_CODES[idx % ALLOWED_SKU_CODES.length] || 'A';
+  }
+
+  function normalizeConfidenceScore(raw: any): number {
+    const n = Number(raw) || 0;
+    if (n > 0 && n <= 1) return Math.round(n * 100);
+    return Math.min(100, Math.round(n));
+  }
+
+  // Singleton Gemini client for connection reuse (eliminates TLS handshake overhead per scan)
+  let sharedVisionAiClient: GoogleGenAI | null = null;
+  let sharedVisionApiKey = '';
+  function getSharedVisionAi(apiKey: string): GoogleGenAI {
+    if (!sharedVisionAiClient || sharedVisionApiKey !== apiKey) {
+      sharedVisionAiClient = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+      sharedVisionApiKey = apiKey;
+    }
+    return sharedVisionAiClient;
+  }
+
+  // Track temporarily rate-limited models and average latency so the fastest model is always used first
+  const visionModelCooldownUntil = new Map<string, number>();
+  const visionModelAvgMs = new Map<string, number>([
+    ['gemini-flash-lite-latest', 950],
+    ['gemini-3.1-flash-lite', 1100],
+    ['gemini-3.1-flash-lite-preview', 1250],
+  ]);
+  const VISION_MODEL_CASCADE = [
+    'gemini-flash-lite-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+  ];
+
+  // Short-lived cache ONLY for positive SKU detections (never cache empty/no-match frames!)
+  const recentVisionFrameCache = new Map<
+    string,
+    { expiresAt: number; codes: string[] }
+  >();
+
+  // 1-Token Plain-Text OCR call with MINIMAL thinking and LOW media resolution
+  async function callSingleFastTextOcr(
+    ai: GoogleGenAI,
+    modelName: string,
+    contents: any,
+    timeoutMs = 3800
+  ): Promise<string[]> {
+    const startMs = Date.now();
+    const configObj: any = {
+      temperature: 0.0,
+      maxOutputTokens: 6,
+      thinkingConfig: {
+        thinkingLevel: ThinkingLevel.MINIMAL,
+      },
+      mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW,
+    };
+
+    try {
+      const res: any = await Promise.race([
+        ai.models.generateContent({
+          model: modelName,
+          contents,
+          config: configObj,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('MODEL_TIMEOUT')), timeoutMs)
+        ),
+      ]);
+
+      const elapsed = Date.now() - startMs;
+      const prevAvg = visionModelAvgMs.get(modelName) || 950;
+      visionModelAvgMs.set(modelName, Math.round(prevAvg * 0.65 + elapsed * 0.35));
+
+      const rawText = String(res?.text || '')
+        .replace(/[`"'{}\[\]]/g, ' ')
+        .trim()
+        .toUpperCase();
+
+      if (!rawText || rawText === '-' || rawText === 'NONE' || rawText === 'NULL') {
+        return [];
+      }
+
+      const tokens = rawText.split(/[\s,;:|/\\]+/).filter(Boolean);
+      const validCodes: string[] = [];
+      for (const tok of tokens) {
+        if (tok === 'NONE' || tok === 'NULL' || tok === 'SKU' || tok === 'CODE') continue;
+        const strict = toStrictAllowedSku(tok);
+        if (strict && !validCodes.includes(strict)) {
+          validCodes.push(strict);
+        }
+      }
+      return validCodes;
+    } catch (err: any) {
+      const status = Number(err?.status) || 0;
+      const msg = String(err?.message || '');
+      if (status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+        // Short 6-second cooldown so models recover immediately instead of locking out for 5 minutes!
+        visionModelCooldownUntil.set(modelName, Date.now() + 6000);
+      } else if (status === 404 || msg.includes('404') || msg.includes('not found')) {
+        visionModelCooldownUntil.set(modelName, Date.now() + 60 * 60 * 1000);
+      } else if (msg === 'MODEL_TIMEOUT') {
+        visionModelAvgMs.set(modelName, (visionModelAvgMs.get(modelName) || 1200) + 400);
+      }
+      throw err;
+    }
+  }
+
+  let activeOcrPromise: Promise<string[]> | null = null;
+
+  async function generateFastSkuOcrCascade(
+    ai: GoogleGenAI,
+    contents: any,
+    cacheKey?: string,
+    isInteractivePad = false
+  ): Promise<string[]> {
+    if (cacheKey) {
+      const cached = recentVisionFrameCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.codes;
+      }
+    }
+
+    const now = Date.now();
+    const availableModels = VISION_MODEL_CASCADE.filter(
+      (m) => (visionModelCooldownUntil.get(m) || 0) <= now
+    ).sort((a, b) => (visionModelAvgMs.get(a) || 950) - (visionModelAvgMs.get(b) || 950));
+
+    const modelsToTry =
+      availableModels.length > 0 ? availableModels : VISION_MODEL_CASCADE;
+
+    // For Drawing Pad (single user-triggered event, not a loop), hedge the top 2 models with a 350ms stagger for instant response!
+    if (isInteractivePad && modelsToTry.length >= 2) {
+      try {
+        const primaryModel = modelsToTry[0];
+        const secondaryModel = modelsToTry[1];
+        let primaryDone = false;
+
+        const p1 = callSingleFastTextOcr(ai, primaryModel, contents, 3500).then((res) => {
+          primaryDone = true;
+          return res;
+        });
+
+        const p2 = new Promise<string[]>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            if (primaryDone) return;
+            callSingleFastTextOcr(ai, secondaryModel, contents, 3500)
+              .then(resolve)
+              .catch(reject);
+          }, 350);
+          p1.then(() => clearTimeout(timer)).catch(() => {});
+        });
+
+        const winner = await Promise.any([p1, p2]);
+        if (cacheKey && winner.length > 0) {
+          recentVisionFrameCache.set(cacheKey, {
+            expiresAt: Date.now() + 1200,
+            codes: winner,
+          });
+        }
+        return winner;
+      } catch {
+        // Fallback to sequential below if both hedged calls fail
+      }
+    }
+
+    // Serialize background camera calls so we never trigger Gemini per-key parallel throttling
+    if (!isInteractivePad && activeOcrPromise) {
+      try {
+        await activeOcrPromise;
+      } catch {}
+    }
+
+    const runSequential = async (): Promise<string[]> => {
+      for (const modelName of modelsToTry) {
+        try {
+          const detectedCodes = await callSingleFastTextOcr(ai, modelName, contents, 3800);
+          if (cacheKey && detectedCodes.length > 0) {
+            recentVisionFrameCache.set(cacheKey, {
+              expiresAt: Date.now() + 1200,
+              codes: detectedCodes,
+            });
+            if (recentVisionFrameCache.size > 40) {
+              const oldestKey = recentVisionFrameCache.keys().next().value;
+              if (oldestKey) recentVisionFrameCache.delete(oldestKey);
+            }
+          }
+          return detectedCodes;
+        } catch {
+          // Try next fallback model only if an HTTP/rate-limit/timeout error occurred
+        }
+      }
+      return [];
+    };
+
+    const p = runSequential();
+    if (!isInteractivePad) {
+      activeOcrPromise = p;
+    }
+    try {
+      return await p;
+    } finally {
+      if (activeOcrPromise === p) {
+        activeOcrPromise = null;
+      }
+    }
+  }
+
+  function matchProductBySkuFromTexts(
+    candidates: string[],
+    catalog: any[]
+  ): { product: any; matchedSku: string } | null {
+    const validCandidates: string[] = [];
+    for (const raw of candidates) {
+      const strictCode = toStrictAllowedSku(raw);
+      if (strictCode && !validCandidates.includes(strictCode)) {
+        validCandidates.push(strictCode);
+      }
+    }
+    if (validCandidates.length === 0) return null;
+
+    const catalogWithSku = catalog.map((p: any, idx: number) => {
+      const effectiveSku = getServerEffectiveProductSku(p, idx);
+      return {
+        product: p,
+        effectiveSku,
+      };
+    });
+
+    // 100% STRICT EXACT MATCH ONLY:
+    // Candidate must be in ALLOWED_SKU_SET (A..Z, AA..GZ) AND 100% equal to item.effectiveSku.
+    for (const code of validCandidates) {
+      for (const item of catalogWithSku) {
+        if (code === item.effectiveSku) {
+          return { product: item.product, matchedSku: item.effectiveSku };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // Warmup endpoint: initializes client and sends a tiny background ping so HTTP/2 TLS socket is warm
+  let lastWarmupMs = 0;
+  app.post('/api/ai/camera-warmup', (_req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey && Date.now() - lastWarmupMs > 45000) {
+      lastWarmupMs = Date.now();
+      const ai = getSharedVisionAi(apiKey);
+      // Non-blocking background TLS warmup & model latency probe
+      const available = VISION_MODEL_CASCADE.filter(
+        (m) => (visionModelCooldownUntil.get(m) || 0) <= Date.now()
+      );
+      const modelToWarm = available[0] || 'gemini-flash-lite-latest';
+      ai.models
+        .generateContent({
+          model: modelToWarm,
+          contents: 'Reply -',
+          config: { temperature: 0 },
+        })
+        .catch(() => {});
+    }
+    res.json({ ok: true });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /api/ai/camera-match-product
+  // Ultra-fast Strict Whitelist (A-Z, AA-GZ) Handwritten & Printed SKU Scanner
+  // + Drawing Pad Handwriting Auto-Sale Recognizer
+  // ---------------------------------------------------------------------------
+  app.post('/api/ai/camera-match-product', async (req, res) => {
+    const {
+      frameDataUrl = '',
+      stickerCropDataUrl = '',
+      products = [],
+      scannedCodeText = '',
+      isDrawingPad = false,
+    } = req.body || {};
+
+    const catalog = Array.isArray(products) ? products.slice(0, 210) : [];
+    if (catalog.length === 0) {
+      return res.json({
+        ok: false,
+        matched: false,
+        matchedProductId: '',
+        detectedSkuCode: '',
+        allVisibleCodes: [],
+        quantity: 1,
+        confidence: 0,
+        reasonBn: 'স্টকে কোনো পণ্য নেই। আগে স্টক/পণ্যে পণ্য যোগ করুন।',
+      });
+    }
+
+    // Immediate deterministic check if client already passed a scanned barcode/QR/typed SKU
+    if (scannedCodeText && String(scannedCodeText).trim()) {
+      const strictScanned = toStrictAllowedSku(String(scannedCodeText));
+      if (!strictScanned) {
+        return res.json({
+          ok: true,
+          matched: false,
+          matchedProductId: '',
+          detectedSkuCode: String(scannedCodeText).trim().toUpperCase(),
+          allVisibleCodes: [],
+          quantity: 1,
+          confidence: 0,
+          reasonBn: `❌ "${String(scannedCodeText).trim()}" অনুমোদিত SKU কোড (A-Z, AA-GZ)-এর বাহিরে!`,
+        });
+      }
+      const directHit = matchProductBySkuFromTexts([strictScanned], catalog);
+      if (directHit) {
+        return res.json({
+          ok: true,
+          matched: true,
+          matchedProductId: directHit.product.id,
+          productName: directHit.product.name,
+          detectedSkuCode: directHit.matchedSku,
+          allVisibleCodes: [directHit.matchedSku],
+          matchType: 'sku_code',
+          quantity: 1,
+          confidence: 100,
+          reasonBn: `✅ SKU কোড "${directHit.matchedSku}" ১০০% ম্যাচ হয়েছে: "${directHit.product.name}"`,
+        });
+      }
+    }
+
+    const noMatchResponse = (
+      reason = isDrawingPad
+        ? '✍️ ড্রইং প্যাডে স্পষ্টভাবে A–Z অথবা AA–GZ কোড লিখুন'
+        : '🎯 প্রডাক্টের গায়ের SKU কোড (A-Z / AA-GZ) ক্যামেরার বক্সের ভেতরে স্পষ্টভাবে ধরুন',
+      detectedSkuCode = '',
+      allVisibleCodes: string[] = []
+    ) => ({
+      ok: true,
+      matched: false,
+      matchedProductId: '',
+      detectedSkuCode,
+      allVisibleCodes,
+      quantity: 1,
+      confidence: 0,
+      reasonBn: reason,
+    });
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || !frameDataUrl || !String(frameDataUrl).startsWith('data:image/')) {
+      return res.json(noMatchResponse('ক্যামেরা বা ড্রইং ফ্রেম যাচাই করা যায়নি, আবার চেষ্টা করুন'));
+    }
+
+    try {
+      const ai = getSharedVisionAi(apiKey);
+
+      const frameMatch = String(frameDataUrl).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (!frameMatch) {
+        return res.json(noMatchResponse());
+      }
+
+      const catalogSkuList = catalog.map((p: any, idx: number) => ({
+        id: p.id,
+        name: p.name,
+        sku: getServerEffectiveProductSku(p, idx),
+      }));
+
+      const b64Data = frameMatch[2];
+      const frameCacheKey = `${isDrawingPad ? 'pad_v1' : 'ocr_v4'}:${b64Data.length}:${b64Data.slice(
+        Math.floor(b64Data.length * 0.35),
+        Math.floor(b64Data.length * 0.35) + 72
+      )}:${b64Data.slice(
+        Math.floor(b64Data.length * 0.65),
+        Math.floor(b64Data.length * 0.65) + 72
+      )}`;
+
+      // UNBIASED ULTRA-FAST 1-TOKEN BLIND OCR (A..Z, AA..GZ)
+      const ocrParts: any[] = [
+        {
+          inlineData: {
+            mimeType: frameMatch[1],
+            data: frameMatch[2],
+          },
+        },
+      ];
+
+      const stickerMatch =
+        stickerCropDataUrl && typeof stickerCropDataUrl === 'string'
+          ? stickerCropDataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
+          : null;
+      if (stickerMatch) {
+        ocrParts.push({
+          inlineData: {
+            mimeType: stickerMatch[1],
+            data: stickerMatch[2],
+          },
+        });
+      }
+
+      ocrParts.push({
+        text: isDrawingPad
+          ? `Handwriting OCR on white drawing pad: Read the 1-letter (A-Z) or 2-letter (AA-GZ) SKU code drawn in dark ink (convert lowercase to uppercase, join 2 letters without space like AB). Output ONLY the uppercase code, or - if unreadable.`
+          : `OCR: Output ONLY the exact 1-letter (A-Z) or 2-letter (AA-GZ) uppercase SKU code written or printed on the sticker/label, or - if none. Never guess A. Ignore STAINLESS STEEL/QUARTZ.`,
+      });
+
+      const validDetectedCodes = await generateFastSkuOcrCascade(
+        ai,
+        { parts: ocrParts },
+        frameCacheKey,
+        Boolean(isDrawingPad)
+      );
+      const rawPrimary = validDetectedCodes[0] || '';
+
+      // Deterministic 100% exact match against website catalog
+      if (validDetectedCodes.length > 0) {
+        const verifiedSkuHit = matchProductBySkuFromTexts(validDetectedCodes, catalog);
+        if (verifiedSkuHit) {
+          return res.json({
+            ok: true,
+            matched: true,
+            matchedProductId: verifiedSkuHit.product.id,
+            productName: verifiedSkuHit.product.name,
+            detectedSkuCode: verifiedSkuHit.matchedSku,
+            allVisibleCodes: validDetectedCodes,
+            matchType: 'sku_code',
+            quantity: 1,
+            confidence: 100,
+            reasonBn: isDrawingPad
+              ? `✅ ড্রইং প্যাডে "${verifiedSkuHit.matchedSku}" ১০০% ম্যাচ: "${verifiedSkuHit.product.name}"`
+              : `✅ SKU কোড "${verifiedSkuHit.matchedSku}" ১০০% ম্যাচ: "${verifiedSkuHit.product.name}"`,
+          });
+        }
+
+        const seenValidCode = validDetectedCodes[0];
+        return res.json(
+          noMatchResponse(
+            `❌ ${isDrawingPad ? 'ড্রইং প্যাডে' : 'ক্যামেরায়'} SKU কোড "${seenValidCode}" শনাক্ত হয়েছে, কিন্তু আপনার স্টকে "${seenValidCode}" কোডের কোনো প্রডাক্ট নেই (স্টকে আছে: ${catalogSkuList
+              .slice(0, 6)
+              .map((c) => c.sku)
+              .join(', ')})`,
+            seenValidCode,
+            validDetectedCodes
+          )
+        );
+      }
+
+      if (rawPrimary) {
+        return res.json(
+          noMatchResponse(
+            `❌ "${rawPrimary}" দেখা গেছে, যা অনুমোদিত SKU কোড (A-Z, AA-GZ)-এর ভেতরে নয়`,
+            rawPrimary,
+            []
+          )
+        );
+      }
+
+      return res.json(
+        noMatchResponse(
+          isDrawingPad
+            ? '✍️ ড্রইং প্যাডে বড় ও স্পষ্ট অক্ষরে A–Z বা AA–GZ লিখুন'
+            : '🎯 প্রডাক্টের গায়ের SKU কোড (A-Z বা AA-GZ) ক্যামেরার বক্সের ভেতরে স্পষ্টভাবে ধরুন'
+        )
+      );
+    } catch {
+      return res.json(
+        noMatchResponse(
+          isDrawingPad
+            ? '✍️ ড্রইং প্যাডে আবার লিখুন (A–Z বা AA–GZ)...'
+            : '🎯 প্রডাক্টের গায়ের SKU কোড (A-Z বা AA-GZ) ক্যামেরার সামনে ধরুন...'
+        )
+      );
     }
   });
 

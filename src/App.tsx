@@ -32,6 +32,7 @@ import {
   Menu,
   Mic,
   Package,
+  PenTool,
   Percent,
   PieChart,
   PlayCircle,
@@ -106,6 +107,12 @@ import BusinessCalculatorModal, {
   type PersistedCalcState,
 } from './components/BusinessCalculatorModal';
 import VoiceFormAssistant from './components/VoiceFormAssistant';
+import CameraAutoSaleModal, {
+  ALLOWED_SKU_CODES,
+  ALLOWED_SKU_SET,
+  toStrictAllowedSkuClient,
+} from './components/CameraAutoSaleModal';
+import ScannerSoundSettingsCard from './components/ScannerSoundSettingsCard';
 import {
   money,
   moneyBn,
@@ -200,6 +207,8 @@ const blankSettings: BusinessSettings = {
   brandPopupText: 'Glowzaa এটা ব্রান্ড',
   showCalculator: true,
   enableVoiceInput: true,
+  enableCameraScan: true,
+  enableDrawingPad: true,
 };
 
 function compressImage(file: File): Promise<string> {
@@ -355,6 +364,8 @@ export default function App() {
   const [showProductModal, setShowProductModal] = useState(false);
   const [showProfitabilityModal, setShowProfitabilityModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
+  const [showCameraSaleModal, setShowCameraSaleModal] = useState(false);
+  const [showDrawingSaleModal, setShowDrawingSaleModal] = useState(false);
   const [calcState, setCalcState] = useState<PersistedCalcState>(() => loadPersistedCalcState());
   const [showProfitModal, setShowProfitModal] = useState(false);
   const [viewRecordModal, setViewRecordModal] = useState<Entry | null>(null);
@@ -517,6 +528,8 @@ export default function App() {
                   brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
                   showCalculator: merged.showCalculator !== false,
                   enableVoiceInput: merged.enableVoiceInput !== false,
+                  enableCameraScan: merged.enableCameraScan !== false,
+                  enableDrawingPad: merged.enableDrawingPad !== false,
                 })
               );
             } catch {}
@@ -587,6 +600,8 @@ export default function App() {
               brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
               showCalculator: merged.showCalculator !== false,
               enableVoiceInput: merged.enableVoiceInput !== false,
+              enableCameraScan: merged.enableCameraScan !== false,
+              enableDrawingPad: merged.enableDrawingPad !== false,
             }));
           } catch {}
         }
@@ -1319,9 +1334,13 @@ export default function App() {
     try {
       await new Promise((r) => setTimeout(r, 380));
       if (!productForm.name.trim()) throw new Error('পণ্যের নাম আবশ্যক');
+      const strictSku =
+        toStrictAllowedSkuClient(productForm.sku) ||
+        ALLOWED_SKU_CODES[products.length % ALLOWED_SKU_CODES.length] ||
+        'A';
       const payload = {
         name: productForm.name.trim(),
-        sku: productForm.sku.trim() || undefined,
+        sku: strictSku,
         unit: productForm.unit.trim() || 'পিস',
         currentStock: Number(productForm.currentStock) || 0,
         averageCost: Number(productForm.averageCost) || 0,
@@ -1421,9 +1440,10 @@ export default function App() {
     const matchedExisting = products.find(
       (p) => p.name.toLowerCase().includes(n) || n.includes(p.name.toLowerCase())
     );
+    const nextSkuCode = ALLOWED_SKU_CODES[products.length % ALLOWED_SKU_CODES.length] || 'A';
     if (matchedExisting) {
       return {
-        sku: matchedExisting.sku || '',
+        sku: toStrictAllowedSkuClient(matchedExisting.sku || '') || nextSkuCode,
         unit: matchedExisting.unit || 'কেজি',
         averageCost: matchedExisting.averageCost ? String(matchedExisting.averageCost) : '',
         sellingPrice: matchedExisting.sellingPrice ? String(matchedExisting.sellingPrice) : '',
@@ -1433,35 +1453,35 @@ export default function App() {
 
     if (n.includes('কাকড়া') || n.includes('কাঁকড়া') || n.includes('crab')) {
       return {
-        sku: `CRAB-0${products.length + 1}`,
+        sku: nextSkuCode,
         unit: 'কেজি',
         imageUrl: 'https://images.unsplash.com/photo-1548811579-017cf2a4268b?w=300&auto=format&fit=crop&q=80',
       };
     }
     if (n.includes('চিংড়ি') || n.includes('গলদা') || n.includes('বাগদা') || n.includes('shrimp')) {
       return {
-        sku: `SHRIMP-0${products.length + 1}`,
+        sku: nextSkuCode,
         unit: 'কেজি',
         imageUrl: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?w=300&auto=format&fit=crop&q=80',
       };
     }
     if (n.includes('ইলিশ') || n.includes('রুই') || n.includes('কাতলা') || n.includes('মাছ') || n.includes('কোরাল') || n.includes('রূপচাঁদা')) {
       return {
-        sku: `FISH-0${products.length + 1}`,
+        sku: nextSkuCode,
         unit: 'কেজি',
         imageUrl: 'https://images.unsplash.com/photo-1534043464124-3be32fe00099?w=300&auto=format&fit=crop&q=80',
       };
     }
     if (n.includes('মাংস') || n.includes('মুরগি') || n.includes('গরু') || n.includes('খাসি')) {
       return {
-        sku: `MEAT-0${products.length + 1}`,
+        sku: nextSkuCode,
         unit: 'কেজি',
         imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=300&auto=format&fit=crop&q=80',
       };
     }
     if (n.includes('ডিম')) {
       return {
-        sku: `EGG-0${products.length + 1}`,
+        sku: nextSkuCode,
         unit: 'পিস',
         imageUrl: 'https://images.unsplash.com/photo-1582722872445-44dc5f7e3c8f?w=300&auto=format&fit=crop&q=80',
       };
@@ -1746,7 +1766,7 @@ export default function App() {
       const calculatedAvgCost = batchAverageSummary.avgCost;
       const calculatedAvgSell = batchAverageSummary.avgSellingPrice;
 
-      const payloads = filledRows.map((row) => {
+      const payloads = filledRows.map((row, rowIdx) => {
         const rowCost = Number(row.averageCost) || 0;
         const rowSell = Number(row.sellingPrice) || 0;
         const finalCost = useCalculatedAvgForAll
@@ -1764,9 +1784,14 @@ export default function App() {
           ? rowSell
           : calculatedAvgSell;
 
+        const strictRowSku =
+          toStrictAllowedSkuClient(row.sku) ||
+          ALLOWED_SKU_CODES[(products.length + rowIdx) % ALLOWED_SKU_CODES.length] ||
+          'A';
+
         return {
           name: row.name.trim(),
-          sku: row.sku.trim() || undefined,
+          sku: strictRowSku,
           unit: row.unit.trim() || 'কেজি',
           currentStock: Number(row.currentStock) || 0,
           averageCost: finalCost,
@@ -2544,6 +2569,86 @@ export default function App() {
     );
   }
 
+  async function handleToggleCameraScan(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      enableCameraScan: enabled,
+      enableDrawingPad: settings.enableDrawingPad !== false,
+      showCalculator: settings.showCalculator !== false,
+      enableVoiceInput: settings.enableVoiceInput !== false,
+      showBrandPopup: settings.showBrandPopup !== false,
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (!enabled) {
+      setShowCameraSaleModal(false);
+    }
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            enableCameraScan: enabled,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Camera scan toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '📷 লাইভ ক্যামেরা অটো-সেল স্ক্যানার চালু (ON) করা হয়েছে!'
+        : 'লাইভ ক্যামেরা অটো-সেল স্ক্যানার বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
+  async function handleToggleDrawingPad(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      enableDrawingPad: enabled,
+      enableCameraScan: settings.enableCameraScan !== false,
+      showCalculator: settings.showCalculator !== false,
+      enableVoiceInput: settings.enableVoiceInput !== false,
+      showBrandPopup: settings.showBrandPopup !== false,
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (!enabled) {
+      setShowDrawingSaleModal(false);
+    }
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            enableDrawingPad: enabled,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Drawing pad toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '✍️ ড্রইং প্যাড অটো-সেল ফিচার চালু (ON) করা হয়েছে!'
+        : 'ড্রইং প্যাড অটো-সেল ফিচার বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
     if (!admin || !db) return;
@@ -2565,6 +2670,8 @@ export default function App() {
         brandPopupText: (settings.brandPopupText || 'Glowzaa এটা ব্রান্ড').trim() || 'Glowzaa এটা ব্রান্ড',
         showCalculator: settings.showCalculator !== false,
         enableVoiceInput: settings.enableVoiceInput !== false,
+        enableCameraScan: settings.enableCameraScan !== false,
+        enableDrawingPad: settings.enableDrawingPad !== false,
         updatedBy: actorId,
       };
       const payload = deepClean({
@@ -4608,7 +4715,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((p) => (
+                  {products.map((p, idx) => (
                     <tr key={p.id}>
                       <td>
                         {p.imageUrl ? (
@@ -4645,7 +4752,25 @@ export default function App() {
                         )}
                       </td>
                       <td><b>{p.name}</b></td>
-                      <td>{p.sku || '—'}</td>
+                      <td>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: p.sku ? '#ecfdf5' : '#f1f5f9',
+                            color: p.sku ? '#047857' : '#334155',
+                            border: `1px solid ${p.sku ? '#6ee7b7' : '#cbd5e1'}`,
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                          }}
+                          title="এই SKU কোডটি প্রডাক্টের গায়ে লিখে ক্যামেরায় ধরলে অটো-সেল হবে"
+                        >
+                          🏷️ {p.sku && p.sku.trim() ? p.sku.trim() : `SKU-${idx + 1}`}
+                        </span>
+                      </td>
                       <td>{p.currentStock} {p.unit}</td>
                       <td>{money(p.averageCost)}</td>
                       <td>{money(p.sellingPrice)}</td>
@@ -5587,6 +5712,127 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            <div className="brand-popup-setting-card" style={{ marginTop: '16px' }}>
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div
+                    className="brand-popup-setting-icon"
+                    style={{
+                      background: 'linear-gradient(135deg, #059669, #0284c7)',
+                      color: '#ffffff',
+                    }}
+                  >
+                    <Camera size={22} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>লাইভ ক্যামেরা অটো-সেল স্ক্যানার (Camera Auto-Sale POS)</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.enableCameraScan !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.enableCameraScan !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      এটি চালু থাকলে আলাদা ক্যামেরা বাটনে চাপ দিয়ে ফোনের ক্যামেরার সামনে বিক্রির প্রডাক্ট ধরলেই স্টকের প্রডাক্টের SKU কোডের সাথে মিলিয়ে স্বয়ংক্রিয়ভাবে বিক্রি এন্ট্রি ও স্টক আপডেট হয়ে যাবে।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.enableCameraScan !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.enableCameraScan !== false ? 'active' : ''
+                    }`}
+                    onClick={() => handleToggleCameraScan(settings.enableCameraScan === false)}
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.enableCameraScan !== false ? 'ক্যামেরা সেল: ON' : 'ক্যামেরা সেল: OFF'}
+                    </span>
+                  </button>
+
+                  {settings.enableCameraScan !== false && (
+                    <button
+                      type="button"
+                      className="brand-preview-trigger-btn"
+                      onClick={() => setShowCameraSaleModal(true)}
+                    >
+                      <Camera size={16} />
+                      <span>ক্যামেরা স্ক্যানার খুলুন</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="brand-popup-setting-card" style={{ marginTop: '16px' }}>
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div
+                    className="brand-popup-setting-icon"
+                    style={{
+                      background: 'linear-gradient(135deg, #2563eb, #0284c7)',
+                      color: '#ffffff',
+                    }}
+                  >
+                    <PenTool size={22} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>ড্রইং প্যাড অটো-সেল (Drawing Pad SKU Auto-Sale)</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.enableDrawingPad !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.enableDrawingPad !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      এটি চালু থাকলে আলাদা ড্রইং প্যাড বাটনে চাপ দিয়ে সাদা প্যাডে আঙুল বা মাউস দিয়ে A, B, AB, GZ লিখলেই সাথে সাথে প্রডাক্টের SKU ম্যাচ করে অটোমেটিক সেল কনফার্ম হয়ে যাবে।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.enableDrawingPad !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.enableDrawingPad !== false ? 'active' : ''
+                    }`}
+                    onClick={() => handleToggleDrawingPad(settings.enableDrawingPad === false)}
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.enableDrawingPad !== false ? 'ড্রইং প্যাড: ON' : 'ড্রইং প্যাড: OFF'}
+                    </span>
+                  </button>
+
+                  {settings.enableDrawingPad !== false && (
+                    <button
+                      type="button"
+                      className="brand-preview-trigger-btn"
+                      onClick={() => setShowDrawingSaleModal(true)}
+                    >
+                      <PenTool size={16} />
+                      <span>ড্রইং প্যাড খুলুন</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* CUSTOM SCANNER SOUND UPLOAD & AUDIO SETTINGS CARD */}
+            <ScannerSoundSettingsCard onStatusMessage={(msg) => setMessage(msg)} />
 
             <EmailNotificationSection
               currentActorName={currentAdmin?.displayName || 'রাকিব (Rakib)'}
@@ -6691,12 +6937,21 @@ export default function App() {
               </label>
 
               <label>
-                SKU / কোড (ঐচ্ছিক)
-                <input
-                  value={productForm.sku}
-                  placeholder="যেমন: CRAB-01"
+                SKU / কোড (A–Z / AA–GZ) *
+                <select
+                  value={
+                    toStrictAllowedSkuClient(productForm.sku) ||
+                    ALLOWED_SKU_CODES[products.length % ALLOWED_SKU_CODES.length] ||
+                    'A'
+                  }
                   onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })}
-                />
+                >
+                  {ALLOWED_SKU_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      কোড: {code}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label>
@@ -9588,6 +9843,70 @@ export default function App() {
         }}
       />
 
+      {/* GLOBAL FIXED FLOATING DRAWING PAD & CAMERA AUTO-SALE BUTTONS (SEPARATE FEATURES) */}
+      {settings.enableDrawingPad !== false && (
+        <button
+          type="button"
+          onClick={() => setShowDrawingSaleModal(true)}
+          title="ড্রইং প্যাড অটো-সেল (হাতে A, AB লিখলেই অটোমেটিক সেল এন্ট্রি)"
+          aria-label="ড্রইং প্যাড অটো-সেল"
+          style={{
+            position: 'fixed',
+            right: '16px',
+            bottom:
+              settings.showCalculator !== false
+                ? settings.enableCameraScan !== false
+                  ? '192px'
+                  : '138px'
+                : settings.enableCameraScan !== false
+                ? '136px'
+                : '82px',
+            zIndex: 1150,
+            width: '46px',
+            height: '46px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #2563eb, #0284c7)',
+            color: '#ffffff',
+            border: '2px solid #ffffff',
+            boxShadow: '0 6px 18px rgba(37, 99, 235, 0.42)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <PenTool size={19} />
+        </button>
+      )}
+
+      {settings.enableCameraScan !== false && (
+        <button
+          type="button"
+          onClick={() => setShowCameraSaleModal(true)}
+          title="লাইভ ক্যামেরা অটো-সেল স্ক্যানার"
+          aria-label="লাইভ ক্যামেরা অটো-সেল"
+          style={{
+            position: 'fixed',
+            right: '16px',
+            bottom: settings.showCalculator !== false ? '138px' : '82px',
+            zIndex: 1150,
+            width: '46px',
+            height: '46px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #059669, #0284c7)',
+            color: '#ffffff',
+            border: '2px solid #ffffff',
+            boxShadow: '0 6px 18px rgba(5, 150, 105, 0.38)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <Camera size={20} />
+        </button>
+      )}
+
       {/* GLOBAL FIXED FLOATING CALCULATOR BUTTON (Visible across all pages & stays fixed on scroll) */}
       {settings.showCalculator !== false && (
         <button
@@ -9620,6 +9939,158 @@ export default function App() {
           calcState={calcState}
           setCalcState={setCalcState}
           enableVoiceInput={settings.enableVoiceInput !== false}
+        />
+      )}
+
+      {/* SEPARATE LIVE CAMERA AUTO-SALE POS MODAL */}
+      {settings.enableCameraScan !== false && (
+        <CameraAutoSaleModal
+          isOpen={showCameraSaleModal}
+          onClose={() => setShowCameraSaleModal(false)}
+          products={products}
+          featureMode="camera"
+          onExecuteSale={async ({ product, quantity, matchMethod }) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            const actorDisplay = currentAdmin?.displayName || 'অ্যাডমিন';
+
+            const unitPrice = Number(product.sellingPrice) || 0;
+            const unitCost = Number(product.averageCost) || 0;
+            const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+            const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+            const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+
+            const methodLabel =
+              matchMethod === 'barcode'
+                ? 'SKU কোড স্ক্যান'
+                : matchMethod === 'quick_tap'
+                ? 'কুইক ট্যাপ ক্যামেরা সেল'
+                : 'ক্যামেরা অটো-স্ক্যান';
+
+            const createdId = await addEntry(
+              {
+                type: 'sale',
+                title: `${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})`,
+                amount: totalAmount,
+                date: today(),
+                status: 'posted',
+                productId: product.id,
+                quantity,
+                unitPrice,
+                unitCost,
+                cogsAmount,
+                grossProfit,
+                profit: grossProfit,
+                category: 'ক্যামেরা অটো-সেল (POS)',
+                notes: `${methodLabel} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
+                demo: false,
+              },
+              actorId,
+              actorEmail,
+              actorDisplay
+            );
+
+            setMessage(
+              `✅ ক্যামেরা অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)} (লাভ: +${money(grossProfit)})`
+            );
+            return createdId;
+          }}
+          onUndoSale={async (entryId, product, quantity) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await removeEntry(entryId, actorId, actorEmail);
+            setMessage(
+              `↩️ ক্যামেরা সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+            );
+          }}
+          onUpdateProductSku={async (product, newSku) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
+            setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+          }}
+        />
+      )}
+
+      {/* SEPARATE DRAWING PAD AUTO-SALE POS MODAL */}
+      {settings.enableDrawingPad !== false && (
+        <CameraAutoSaleModal
+          isOpen={showDrawingSaleModal}
+          onClose={() => setShowDrawingSaleModal(false)}
+          products={products}
+          featureMode="drawing"
+          onExecuteSale={async ({ product, quantity, matchMethod }) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            const actorDisplay = currentAdmin?.displayName || 'অ্যাডমিন';
+
+            const unitPrice = Number(product.sellingPrice) || 0;
+            const unitCost = Number(product.averageCost) || 0;
+            const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+            const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+            const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+
+            const methodLabel =
+              matchMethod === 'barcode'
+                ? 'ড্রইং প্যাড SKU এন্ট্রি'
+                : matchMethod === 'quick_tap'
+                ? 'ড্রইং প্যাড কুইক সেল'
+                : 'ড্রইং প্যাড হাতের লেখা (A–GZ)';
+
+            const createdId = await addEntry(
+              {
+                type: 'sale',
+                title: `${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})`,
+                amount: totalAmount,
+                date: today(),
+                status: 'posted',
+                productId: product.id,
+                quantity,
+                unitPrice,
+                unitCost,
+                cogsAmount,
+                grossProfit,
+                profit: grossProfit,
+                category: 'ড্রইং প্যাড অটো-সেল (POS)',
+                notes: `${methodLabel} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
+                demo: false,
+              },
+              actorId,
+              actorEmail,
+              actorDisplay
+            );
+
+            setMessage(
+              `✅ ড্রইং প্যাড অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)} (লাভ: +${money(grossProfit)})`
+            );
+            return createdId;
+          }}
+          onUndoSale={async (entryId, product, quantity) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await removeEntry(entryId, actorId, actorEmail);
+            setMessage(
+              `↩️ ড্রইং প্যাড সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+            );
+          }}
+          onUpdateProductSku={async (product, newSku) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
+            setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+          }}
         />
       )}
     </div>
