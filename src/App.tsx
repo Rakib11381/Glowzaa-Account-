@@ -129,6 +129,11 @@ import {
   formatBengaliDateTime,
   type PartnerAccountBalance,
   type DailyFinancialBreakdown,
+  getEntrySeller,
+  calculateSellerSalesSummary,
+  calculateDailySellerSales,
+  type SellerSalesSummary,
+  type DailySellerSale,
 } from './accounting';
 import { generateBengaliPdf, generateMonthlyBengaliPdf, formatMonthLabelBn } from './pdfReport';
 import { runAutomatedTests } from './accounting.test';
@@ -330,13 +335,14 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tab, setTab] = useState<
-    'dashboard' | 'transactions' | 'investors' | 'inventory' | 'profit' | 'reports' | 'audit' | 'settings' | 'profile' | 'terms'
+    'dashboard' | 'transactions' | 'seller_sales' | 'investors' | 'inventory' | 'profit' | 'reports' | 'audit' | 'settings' | 'profile' | 'terms'
   >('dashboard');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
+  const [sellerFilter, setSellerFilter] = useState<'all' | 'Rakib' | 'Limon'>('all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState<string>('সংরক্ষণ করা হচ্ছে…');
@@ -399,6 +405,7 @@ export default function App() {
   // Entry Form state
   const [entryForm, setEntryForm] = useState({
     type: 'sale' as RecordType,
+    seller: 'Rakib' as 'Rakib' | 'Limon' | undefined,
     title: '',
     amount: '',
     profit: '', // বিক্রয়ে অর্জিত লাভ (৳)
@@ -718,6 +725,52 @@ export default function App() {
     [dashPeriodEntries, products]
   );
 
+  const dashPeriodSellerSummary = useMemo(
+    () => calculateSellerSalesSummary(dashPeriodEntries, todayStr),
+    [dashPeriodEntries, todayStr]
+  );
+
+  // Seller Sales Daily Tab states & memos
+  const [expandedDailyDate, setExpandedDailyDate] = useState<string | null>(today());
+  const [dailySellerDateFilter, setDailySellerDateFilter] = useState<string>('');
+  const [dailySellerPreset, setDailySellerPreset] = useState<'all' | 'today' | 'yesterday' | '7d' | 'month' | '30d'>('all');
+  const [sellerDailyViewMode, setSellerDailyViewMode] = useState<'all' | 'Rakib' | 'Limon'>('all');
+
+  const dailySellerSales = useMemo(
+    () => calculateDailySellerSales(entries, todayStr, yesterdayStr),
+    [entries, todayStr, yesterdayStr]
+  );
+
+  const todaySellerSummary = useMemo(
+    () => calculateSellerSalesSummary(entries.filter((e) => e.date === todayStr), todayStr),
+    [entries, todayStr]
+  );
+
+  const allTimeSellerSummary = useMemo(
+    () => calculateSellerSalesSummary(entries, todayStr),
+    [entries, todayStr]
+  );
+
+  const filteredDailySellerSales = useMemo(() => {
+    return dailySellerSales.filter((d) => {
+      if (dailySellerPreset === 'today') return d.isToday;
+      if (dailySellerPreset === 'yesterday') return d.isYesterday;
+      if (dailySellerPreset === '7d') return d.date >= getNDaysAgo(6) && d.date <= todayStr;
+      if (dailySellerPreset === 'month') return d.date >= getStartOfMonth() && d.date <= todayStr;
+      if (dailySellerPreset === '30d') return d.date >= getNDaysAgo(29) && d.date <= todayStr;
+      if (dailySellerDateFilter) return d.date.includes(dailySellerDateFilter);
+      return true;
+    });
+  }, [dailySellerSales, dailySellerPreset, dailySellerDateFilter, todayStr, yesterdayStr]);
+
+  const txSellerSummary = useMemo(
+    () => calculateSellerSalesSummary(entries.filter((e) => {
+      const matchesDate = (!startDateFilter || e.date >= startDateFilter) && (!endDateFilter || e.date <= endDateFilter);
+      return matchesDate;
+    }), todayStr),
+    [entries, startDateFilter, endDateFilter, todayStr]
+  );
+
   const overallTotalPurchase = useMemo(
     () => calculateTotalPurchaseCost(entries, products),
     [entries, products]
@@ -781,10 +834,13 @@ export default function App() {
       const matchesDate =
         (!startDateFilter || e.date >= startDateFilter) &&
         (!endDateFilter || e.date <= endDateFilter);
+      const matchesSeller =
+        sellerFilter === 'all' ||
+        (e.type === 'sale' && getEntrySeller(e) === sellerFilter);
 
-      return matchesSearch && matchesType && matchesStatus && matchesDate;
+      return matchesSearch && matchesType && matchesStatus && matchesDate && matchesSeller;
     });
-  }, [entries, search, typeFilter, statusFilter, startDateFilter, endDateFilter]);
+  }, [entries, search, typeFilter, statusFilter, startDateFilter, endDateFilter, sellerFilter]);
 
   // Handlers
   async function handleAdminLogin(e: React.FormEvent) {
@@ -888,6 +944,7 @@ export default function App() {
     const initialCost = entry.cogsAmount !== undefined ? String(entry.cogsAmount) : (entry.grossProfit !== undefined ? String(Math.max(0, entry.amount - entry.grossProfit)) : '');
     setEntryForm({
       type: entry.type,
+      seller: (getEntrySeller(entry) === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
       title: entry.title,
       amount: String(entry.amount),
       profit: initialProfit,
@@ -1183,6 +1240,7 @@ export default function App() {
 
       const entryPayload = {
         type: entryForm.type,
+        seller: (entryForm.type === 'sale' ? (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') : undefined) as 'Rakib' | 'Limon' | undefined,
         title: entryForm.title.trim(),
         amount,
         date: entryForm.date || today(),
@@ -1247,6 +1305,7 @@ export default function App() {
 
       setEntryForm({
         type: 'sale',
+        seller: (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
         title: '',
         amount: '',
         profit: '',
@@ -2961,6 +3020,13 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={tab === 'seller_sales' ? 'nav active' : 'nav'}
+            onClick={() => { setTab('seller_sales'); setIsMobileMenuOpen(false); }}
+          >
+            <Users /> বিক্রেতা অনুযায়ী হিসাব
+          </button>
+          <button
+            type="button"
             className={tab === 'investors' ? 'nav active' : 'nav'}
             onClick={() => { setTab('investors'); setIsMobileMenuOpen(false); }}
           >
@@ -3132,6 +3198,13 @@ export default function App() {
             onClick={() => setTab('transactions')}
           >
             <Banknote size={14} /> লেনদেন ({entries.length})
+          </button>
+          <button
+            type="button"
+            className={`mobile-strip-pill ${tab === 'seller_sales' ? 'active' : ''}`}
+            onClick={() => setTab('seller_sales')}
+          >
+            <Users size={14} /> বিক্রেতা হিসাব
           </button>
           <button
             type="button"
@@ -3364,6 +3437,7 @@ export default function App() {
                       setEditingEntry(null);
                       setEntryForm({
                         type: 'sale',
+                        seller: (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
                         title: '',
                         amount: '',
                         profit: '',
@@ -4306,6 +4380,7 @@ export default function App() {
                         setEditingEntry(null);
                         setEntryForm({
                           type: 'sale',
+                          seller: (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
                           title: '',
                           amount: '',
                           profit: '',
@@ -4505,6 +4580,80 @@ export default function App() {
               </div>
             </div>
 
+            {sellerFilter !== 'all' && (
+              <div
+                style={{
+                  margin: '12px 0',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  background: sellerFilter === 'Rakib' ? '#eff6ff' : '#faf5ff',
+                  border: sellerFilter === 'Rakib' ? '2px solid #93c5fd' : '2px solid #d8b4fe',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '50%',
+                      background: sellerFilter === 'Rakib' ? '#2563eb' : '#9333ea',
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 700,
+                      fontSize: '15px',
+                    }}
+                  >
+                    {sellerFilter === 'Rakib' ? 'রা' : 'লি'}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '15px', color: sellerFilter === 'Rakib' ? '#1e3a8a' : '#581c87' }}>
+                      {sellerFilter === 'Rakib' ? '👤 রাকিবের (Rakib) একক বিক্রয় হিসাব' : '👤 লিমনের (Limon) একক বিক্রয় হিসাব'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>
+                      মোট {toBengaliNumerals(sellerFilter === 'Rakib' ? txSellerSummary.rakib.salesCount : txSellerSummary.limon.salesCount)}টি সেল রেকর্ড প্রদর্শিত হচ্ছে
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>মোট বিক্রয় (ক্যাশ জমা):</span>
+                    <strong style={{ fontSize: '18px', color: sellerFilter === 'Rakib' ? '#1d4ed8' : '#7e22ce' }}>
+                      {money(sellerFilter === 'Rakib' ? txSellerSummary.rakib.totalSales : txSellerSummary.limon.totalSales)}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: 'right', borderLeft: '1px solid #cbd5e1', paddingLeft: '12px' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>অর্জিত নিট লাভ:</span>
+                    <strong style={{ fontSize: '16px', color: '#059669' }}>
+                      +{money(sellerFilter === 'Rakib' ? txSellerSummary.rakib.grossProfit : txSellerSummary.limon.grossProfit)}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSellerFilter('all')}
+                    style={{
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      borderRadius: '8px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                      color: '#475569',
+                    }}
+                  >
+                    ✕ ফিল্টার মুছুন
+                  </button>
+                </div>
+              </div>
+            )}
             <EntryTable
               rows={filtered}
               investors={investors}
@@ -4519,6 +4668,754 @@ export default function App() {
               onDelete={handleInitiateDelete}
               onVoid={(e) => { setShowVoidModal(e); setVoidReasonInput(''); }}
             />
+          </div>
+        )}
+
+        {/* TAB 2.5: SELLER SALES & DAILY RECONCILIATION (রাকিব বনাম লিমন) */}
+        {tab === 'seller_sales' && (
+          <div className="panel" style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+            {/* Header & Quick Action Buttons */}
+            <div className="welcome" style={{ marginBottom: '16px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Users size={22} style={{ color: '#2563eb' }} />
+                  বিক্রেতা অনুযায়ী প্রতিদিনের হিসাব (রাকিব বনাম লিমন)
+                </h2>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                  রাকিব ও লিমনের প্রতিদিনের আলাদা বিক্রয়, মোট লাভ এবং ক্যাশ ড্রয়ার মেলানোর লাইভ বিবরণ
+                </p>
+              </div>
+
+              <div className="welcome-actions" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                {settings.enableCameraScan !== false && (
+                  <button
+                    type="button"
+                    className="primary"
+                    style={{ background: 'linear-gradient(135deg, #059669, #0d9488)', border: 'none' }}
+                    onClick={() => setShowCameraSaleModal(true)}
+                  >
+                    <Camera size={16} /> ক্যামেরা স্ক্যান সেল
+                  </button>
+                )}
+                {settings.enableDrawingPad !== false && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ borderColor: '#6366f1', color: '#4f46e5', background: '#eef2ff' }}
+                    onClick={() => setShowDrawingSaleModal(true)}
+                  >
+                    <PenTool size={16} /> ড্রইং প্যাড সেল
+                  </button>
+                )}
+                {admin && (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => {
+                      setEditingEntry(null);
+                      setEntryForm({
+                        type: 'sale',
+                        seller: (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
+                        title: '',
+                        amount: '',
+                        profit: '',
+                        cost: '',
+                        date: today(),
+                        status: 'posted',
+                        investorId: '',
+                        productId: '',
+                        quantity: '',
+                        unitPrice: '',
+                        unitCost: '',
+                        category: '',
+                        notes: '',
+                      });
+                      setShowEntryModal(true);
+                    }}
+                  >
+                    <Plus size={16} /> নতুন বিক্রয় যোগ
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* TODAY'S LIVE SALES COUNTER (আজকের সরাসরি সেল ও ক্যাশ মেলানো) */}
+            <div
+              style={{
+                marginBottom: '18px',
+                padding: '16px 20px',
+                borderRadius: '14px',
+                background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #faf5ff 100%)',
+                border: '1.5px solid #bfdbfe',
+                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.05)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Calendar size={18} style={{ color: '#2563eb' }} />
+                  <strong style={{ fontSize: '15px', color: '#1e3a8a' }}>
+                    📅 আজকের লাইভ বিক্রয় ও ক্যাশ কাউন্টার ({dateLabel(todayStr)})
+                  </strong>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', background: '#ffffff', padding: '4px 12px', borderRadius: '20px', border: '1px solid #cbd5e1', fontWeight: 700, color: '#0f172a' }}>
+                    আজকের সর্বমোট সেল: <strong style={{ color: '#059669' }}>{money(todaySellerSummary.rakib.todaySales + todaySellerSummary.limon.todaySales)}</strong> ({toBengaliNumerals(todaySellerSummary.rakib.todayCount + todaySellerSummary.limon.todayCount)}টি সেল)
+                  </span>
+                </div>
+              </div>
+
+              {/* Today Metric 4-Boxes Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
+                {/* Rakib Today Box */}
+                <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1.5px solid #bfdbfe' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#1d4ed8' }}>👤 রাকিবের আজকের বিক্রয়</span>
+                    <span style={{ fontSize: '11px', background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                      {toBengaliNumerals(todaySellerSummary.rakib.todayCount)}টি সেল
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: '20px', color: '#1d4ed8', display: 'block' }}>
+                    {money(todaySellerSummary.rakib.todaySales)}
+                  </strong>
+                  <span style={{ fontSize: '11px', color: '#059669', fontWeight: 600, display: 'block', marginTop: '2px' }}>
+                    আজকের নিট লাভ: +{money(todaySellerSummary.rakib.grossProfit)}
+                  </span>
+                </div>
+
+                {/* Limon Today Box */}
+                <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1.5px solid #d8b4fe' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#7e22ce' }}>👤 লিমনের আজকের বিক্রয়</span>
+                    <span style={{ fontSize: '11px', background: '#f3e8ff', color: '#6b21a8', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                      {toBengaliNumerals(todaySellerSummary.limon.todayCount)}টি সেল
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: '20px', color: '#7e22ce', display: 'block' }}>
+                    {money(todaySellerSummary.limon.todaySales)}
+                  </strong>
+                  <span style={{ fontSize: '11px', color: '#059669', fontWeight: 600, display: 'block', marginTop: '2px' }}>
+                    আজকের নিট লাভ: +{money(todaySellerSummary.limon.grossProfit)}
+                  </span>
+                </div>
+
+                {/* Today Difference & Drawer Status */}
+                <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1.5px solid #cbd5e1' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    ⚖️ আজকের ক্যাশ ড্রয়ার মেলানো
+                  </span>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+                    {todaySellerSummary.difference === 0 ? (
+                      <span style={{ color: '#059669' }}>উভয় বিক্রেতার সেল সমান সমান</span>
+                    ) : (
+                      <>
+                        <span style={{ color: todaySellerSummary.leader === 'Rakib' ? '#1d4ed8' : '#7e22ce' }}>
+                          {todaySellerSummary.leader === 'Rakib' ? 'রাকিব' : 'লিমন'}
+                        </span>{' '}
+                        {money(todaySellerSummary.difference)} বেশি
+                      </>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '4px' }}>
+                    ড্রয়ারে রাকিবের {money(todaySellerSummary.rakib.todaySales)} ও লিমনের {money(todaySellerSummary.limon.todaySales)} জমা
+                  </span>
+                </div>
+
+                {/* Today Total Profit */}
+                <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1.5px solid #86efac' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534', display: 'block', marginBottom: '4px' }}>
+                    📊 আজকের যৌথ মোট লাভ
+                  </span>
+                  <strong style={{ fontSize: '20px', color: '#059669', display: 'block' }}>
+                    +{money(todaySellerSummary.totalGrossProfit)}
+                  </strong>
+                  <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '2px' }}>
+                    মোট বিক্রয়ের ওপর গড় লাভ
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* OVERALL COMPARISON CARDS (রাকিব বনাম লিমন সর্বমোট প্রোফাইল) */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                gap: '16px',
+                marginBottom: '20px',
+              }}
+            >
+              {/* RAKIB OVERALL CARD */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  border: '2px solid #bfdbfe',
+                  borderRadius: '14px',
+                  padding: '16px',
+                  boxShadow: '0 2px 8px rgba(37, 99, 235, 0.04)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {adminAvatars.rakib ? (
+                      <img
+                        src={adminAvatars.rakib}
+                        alt="রাকিব"
+                        style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #3b82f6' }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: '44px',
+                          height: '44px',
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          fontSize: '18px',
+                        }}
+                      >
+                        রা
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <strong style={{ fontSize: '16px', color: '#1e3a8a' }}>রাকিব (Rakib)</strong>
+                        {allTimeSellerSummary.leader === 'Rakib' && allTimeSellerSummary.rakib.totalSales > 0 && (
+                          <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            👑 সার্বিক শীর্ষে
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>অংশীদার ও বিক্রেতা</span>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: '#2563eb',
+                      background: '#eff6ff',
+                      border: '1px solid #bfdbfe',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    {allTimeSellerSummary.rakib.sharePercent.toFixed(1)}% সেল শেয়ার
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                  <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>সর্বমোট বিক্রয়:</span>
+                    <strong style={{ fontSize: '18px', color: '#1d4ed8', display: 'block', marginTop: '2px' }}>
+                      {money(allTimeSellerSummary.rakib.totalSales)}
+                    </strong>
+                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>
+                      {toBengaliNumerals(allTimeSellerSummary.rakib.salesCount)}টি সেল রসিদ
+                    </span>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>অর্জিত মোট লাভ:</span>
+                    <strong style={{ fontSize: '18px', color: '#059669', display: 'block', marginTop: '2px' }}>
+                      +{money(allTimeSellerSummary.rakib.grossProfit)}
+                    </strong>
+                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>
+                      আজকের সেল: {money(allTimeSellerSummary.rakib.todaySales)}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab('transactions');
+                    setTypeFilter('sale');
+                    setSellerFilter('Rakib');
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #93c5fd',
+                    background: '#eff6ff',
+                    color: '#1d4ed8',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  🔍 রাকিবের সকল বিক্রয় লেনদেন দেখুন →
+                </button>
+              </div>
+
+              {/* LIMON OVERALL CARD */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  border: '2px solid #e9d5ff',
+                  borderRadius: '14px',
+                  padding: '16px',
+                  boxShadow: '0 2px 8px rgba(147, 51, 234, 0.04)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {adminAvatars.limon ? (
+                      <img
+                        src={adminAvatars.limon}
+                        alt="লিমন"
+                        style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #a855f7' }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: '44px',
+                          height: '44px',
+                          borderRadius: '50%',
+                          background: '#9333ea',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          fontSize: '18px',
+                        }}
+                      >
+                        লি
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <strong style={{ fontSize: '16px', color: '#581c87' }}>লিমন (Limon)</strong>
+                        {allTimeSellerSummary.leader === 'Limon' && allTimeSellerSummary.limon.totalSales > 0 && (
+                          <span style={{ fontSize: '10px', background: '#f3e8ff', color: '#7e22ce', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            👑 সার্বিক শীর্ষে
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>অংশীদার ও বিক্রেতা</span>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: '#9333ea',
+                      background: '#faf5ff',
+                      border: '1px solid #d8b4fe',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    {allTimeSellerSummary.limon.sharePercent.toFixed(1)}% সেল শেয়ার
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                  <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>সর্বমোট বিক্রয়:</span>
+                    <strong style={{ fontSize: '18px', color: '#7e22ce', display: 'block', marginTop: '2px' }}>
+                      {money(allTimeSellerSummary.limon.totalSales)}
+                    </strong>
+                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>
+                      {toBengaliNumerals(allTimeSellerSummary.limon.salesCount)}টি সেল রসিদ
+                    </span>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>অর্জিত মোট লাভ:</span>
+                    <strong style={{ fontSize: '18px', color: '#059669', display: 'block', marginTop: '2px' }}>
+                      +{money(allTimeSellerSummary.limon.grossProfit)}
+                    </strong>
+                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>
+                      আজকের সেল: {money(allTimeSellerSummary.limon.todaySales)}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab('transactions');
+                    setTypeFilter('sale');
+                    setSellerFilter('Limon');
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #d8b4fe',
+                    background: '#faf5ff',
+                    color: '#7e22ce',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  🔍 লিমনের সকল বিক্রয় লেনদেন দেখুন →
+                </button>
+              </div>
+            </div>
+
+            {/* DAILY SALES BREAKDOWN SECTION (প্রতিদিনের দিনভিত্তিক আলাদা বিক্রয় ও হিসাব মেলানো) */}
+            <div
+              style={{
+                background: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid #e2e8f0',
+                padding: '18px 20px',
+                boxShadow: '0 2px 10px rgba(15, 23, 42, 0.04)',
+              }}
+            >
+              {/* Daily Section Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Calendar size={18} style={{ color: '#0f766e' }} />
+                    📅 প্রতিদিনের বিক্রয় তালিকা ও হিসাব মেলানো (Day-by-Day)
+                  </h3>
+                  <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: '#64748b' }}>
+                    কোন তারিখে কে কত টাকা বিক্রি করেছে তা তারিখ অনুযায়ী বিস্তারিত দেখুন
+                  </p>
+                </div>
+
+                {/* Date Quick Preset Buttons */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className={`tab-pill ${dailySellerPreset === 'all' && !dailySellerDateFilter ? 'active' : ''}`}
+                    onClick={() => { setDailySellerPreset('all'); setDailySellerDateFilter(''); }}
+                    style={{ fontSize: '12px', padding: '4px 10px' }}
+                  >
+                    সব দিন
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-pill ${dailySellerPreset === 'today' ? 'active' : ''}`}
+                    onClick={() => { setDailySellerPreset('today'); setDailySellerDateFilter(''); }}
+                    style={{ fontSize: '12px', padding: '4px 10px' }}
+                  >
+                    আজকে
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-pill ${dailySellerPreset === 'yesterday' ? 'active' : ''}`}
+                    onClick={() => { setDailySellerPreset('yesterday'); setDailySellerDateFilter(''); }}
+                    style={{ fontSize: '12px', padding: '4px 10px' }}
+                  >
+                    গতকাল
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-pill ${dailySellerPreset === '7d' ? 'active' : ''}`}
+                    onClick={() => { setDailySellerPreset('7d'); setDailySellerDateFilter(''); }}
+                    style={{ fontSize: '12px', padding: '4px 10px' }}
+                  >
+                    গত ৭ দিন
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-pill ${dailySellerPreset === 'month' ? 'active' : ''}`}
+                    onClick={() => { setDailySellerPreset('month'); setDailySellerDateFilter(''); }}
+                    style={{ fontSize: '12px', padding: '4px 10px' }}
+                  >
+                    চলতি মাস
+                  </button>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
+                    <input
+                      type="date"
+                      value={dailySellerDateFilter}
+                      onChange={(e) => {
+                        setDailySellerDateFilter(e.target.value);
+                        setDailySellerPreset('all');
+                      }}
+                      style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                      title="নির্দিষ্ট তারিখ বেছে নিন"
+                    />
+                    {dailySellerDateFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setDailySellerDateFilter('')}
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444' }}
+                        title="ফিল্টার মুছুন"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* View Mode Pills: Both / Rakib / Limon */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', flexWrap: 'wrap', borderTop: '1px dashed #e2e8f0', paddingTop: '10px' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>ফিল্টার:</span>
+                <button
+                  type="button"
+                  onClick={() => setSellerDailyViewMode('all')}
+                  style={{
+                    padding: '3px 10px',
+                    borderRadius: '6px',
+                    border: sellerDailyViewMode === 'all' ? '1.5px solid #0f766e' : '1px solid #cbd5e1',
+                    background: sellerDailyViewMode === 'all' ? '#f0fdfa' : '#ffffff',
+                    color: sellerDailyViewMode === 'all' ? '#0f766e' : '#475569',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  👥 উভয় বিক্রেতার বিক্রয়
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSellerDailyViewMode('Rakib')}
+                  style={{
+                    padding: '3px 10px',
+                    borderRadius: '6px',
+                    border: sellerDailyViewMode === 'Rakib' ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+                    background: sellerDailyViewMode === 'Rakib' ? '#eff6ff' : '#ffffff',
+                    color: sellerDailyViewMode === 'Rakib' ? '#1d4ed8' : '#475569',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  👤 শুধু রাকিব
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSellerDailyViewMode('Limon')}
+                  style={{
+                    padding: '3px 10px',
+                    borderRadius: '6px',
+                    border: sellerDailyViewMode === 'Limon' ? '1.5px solid #9333ea' : '1px solid #cbd5e1',
+                    background: sellerDailyViewMode === 'Limon' ? '#faf5ff' : '#ffffff',
+                    color: sellerDailyViewMode === 'Limon' ? '#7e22ce' : '#475569',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  👤 শুধু লিমন
+                </button>
+              </div>
+
+              {/* Day-by-Day List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {filteredDailySellerSales.map((day) => {
+                  const isExpanded = expandedDailyDate === day.date;
+                  const dayEntries = day.entries.filter((s) => {
+                    if (sellerDailyViewMode === 'Rakib') return getEntrySeller(s) === 'Rakib';
+                    if (sellerDailyViewMode === 'Limon') return getEntrySeller(s) === 'Limon';
+                    return true;
+                  });
+
+                  return (
+                    <div
+                      key={day.date}
+                      style={{
+                        background: day.isToday ? '#f0fdfa' : '#f8fafc',
+                        borderRadius: '12px',
+                        border: day.isToday ? '2px solid #5eead4' : '1px solid #e2e8f0',
+                        overflow: 'hidden',
+                        transition: 'box-shadow 0.2s ease',
+                      }}
+                    >
+                      {/* Day Header Row */}
+                      <div
+                        style={{
+                          padding: '12px 16px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '10px',
+                          cursor: 'pointer',
+                          background: day.isToday ? 'rgba(204, 251, 241, 0.4)' : '#ffffff',
+                        }}
+                        onClick={() => setExpandedDailyDate(isExpanded ? null : day.date)}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a' }}>
+                            📅 {dateLabel(day.date)}
+                            {day.isToday && (
+                              <span style={{ marginLeft: '6px', fontSize: '11px', background: '#ccfbf1', color: '#0f766e', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                                আজ
+                              </span>
+                            )}
+                            {day.isYesterday && (
+                              <span style={{ marginLeft: '6px', fontSize: '11px', background: '#e2e8f0', color: '#475569', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                                গতকাল
+                              </span>
+                            )}
+                          </span>
+
+                          <span style={{ fontSize: '12px', color: '#64748b' }}>
+                            ({toBengaliNumerals(day.totalSalesCount)}টি সেল)
+                          </span>
+                        </div>
+
+                        {/* Mid Stats: Rakib vs Limon */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                          {/* Rakib Day Total */}
+                          <div style={{ background: '#eff6ff', padding: '4px 10px', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
+                            <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: 600 }}>👤 রাকিব: </span>
+                            <strong style={{ fontSize: '13px', color: '#1d4ed8' }}>{money(day.rakib.totalSales)}</strong>
+                            <small style={{ fontSize: '10px', color: '#60a5fa', marginLeft: '4px' }}>({toBengaliNumerals(day.rakib.salesCount)}টি)</small>
+                          </div>
+
+                          {/* Limon Day Total */}
+                          <div style={{ background: '#faf5ff', padding: '4px 10px', borderRadius: '6px', border: '1px solid #e9d5ff' }}>
+                            <span style={{ fontSize: '11px', color: '#6b21a8', fontWeight: 600 }}>👤 লিমন: </span>
+                            <strong style={{ fontSize: '13px', color: '#7e22ce' }}>{money(day.limon.totalSales)}</strong>
+                            <small style={{ fontSize: '10px', color: '#c084fc', marginLeft: '4px' }}>({toBengaliNumerals(day.limon.salesCount)}টি)</small>
+                          </div>
+
+                          {/* Day Total */}
+                          <div style={{ background: '#f0fdf4', padding: '4px 10px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                            <span style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>মোট: </span>
+                            <strong style={{ fontSize: '13px', color: '#059669' }}>{money(day.totalSales)}</strong>
+                          </div>
+
+                          {/* Day Difference / Drawer indicator */}
+                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                            {day.difference === 0 ? (
+                              '⚖️ সমান'
+                            ) : (
+                              <>
+                                ⚖️ {day.leader === 'Rakib' ? 'রাকিব +' : 'লিমন +'}{money(day.difference)}
+                              </>
+                            )}
+                          </span>
+
+                          {/* Toggle Expand button */}
+                          <button
+                            type="button"
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: '#334155',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {isExpanded ? '▲ বন্ধ করুন' : '▼ রসিদ দেখুন'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Expanded Entries for this Day */}
+                      {isExpanded && (
+                        <div style={{ borderTop: '1px solid #e2e8f0', padding: '12px 16px', background: '#ffffff' }}>
+                          {dayEntries.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '12px', color: '#94a3b8', fontSize: '13px' }}>
+                              এই দিনে কোনো বিক্রয় রেকর্ড পাওয়া যায়নি
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                                <span>📋 ওইদিনের পৃথক বিক্রয় রসিদের তালিকা:</span>
+                                <span>মোট লাভ: +{money(dayEntries.reduce((sum, s) => sum + (s.grossProfit || 0), 0))}</span>
+                              </div>
+
+                              {dayEntries.map((sale) => {
+                                const seller = getEntrySeller(sale);
+                                const isRakib = seller === 'Rakib';
+                                const isLimon = seller === 'Limon';
+
+                                return (
+                                  <div
+                                    key={sale.id}
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '8px 12px',
+                                      borderRadius: '8px',
+                                      background: isRakib ? '#f8faff' : isLimon ? '#fdfaff' : '#f8fafc',
+                                      border: isRakib ? '1px solid #dbeafe' : isLimon ? '1px solid #f3e8ff' : '1px solid #e2e8f0',
+                                      flexWrap: 'wrap',
+                                      gap: '8px',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span
+                                        style={{
+                                          fontSize: '11px',
+                                          padding: '2px 8px',
+                                          borderRadius: '4px',
+                                          fontWeight: 700,
+                                          background: isRakib ? '#2563eb' : isLimon ? '#9333ea' : '#64748b',
+                                          color: '#ffffff',
+                                        }}
+                                      >
+                                        👤 {isRakib ? 'রাকিব' : isLimon ? 'লিমন' : 'অন্য'}
+                                      </span>
+
+                                      <div>
+                                        <b style={{ fontSize: '13px', color: '#0f172a', display: 'block' }}>
+                                          {sale.title}
+                                        </b>
+                                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                          {sale.category || 'বিক্রয়'} {sale.notes ? (' • ' + sale.notes) : ''}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                                      <div style={{ textAlign: 'right' }}>
+                                        <strong style={{ fontSize: '14px', color: isRakib ? '#1d4ed8' : isLimon ? '#7e22ce' : '#0f172a' }}>
+                                          {money(sale.amount)}
+                                        </strong>
+                                        {(sale.grossProfit !== undefined || sale.cogsAmount !== undefined) && (
+                                          <small style={{ display: 'block', fontSize: '10px', color: '#059669', fontWeight: 600 }}>
+                                            লাভ: +{money(sale.grossProfit !== undefined ? sale.grossProfit : Math.max(0, sale.amount - (sale.cogsAmount || 0)))}
+                                          </small>
+                                        )}
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        className="action-btn"
+                                        title="পূর্ণাঙ্গ রসিদ দেখুন"
+                                        onClick={() => setViewRecordModal(sale)}
+                                        style={{ padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: '6px', background: '#ffffff', cursor: 'pointer' }}
+                                      >
+                                        <Eye size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {filteredDailySellerSales.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '30px', color: '#64748b', background: '#f8fafc', borderRadius: '12px' }}>
+                    কোনো দিনের বিক্রয় হিসাব পাওয়া যায়নি।
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -5982,6 +6879,7 @@ export default function App() {
                   setEntryForm((prev) => ({
                     ...prev,
                     type: nextType,
+                    seller: (fields.seller === 'Limon' ? 'Limon' : fields.seller === 'Rakib' ? 'Rakib' : prev.seller),
                     title: fields.title || prev.title,
                     productId: fields.productId !== undefined ? fields.productId : prev.productId,
                     investorId: fields.investorId !== undefined ? fields.investorId : prev.investorId,
@@ -6025,6 +6923,20 @@ export default function App() {
 
             {entryForm.type === 'sale' ? (
               <>
+                <div style={{ background: currentAdmin?.username === 'Limon' ? '#faf5ff' : '#eff6ff', border: currentAdmin?.username === 'Limon' ? '1.5px solid #d8b4fe' : '1.5px solid #bfdbfe', borderRadius: '10px', padding: '10px 14px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Lock size={15} style={{ color: currentAdmin?.username === 'Limon' ? '#7e22ce' : '#1d4ed8' }} />
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>বিক্রয়কারী বিক্রেতা (লগইন অ্যাকাউন্ট অনুযায়ী ফিক্সড):</span>
+                      <strong style={{ fontSize: '14px', color: currentAdmin?.username === 'Limon' ? '#7e22ce' : '#1d4ed8' }}>
+                        {currentAdmin?.username === 'Limon' ? '👤 লিমন (Limon)' : '👤 রাকিব (Rakib)'}
+                      </strong>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', fontWeight: 700 }}>
+                    🔒 অ্যাকাউন্ট সুরক্ষিত
+                  </span>
+                </div>
                 <label>
                   পণ্য নির্বাচন (ঐচ্ছিক)
                   <select
@@ -7799,6 +8711,27 @@ export default function App() {
                 )}
               </div>
 
+              {viewRecordModal.type === 'sale' && (() => {
+                const seller = getEntrySeller(viewRecordModal);
+                return (
+                  <div style={{ marginTop: '10px', padding: '10px 14px', background: seller === 'Limon' ? '#faf5ff' : '#eff6ff', borderRadius: '10px', border: seller === 'Limon' ? '1px solid #d8b4fe' : '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: seller === 'Limon' ? '#9333ea' : '#2563eb', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '13px' }}>
+                        {seller === 'Limon' ? 'লি' : 'রা'}
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '11px', color: '#64748b', display: 'block', fontWeight: 600 }}>বিক্রয়কারী বিক্রেতা (Seller):</span>
+                        <strong style={{ fontSize: '14px', color: seller === 'Limon' ? '#7e22ce' : '#1d4ed8' }}>
+                          {seller === 'Limon' ? '👤 লিমন (Limon)' : seller === 'Rakib' ? '👤 রাকিব (Rakib)' : 'অনির্দিষ্ট বিক্রেতা'}
+                        </strong>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', background: '#ffffff', border: '1px solid #cbd5e1', fontWeight: 600, color: '#475569' }}>
+                      ক্যাশ ড্রয়ার সমন্বিত
+                    </span>
+                  </div>
+                );
+              })()}
               {viewRecordModal.productId && (() => {
                 const lp = products.find((p) => p.id === viewRecordModal.productId);
                 return (
@@ -9815,6 +10748,7 @@ export default function App() {
           const unitProfit = Math.max(0, sellPrice - avgCost);
           setEntryForm({
             type: 'sale',
+            seller: (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
             title: `${prod.name} বিক্রয়`,
             amount: sellPrice > 0 ? String(sellPrice) : '',
             profit: sellPrice > 0 ? String(unitProfit) : '',
@@ -9949,12 +10883,12 @@ export default function App() {
           onClose={() => setShowCameraSaleModal(false)}
           products={products}
           featureMode="camera"
-          onExecuteSale={async ({ product, quantity, matchMethod }) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            const actorDisplay = currentAdmin?.displayName || 'অ্যাডমিন';
+          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+          onExecuteSale={async ({ product, quantity, matchMethod, seller }) => {
+            const saleSeller: 'Rakib' | 'Limon' = currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib';
+            const actorId = saleSeller;
+            const actorEmail = `${saleSeller.toLowerCase()}@glowzaa.shop`;
+            const actorDisplay = saleSeller === 'Limon' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
 
             const unitPrice = Number(product.sellingPrice) || 0;
             const unitCost = Number(product.averageCost) || 0;
@@ -10025,12 +10959,12 @@ export default function App() {
           onClose={() => setShowDrawingSaleModal(false)}
           products={products}
           featureMode="drawing"
-          onExecuteSale={async ({ product, quantity, matchMethod }) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            const actorDisplay = currentAdmin?.displayName || 'অ্যাডমিন';
+          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+          onExecuteSale={async ({ product, quantity, matchMethod, seller }) => {
+            const saleSeller: 'Rakib' | 'Limon' = currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib';
+            const actorId = saleSeller;
+            const actorEmail = `${saleSeller.toLowerCase()}@glowzaa.shop`;
+            const actorDisplay = saleSeller === 'Limon' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
 
             const unitPrice = Number(product.sellingPrice) || 0;
             const unitCost = Number(product.averageCost) || 0;
@@ -10217,12 +11151,45 @@ function EntryTable({
                             </span>
                           ) : null;
                         })()}
+                        {e.type === 'sale' && (() => {
+                          const s = getEntrySeller(e);
+                          if (s === 'Rakib') {
+                            return (
+                              <span style={{ fontSize: '11px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>
+                                👤 রাকিব
+                              </span>
+                            );
+                          }
+                          if (s === 'Limon') {
+                            return (
+                              <span style={{ fontSize: '11px', background: '#faf5ff', color: '#7e22ce', border: '1px solid #e9d5ff', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>
+                                👤 লিমন
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                         {e.demo && <span className="badge demo">ডেমো</span>}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td>{resolvedPartnerName}</td>
+                <td>
+                  {e.type === 'sale' ? (
+                    (() => {
+                      const s = getEntrySeller(e);
+                      return s === 'Rakib' ? (
+                        <span style={{ color: '#1d4ed8', fontWeight: 600 }}>👤 রাকিব (Rakib)</span>
+                      ) : s === 'Limon' ? (
+                        <span style={{ color: '#7e22ce', fontWeight: 600 }}>👤 লিমন (Limon)</span>
+                      ) : (
+                        <span style={{ color: '#94a3b8' }}>—</span>
+                      );
+                    })()
+                  ) : (
+                    resolvedPartnerName
+                  )}
+                </td>
                 <td className={e.type === 'sale' ? 'positive' : ''}>
                   <div>{money(e.amount)}</div>
                   {e.type === 'sale' && (e.grossProfit !== undefined || e.cogsAmount !== undefined) && (

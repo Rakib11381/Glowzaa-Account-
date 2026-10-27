@@ -511,6 +511,48 @@ function smartFallbackParse(promptText: string, mode: 'single' | 'batch_avg') {
   };
 }
 
+
+const TEXT_MODEL_CASCADE = [
+  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-flash-lite-latest',
+];
+
+async function generateStructuredAiContent(
+  ai: GoogleGenAI,
+  params: {
+    contents: any;
+    config: any;
+  }
+) {
+  let lastError: any = null;
+  for (const model of TEXT_MODEL_CASCADE) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: params.contents,
+        config: params.config,
+      });
+      return response;
+    } catch (err: any) {
+      lastError = err;
+      const status = Number(err?.status || err?.code) || 0;
+      const msg = String(err?.message || '');
+      const isRateLimit = status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded');
+      if (isRateLimit) {
+        console.warn(`[AI Text Model] ${model} rate limit/quota reached (429), trying next fallback model...`);
+        continue;
+      }
+      if (status === 404 || msg.includes('404') || msg.includes('not found')) {
+        console.warn(`[AI Text Model] ${model} not found (404), trying next fallback model...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '12mb' }));
@@ -585,8 +627,7 @@ Rules:
 8. 'summaryBn' must be a short 1-sentence Bengali explanation of what was auto-filled.`,
         });
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
+        const response = await generateStructuredAiContent(ai, {
           contents: { parts },
           config: {
             responseMimeType: 'application/json',
@@ -665,8 +706,7 @@ Rules:
 9. 'summaryBn': A short 1-sentence helpful Bengali summary explaining what was filled (including any unit cost division done).`,
       });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+      const response = await generateStructuredAiContent(ai, {
         contents: { parts },
         config: {
           responseMimeType: 'application/json',
@@ -717,8 +757,15 @@ Rules:
         reason: parsed.reason || `নতুন পণ্য (${finalName}) সংযোজন`,
         summaryBn: parsed.summaryBn || 'এআই স্বয়ংক্রিয়ভাবে পণ্যের সব ঘর পূরণ করেছে।',
       });
-    } catch (error) {
-      console.error('AI parse-product error, using smart fallback:', error);
+    } catch (error: any) {
+      const status = Number(error?.status || error?.code) || 0;
+      const msg = String(error?.message || '');
+      const isQuota = status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota');
+      if (isQuota) {
+        console.warn('AI parse-product: Gemini API quota exceeded (429), smoothly using local Bengali smart fallback.');
+      } else {
+        console.warn('AI parse-product: API unavailable, using local smart fallback:', msg || error);
+      }
       return res.json(smartFallbackParse(prompt, mode));
     }
   });
@@ -1016,8 +1063,7 @@ Instructions by formType:
 Always return a helpful 1-sentence Bengali summary in 'summaryBn' confirming what was filled.`,
       });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+      const response = await generateStructuredAiContent(ai, {
         contents: { parts },
         config: {
           responseMimeType: 'application/json',
@@ -1087,8 +1133,15 @@ Always return a helpful 1-sentence Bengali summary in 'summaryBn' confirming wha
         summaryBn: parsed.summaryBn || fallback.summaryBn || '✨ ভয়েস থেকে স্বয়ংক্রিয়ভাবে ফর্মের ঘরগুলো পূরণ করা হয়েছে।',
         fields: mergedFields,
       });
-    } catch (error) {
-      console.error('AI parse-entry-form error, using smart fallback:', error);
+    } catch (error: any) {
+      const status = Number(error?.status || error?.code) || 0;
+      const msg = String(error?.message || '');
+      const isQuota = status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota');
+      if (isQuota) {
+        console.warn('AI parse-entry-form: Gemini API quota exceeded (429), smoothly using local Bengali smart fallback.');
+      } else {
+        console.warn('AI parse-entry-form: API unavailable, using local smart fallback:', msg || error);
+      }
       return res.json(smartFallbackEntryForm(formType, prompt, products, investors));
     }
   });
@@ -1493,8 +1546,7 @@ INSTRUCTIONS FOR CALCULATION:
    - Compute the exact "mainResult", "mainResultLabel", "expression", "summaryBn", and "stepsBn" in Bengali.`,
       });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+      const response = await generateStructuredAiContent(ai, {
         contents: { parts },
         config: {
           responseMimeType: 'application/json',
@@ -1566,8 +1618,15 @@ INSTRUCTIONS FOR CALCULATION:
             : dynFallback.stepsBn,
         metrics: dynFallback.metrics,
       });
-    } catch (error) {
-      console.error('AI calculate error, using smart fallback:', error);
+    } catch (error: any) {
+      const status = Number(error?.status || error?.code) || 0;
+      const msg = String(error?.message || '');
+      const isQuota = status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota');
+      if (isQuota) {
+        console.warn('AI calculate: Gemini API quota exceeded (429), smoothly using local smart arithmetic fallback.');
+      } else {
+        console.warn('AI calculate: API unavailable, using local smart fallback:', msg || error);
+      }
       return res.json(
         smartFallbackCalculate(cleanPrompt || '২৪০ টাকা ডজন কিনে ৩০ টাকা পিস বিক্রি')
       );

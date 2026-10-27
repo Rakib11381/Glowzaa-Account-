@@ -4,6 +4,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  Lock,
   Edit3,
   Eraser,
   Music,
@@ -40,6 +41,7 @@ export interface CameraSaleLogItem {
   profitAmount: number;
   timestamp: string;
   matchMethod: 'ai_vision' | 'barcode' | 'visual_hash' | 'quick_tap';
+  seller?: 'Rakib' | 'Limon';
 }
 
 interface CameraAutoSaleModalProps {
@@ -47,10 +49,12 @@ interface CameraAutoSaleModalProps {
   onClose: () => void;
   products: Product[];
   featureMode?: 'camera' | 'drawing';
+  initialSeller?: 'Rakib' | 'Limon';
   onExecuteSale: (params: {
     product: Product;
     quantity: number;
     matchMethod: 'ai_vision' | 'barcode' | 'visual_hash' | 'quick_tap';
+    seller: 'Rakib' | 'Limon';
   }) => Promise<string | void>;
   onUndoSale?: (entryId: string, product: Product, quantity: number) => Promise<void>;
   onUpdateProductSku?: (product: Product, newSku: string) => Promise<void>;
@@ -324,10 +328,15 @@ export default function CameraAutoSaleModal({
   onClose,
   products,
   featureMode = 'camera',
+  initialSeller = 'Rakib',
   onExecuteSale,
   onUndoSale,
   onUpdateProductSku,
 }: CameraAutoSaleModalProps) {
+  const [selectedSeller, setSelectedSeller] = useState<'Rakib' | 'Limon'>(initialSeller || 'Rakib');
+  useEffect(() => {
+    if (initialSeller) setSelectedSeller(initialSeller);
+  }, [initialSeller]);
   const isDrawingFeature = featureMode === 'drawing';
   const inputTab: 'camera' | 'drawing' = isDrawingFeature ? 'drawing' : 'camera';
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -765,6 +774,7 @@ export default function CameraAutoSaleModal({
         second: '2-digit',
       }),
       matchMethod,
+      seller: selectedSeller,
     };
     setSaleLogs((prev) => [optimisticLogItem, ...prev]);
     setScanStatusText(
@@ -779,6 +789,7 @@ export default function CameraAutoSaleModal({
       product,
       quantity: cleanQty,
       matchMethod,
+      seller: selectedSeller,
     })
       .then((createdEntryId) => {
         if (typeof createdEntryId === 'string') {
@@ -1773,7 +1784,7 @@ export default function CameraAutoSaleModal({
               flexShrink: 0,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 onClick={() => setAutoPostMode((prev) => !prev)}
@@ -1796,6 +1807,35 @@ export default function CameraAutoSaleModal({
                 <CheckCircle2 size={12} />
                 <span>{autoPostMode ? 'অটো সেল কনফার্ম: ON' : 'ম্যানুয়াল কনফার্ম'}</span>
               </button>
+
+              {/* LOCKED LOGGED-IN SELLER BADGE (No buttons - strict account isolation) */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: selectedSeller === 'Limon' ? 'rgba(124, 58, 237, 0.2)' : 'rgba(2, 132, 199, 0.2)',
+                  padding: '3px 10px',
+                  borderRadius: '8px',
+                  border: selectedSeller === 'Limon' ? '1.5px solid #a855f7' : '1.5px solid #38bdf8',
+                }}
+                title={`লগইন অ্যাকাউন্ট: ${selectedSeller === 'Limon' ? 'লিমন (Limon)' : 'রাকিব (Rakib)'} — শুধুমাত্র আপনার নামেই সেল এন্ট্রি হবে`}
+              >
+                <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 700 }}>বিক্রেতা:</span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    color: selectedSeller === 'Limon' ? '#e9d5ff' : '#bae6fd',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <Lock size={11} style={{ opacity: 0.9 }} />
+                  {selectedSeller === 'Limon' ? '👤 লিমন' : '👤 রাকিব'}
+                </span>
+              </div>
             </div>
 
             <div
@@ -3194,9 +3234,26 @@ export default function CameraAutoSaleModal({
                             ({money(log.totalAmount)})
                           </span>
                         </div>
-                        <small style={{ color: '#94a3b8', fontSize: '10.5px' }}>
-                          সময়: {log.timestamp}
-                        </small>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                          <small style={{ color: '#94a3b8', fontSize: '10.5px' }}>
+                            সময়: {log.timestamp}
+                          </small>
+                          {log.seller && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                color: log.seller === 'Rakib' ? '#38bdf8' : '#c084fc',
+                                background: log.seller === 'Rakib' ? 'rgba(2, 132, 199, 0.2)' : 'rgba(124, 58, 237, 0.2)',
+                                border: `1px solid ${log.seller === 'Rakib' ? 'rgba(56, 189, 248, 0.4)' : 'rgba(192, 132, 252, 0.4)'}`,
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                              }}
+                            >
+                              👤 {log.seller === 'Rakib' ? 'রাকিব' : 'লিমন'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

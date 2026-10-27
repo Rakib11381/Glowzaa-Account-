@@ -325,24 +325,32 @@ function clientFallbackEntryForm(
     loan: 'বিশেষ লোন',
   };
 
+  const detectedSeller =
+    normalized.includes('লিমন') || normalized.toLowerCase().includes('limon')
+      ? 'Limon'
+      : normalized.includes('রাকিব') || normalized.toLowerCase().includes('rakib')
+      ? 'Rakib'
+      : undefined;
+
   return {
-    summaryBn: `✨ ভয়েস অনুযায়ী "${defaultTitles[type]}"${amount > 0 ? ` (মোট ৳${toBnDigits(amount)})` : ''} ফর্মের ঘরে বসানো হয়েছে!`,
-    fields: {
-      type,
-      title: defaultTitles[type],
-      productId: matchedProduct?.id || '',
-      investorId: matchedInvestor?.id || '',
-      quantity: quantity > 0 ? quantity : '',
-      unitPrice: unitPrice > 0 ? unitPrice : '',
-      unitCost: unitCost > 0 ? unitCost : '',
-      amount: amount > 0 ? amount : '',
-      cost: cost > 0 ? cost : '',
-      profit: profit !== 0 ? profit : '',
-      category: defaultCategories[type],
-      notes: rawPrompt,
-      reason: rawPrompt || defaultTitles[type],
-    },
-  };
+      summaryBn: `✨ ভয়েস অনুযায়ী "${defaultTitles[type]}"${amount > 0 ? ` (মোট ৳${toBnDigits(amount)})` : ''}${detectedSeller ? ` [বিক্রেতা: ${detectedSeller === 'Limon' ? 'লিমন' : 'রাকিব'}]` : ''} ফর্মের ঘরে বসানো হয়েছে!`,
+      fields: {
+        type,
+        title: defaultTitles[type],
+        productId: matchedProduct?.id || '',
+        investorId: matchedInvestor?.id || '',
+        quantity: quantity > 0 ? quantity : '',
+        unitPrice: unitPrice > 0 ? unitPrice : '',
+        unitCost: unitCost > 0 ? unitCost : '',
+        amount: amount > 0 ? amount : '',
+        cost: cost > 0 ? cost : '',
+        profit: profit !== 0 ? profit : '',
+        category: defaultCategories[type],
+        seller: detectedSeller,
+        notes: rawPrompt,
+        reason: rawPrompt || defaultTitles[type],
+      },
+    };
 }
 
 export default function VoiceFormAssistant({

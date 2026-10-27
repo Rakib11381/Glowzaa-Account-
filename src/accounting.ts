@@ -1040,3 +1040,288 @@ export function calculateProductProfitabilityReport(
     unlinkedSalesCount: unlinkedCount,
   };
 }
+
+export function getEntrySeller(entry: Entry): 'Rakib' | 'Limon' | 'other' {
+  if (entry.seller === 'Rakib' || entry.seller === 'Limon') {
+    return entry.seller;
+  }
+  const creator = (entry.createdBy || '').toLowerCase();
+  if (creator === 'limon' || creator.includes('limon')) return 'Limon';
+  if (creator === 'rakib' || creator.includes('rakib')) return 'Rakib';
+
+  const notes = (entry.notes || '').toLowerCase();
+  if (notes.includes('বিক্রেতা: লিমন') || notes.includes('(লিমন)') || notes.includes('limon') || notes.includes('লিমন')) return 'Limon';
+  if (notes.includes('বিক্রেতা: রাকিব') || notes.includes('(রাকিব)') || notes.includes('rakib') || notes.includes('রাকিব')) return 'Rakib';
+
+  const title = (entry.title || '').toLowerCase();
+  if (title.includes('লিমন') || title.includes('limon')) return 'Limon';
+  if (title.includes('রাকিব') || title.includes('rakib')) return 'Rakib';
+
+  return 'other';
+}
+
+export interface SellerSalesSummary {
+  rakib: {
+    totalSales: number;
+    salesCount: number;
+    grossProfit: number;
+    todaySales: number;
+    todayCount: number;
+    sharePercent: number;
+  };
+  limon: {
+    totalSales: number;
+    salesCount: number;
+    grossProfit: number;
+    todaySales: number;
+    todayCount: number;
+    sharePercent: number;
+  };
+  other: {
+    totalSales: number;
+    salesCount: number;
+    grossProfit: number;
+  };
+  totalSales: number;
+  totalSalesCount: number;
+  totalGrossProfit: number;
+  difference: number;
+  leader: 'Rakib' | 'Limon' | 'equal';
+}
+
+export function calculateSellerSalesSummary(entries: Entry[], todayDate?: string): SellerSalesSummary {
+  const currentToday = todayDate || new Date().toISOString().slice(0, 10);
+  const postedSales = entries.filter((e) => e.status === 'posted' && e.type === 'sale');
+
+  let rakibSalesPaisa = 0;
+  let rakibCount = 0;
+  let rakibProfitPaisa = 0;
+  let rakibTodaySalesPaisa = 0;
+  let rakibTodayCount = 0;
+
+  let limonSalesPaisa = 0;
+  let limonCount = 0;
+  let limonProfitPaisa = 0;
+  let limonTodaySalesPaisa = 0;
+  let limonTodayCount = 0;
+
+  let otherSalesPaisa = 0;
+  let otherCount = 0;
+  let otherProfitPaisa = 0;
+
+  for (const s of postedSales) {
+    const seller = getEntrySeller(s);
+    const amtPaisa = toPaisa(s.amount);
+    const profitVal =
+      s.grossProfit !== undefined && !isNaN(Number(s.grossProfit))
+        ? Number(s.grossProfit)
+        : s.profit !== undefined && !isNaN(Number(s.profit))
+        ? Number(s.profit)
+        : s.cogsAmount !== undefined && !isNaN(Number(s.cogsAmount))
+        ? Math.max(0, s.amount - Number(s.cogsAmount))
+        : 0;
+    const profitPaisa = toPaisa(profitVal);
+    const isToday = s.date === currentToday;
+
+    if (seller === 'Rakib') {
+      rakibSalesPaisa += amtPaisa;
+      rakibCount += 1;
+      rakibProfitPaisa += profitPaisa;
+      if (isToday) {
+        rakibTodaySalesPaisa += amtPaisa;
+        rakibTodayCount += 1;
+      }
+    } else if (seller === 'Limon') {
+      limonSalesPaisa += amtPaisa;
+      limonCount += 1;
+      limonProfitPaisa += profitPaisa;
+      if (isToday) {
+        limonTodaySalesPaisa += amtPaisa;
+        limonTodayCount += 1;
+      }
+    } else {
+      otherSalesPaisa += amtPaisa;
+      otherCount += 1;
+      otherProfitPaisa += profitPaisa;
+    }
+  }
+
+  const totalSalesPaisa = rakibSalesPaisa + limonSalesPaisa + otherSalesPaisa;
+  const totalSales = fromPaisa(totalSalesPaisa);
+  const rakibTotal = fromPaisa(rakibSalesPaisa);
+  const limonTotal = fromPaisa(limonSalesPaisa);
+
+  const rakibShare = totalSalesPaisa > 0 ? Number(((rakibSalesPaisa / totalSalesPaisa) * 100).toFixed(1)) : 0;
+  const limonShare = totalSalesPaisa > 0 ? Number(((limonSalesPaisa / totalSalesPaisa) * 100).toFixed(1)) : 0;
+
+  const diffPaisa = Math.abs(rakibSalesPaisa - limonSalesPaisa);
+  const leader: 'Rakib' | 'Limon' | 'equal' =
+    rakibSalesPaisa > limonSalesPaisa ? 'Rakib' : limonSalesPaisa > rakibSalesPaisa ? 'Limon' : 'equal';
+
+  return {
+    rakib: {
+      totalSales: rakibTotal,
+      salesCount: rakibCount,
+      grossProfit: fromPaisa(rakibProfitPaisa),
+      todaySales: fromPaisa(rakibTodaySalesPaisa),
+      todayCount: rakibTodayCount,
+      sharePercent: rakibShare,
+    },
+    limon: {
+      totalSales: limonTotal,
+      salesCount: limonCount,
+      grossProfit: fromPaisa(limonProfitPaisa),
+      todaySales: fromPaisa(limonTodaySalesPaisa),
+      todayCount: limonTodayCount,
+      sharePercent: limonShare,
+    },
+    other: {
+      totalSales: fromPaisa(otherSalesPaisa),
+      salesCount: otherCount,
+      grossProfit: fromPaisa(otherProfitPaisa),
+    },
+    totalSales,
+    totalSalesCount: postedSales.length,
+    totalGrossProfit: fromPaisa(rakibProfitPaisa + limonProfitPaisa + otherProfitPaisa),
+    difference: fromPaisa(diffPaisa),
+    leader,
+  };
+}
+
+export interface DailySellerSale {
+  date: string;
+  isToday: boolean;
+  isYesterday: boolean;
+  rakib: {
+    totalSales: number;
+    salesCount: number;
+    grossProfit: number;
+    entries: Entry[];
+  };
+  limon: {
+    totalSales: number;
+    salesCount: number;
+    grossProfit: number;
+    entries: Entry[];
+  };
+  other: {
+    totalSales: number;
+    salesCount: number;
+    grossProfit: number;
+    entries: Entry[];
+  };
+  totalSales: number;
+  totalSalesCount: number;
+  totalGrossProfit: number;
+  difference: number;
+  leader: 'Rakib' | 'Limon' | 'equal';
+  entries: Entry[];
+}
+
+export function calculateDailySellerSales(
+  entries: Entry[],
+  todayStr: string,
+  yesterdayStr: string
+): DailySellerSale[] {
+  const postedSales = entries.filter((e) => e.status === 'posted' && e.type === 'sale');
+  const dateMap = new Map<string, Entry[]>();
+
+  for (const s of postedSales) {
+    const d = s.date || todayStr;
+    const list = dateMap.get(d) || [];
+    list.push(s);
+    dateMap.set(d, list);
+  }
+
+  // Ensure today is included even if 0 sales yet
+  if (!dateMap.has(todayStr)) {
+    dateMap.set(todayStr, []);
+  }
+
+  const sortedDates = Array.from(dateMap.keys()).sort((a, b) => b.localeCompare(a));
+
+  return sortedDates.map((date) => {
+    const dayEntries = dateMap.get(date) || [];
+    let rakibSalesPaisa = 0;
+    let rakibCount = 0;
+    let rakibProfitPaisa = 0;
+    const rakibEntries: Entry[] = [];
+
+    let limonSalesPaisa = 0;
+    let limonCount = 0;
+    let limonProfitPaisa = 0;
+    const limonEntries: Entry[] = [];
+
+    let otherSalesPaisa = 0;
+    let otherCount = 0;
+    let otherProfitPaisa = 0;
+    const otherEntries: Entry[] = [];
+
+    for (const s of dayEntries) {
+      const seller = getEntrySeller(s);
+      const amtPaisa = toPaisa(s.amount);
+      const profitVal =
+        s.grossProfit !== undefined && !isNaN(Number(s.grossProfit))
+          ? Number(s.grossProfit)
+          : s.profit !== undefined && !isNaN(Number(s.profit))
+          ? Number(s.profit)
+          : s.cogsAmount !== undefined && !isNaN(Number(s.cogsAmount))
+          ? Math.max(0, s.amount - Number(s.cogsAmount))
+          : 0;
+      const profitPaisa = toPaisa(profitVal);
+
+      if (seller === 'Rakib') {
+        rakibSalesPaisa += amtPaisa;
+        rakibCount += 1;
+        rakibProfitPaisa += profitPaisa;
+        rakibEntries.push(s);
+      } else if (seller === 'Limon') {
+        limonSalesPaisa += amtPaisa;
+        limonCount += 1;
+        limonProfitPaisa += profitPaisa;
+        limonEntries.push(s);
+      } else {
+        otherSalesPaisa += amtPaisa;
+        otherCount += 1;
+        otherProfitPaisa += profitPaisa;
+        otherEntries.push(s);
+      }
+    }
+
+    const totalSalesPaisa = rakibSalesPaisa + limonSalesPaisa + otherSalesPaisa;
+    const totalProfitPaisa = rakibProfitPaisa + limonProfitPaisa + otherProfitPaisa;
+    const diffPaisa = Math.abs(rakibSalesPaisa - limonSalesPaisa);
+    const leader: 'Rakib' | 'Limon' | 'equal' =
+      rakibSalesPaisa > limonSalesPaisa ? 'Rakib' : limonSalesPaisa > rakibSalesPaisa ? 'Limon' : 'equal';
+
+    return {
+      date,
+      isToday: date === todayStr,
+      isYesterday: date === yesterdayStr,
+      rakib: {
+        totalSales: fromPaisa(rakibSalesPaisa),
+        salesCount: rakibCount,
+        grossProfit: fromPaisa(rakibProfitPaisa),
+        entries: rakibEntries,
+      },
+      limon: {
+        totalSales: fromPaisa(limonSalesPaisa),
+        salesCount: limonCount,
+        grossProfit: fromPaisa(limonProfitPaisa),
+        entries: limonEntries,
+      },
+      other: {
+        totalSales: fromPaisa(otherSalesPaisa),
+        salesCount: otherCount,
+        grossProfit: fromPaisa(otherProfitPaisa),
+        entries: otherEntries,
+      },
+      totalSales: fromPaisa(totalSalesPaisa),
+      totalSalesCount: dayEntries.length,
+      totalGrossProfit: fromPaisa(totalProfitPaisa),
+      difference: fromPaisa(diffPaisa),
+      leader,
+      entries: dayEntries,
+    };
+  });
+}

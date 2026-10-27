@@ -45,6 +45,7 @@ export interface Entry {
   profit?: number; // Direct profit amount (alias for grossProfit)
   category?: string;
   notes?: string;
+  seller?: 'Rakib' | 'Limon';
   demo?: boolean;
   createdAt?: any;
   createdBy?: string;
