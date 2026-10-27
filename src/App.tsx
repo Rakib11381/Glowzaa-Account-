@@ -45,6 +45,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Tag,
   Trash2,
   User as UserIcon,
   Users,
@@ -281,7 +282,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState<boolean>(true);
 
   const [adminUsernameInput, setAdminUsernameInput] = useState<string>('Rakib');
-  const [adminPasswordInput, setAdminPasswordInput] = useState<string>('G120');
+  const [adminPasswordInput, setAdminPasswordInput] = useState<string>('');
   const [showAdminPass, setShowAdminPass] = useState(false);
   const [adminPasswords, setAdminPasswords] = useState<{ rakib: string; limon: string }>({
     rakib: 'G120',
@@ -870,7 +871,7 @@ export default function App() {
       const expectedPassword = fresh[adminKey];
 
       if (adminPasswordInput !== expectedPassword) {
-        throw new Error('ভুল পাসওয়ার্ড! সঠিক পাসওয়ার্ড দিন। (প্রাথমিক পাসওয়ার্ড: G120)');
+        throw new Error('ভুল পাসওয়ার্ড! অনুগ্রহ করে আপনার সঠিক গোপন পাসওয়ার্ড দিন।');
       }
 
       if (auth && !auth.currentUser) {
@@ -887,6 +888,8 @@ export default function App() {
         role: 'admin' as const,
       };
 
+      setAdminPasswordInput('');
+      setShowAdminPass(false);
       setCurrentAdmin(adminProfile);
       localStorage.setItem('glowzaa_current_admin', JSON.stringify(adminProfile));
 
@@ -902,6 +905,9 @@ export default function App() {
 
   function handleAdminLogout() {
     setCurrentAdmin(null);
+    setAdminPasswordInput('');
+    setShowAdminPass(false);
+    setError('');
     localStorage.removeItem('glowzaa_current_admin');
     if (auth) {
       signOut(auth).catch(() => {});
@@ -2869,7 +2875,9 @@ export default function App() {
               className={`admin-chip-btn ${adminUsernameInput.toLowerCase() === 'rakib' ? 'selected' : ''}`}
               onClick={() => {
                 setAdminUsernameInput('Rakib');
-                setAdminPasswordInput(adminPasswords.rakib || 'G120');
+                setAdminPasswordInput('');
+                setShowAdminPass(false);
+                setError('');
               }}
             >
               <ShieldCheck size={18} />
@@ -2882,7 +2890,9 @@ export default function App() {
               className={`admin-chip-btn ${adminUsernameInput.toLowerCase() === 'limon' ? 'selected' : ''}`}
               onClick={() => {
                 setAdminUsernameInput('Limon');
-                setAdminPasswordInput(adminPasswords.limon || 'G120');
+                setAdminPasswordInput('');
+                setShowAdminPass(false);
+                setError('');
               }}
             >
               <ShieldCheck size={18} />
@@ -2891,15 +2901,20 @@ export default function App() {
             </button>
           </div>
 
-          <form onSubmit={handleAdminLogin} style={{ display: 'grid', gap: '14px', width: '100%' }}>
+          <form onSubmit={handleAdminLogin} autoComplete="off" style={{ display: 'grid', gap: '14px', width: '100%' }}>
             <label style={{ textAlign: 'left' }}>
               ইউজার নেম / অ্যাডমিন আইডি:
               <input
                 type="text"
                 required
+                autoComplete="off"
                 value={adminUsernameInput}
                 placeholder="User: Rakib অথবা Limon"
-                onChange={(e) => setAdminUsernameInput(e.target.value)}
+                onChange={(e) => {
+                  setAdminUsernameInput(e.target.value);
+                  setAdminPasswordInput('');
+                  setShowAdminPass(false);
+                }}
               />
             </label>
 
@@ -2909,8 +2924,9 @@ export default function App() {
                 <input
                   type={showAdminPass ? 'text' : 'password'}
                   required
+                  autoComplete="new-password"
                   value={adminPasswordInput}
-                  placeholder="পাসওয়ার্ড দিন (প্রাথমিক: G120)"
+                  placeholder="আপনার গোপন পাসওয়ার্ড লিখুন"
                   onChange={(e) => setAdminPasswordInput(e.target.value)}
                 />
                 <button
@@ -2937,7 +2953,7 @@ export default function App() {
           </form>
 
           <small style={{ color: '#64748b', fontSize: '11.5px', textAlign: 'center', lineHeight: 1.5, background: '#f8fafc', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            🔑 <b>লগইন তথ্য:</b> Rakib এর পাসওয়ার্ড <b>G120</b> | Limon এর পাসওয়ার্ড <b>G120</b>। লগইনের পর প্রোফাইল থেকে নিজের পাসওয়ার্ড পরিবর্তন করা যাবে।
+            🔒 <b>গোপনীয়তা সুরক্ষিত:</b> প্রত্যেক অ্যাডমিনের পাসওয়ার্ড সম্পূর্ণ গোপন ও ব্যক্তিগত। নিজের পাসওয়ার্ড নিজে টাইপ করে লগইন করুন।
           </small>
         </div>
       </div>
@@ -9447,7 +9463,7 @@ export default function App() {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))',
                   gap: '6px',
                   background: '#f1f5f9',
                   padding: '5px',
@@ -9458,18 +9474,21 @@ export default function App() {
                   type="button"
                   onClick={() => setNotifTab('pending_for_me')}
                   style={{
-                    padding: '8px 6px',
+                    padding: '7px 6px',
                     borderRadius: '8px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '11.5px',
                     fontWeight: 700,
+                    lineHeight: 1.25,
+                    textAlign: 'center',
                     cursor: 'pointer',
                     background: notifTab === 'pending_for_me' ? '#0d9488' : 'transparent',
                     color: notifTab === 'pending_for_me' ? '#ffffff' : '#475569',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '5px',
+                    flexWrap: 'wrap',
+                    gap: '4px',
                   }}
                 >
                   <span>অনুমোদন বাকি</span>
@@ -9479,7 +9498,7 @@ export default function App() {
                       color: notifTab === 'pending_for_me' ? '#0d9488' : pendingForMeList.length > 0 ? '#ffffff' : '#334155',
                       borderRadius: '999px',
                       padding: '1px 6px',
-                      fontSize: '11px',
+                      fontSize: '10.5px',
                       fontWeight: 800,
                     }}
                   >
@@ -9491,35 +9510,43 @@ export default function App() {
                   type="button"
                   onClick={() => setNotifTab('recent_activity')}
                   style={{
-                    padding: '8px 6px',
+                    padding: '7px 6px',
                     borderRadius: '8px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '11.5px',
                     fontWeight: 700,
+                    lineHeight: 1.25,
+                    textAlign: 'center',
                     cursor: 'pointer',
                     background: notifTab === 'recent_activity' ? '#0d9488' : 'transparent',
                     color: notifTab === 'recent_activity' ? '#ffffff' : '#475569',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  সাম্প্রতিক নোটিফিকেশন
+                  <span>সাম্প্রতিক নোটিফিকেশন</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setNotifTab('my_sent')}
                   style={{
-                    padding: '8px 6px',
+                    padding: '7px 6px',
                     borderRadius: '8px',
                     border: 'none',
-                    fontSize: '12px',
+                    fontSize: '11.5px',
                     fontWeight: 700,
+                    lineHeight: 1.25,
+                    textAlign: 'center',
                     cursor: 'pointer',
                     background: notifTab === 'my_sent' ? '#0d9488' : 'transparent',
                     color: notifTab === 'my_sent' ? '#ffffff' : '#475569',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '5px',
+                    flexWrap: 'wrap',
+                    gap: '4px',
                   }}
                 >
                   <span>পাঠানো অনুরোধ</span>
@@ -9530,7 +9557,7 @@ export default function App() {
                         color: notifTab === 'my_sent' ? '#0d9488' : '#ffffff',
                         borderRadius: '999px',
                         padding: '1px 6px',
-                        fontSize: '11px',
+                        fontSize: '10.5px',
                         fontWeight: 800,
                       }}
                     >
@@ -10786,18 +10813,20 @@ export default function App() {
           aria-label="ড্রইং প্যাড অটো-সেল"
           style={{
             position: 'fixed',
-            right: '16px',
+            right: '14px',
             bottom:
               settings.showCalculator !== false
                 ? settings.enableCameraScan !== false
                   ? '192px'
                   : '138px'
                 : settings.enableCameraScan !== false
-                ? '136px'
-                : '82px',
-            zIndex: 1150,
-            width: '46px',
-            height: '46px',
+                ? '138px'
+                : '84px',
+            zIndex: 940,
+            width: '44px',
+            height: '44px',
+            minHeight: '44px',
+            padding: 0,
             borderRadius: '50%',
             background: 'linear-gradient(135deg, #2563eb, #0284c7)',
             color: '#ffffff',
@@ -10809,7 +10838,7 @@ export default function App() {
             cursor: 'pointer',
           }}
         >
-          <PenTool size={19} />
+          <PenTool size={18} />
         </button>
       )}
 
@@ -10821,11 +10850,13 @@ export default function App() {
           aria-label="লাইভ ক্যামেরা অটো-সেল"
           style={{
             position: 'fixed',
-            right: '16px',
-            bottom: settings.showCalculator !== false ? '138px' : '82px',
-            zIndex: 1150,
-            width: '46px',
-            height: '46px',
+            right: '14px',
+            bottom: settings.showCalculator !== false ? '138px' : '84px',
+            zIndex: 940,
+            width: '44px',
+            height: '44px',
+            minHeight: '44px',
+            padding: 0,
             borderRadius: '50%',
             background: 'linear-gradient(135deg, #059669, #0284c7)',
             color: '#ffffff',
@@ -10837,7 +10868,7 @@ export default function App() {
             cursor: 'pointer',
           }}
         >
-          <Camera size={20} />
+          <Camera size={19} />
         </button>
       )}
 
@@ -10884,7 +10915,7 @@ export default function App() {
           products={products}
           featureMode="camera"
           initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
-          onExecuteSale={async ({ product, quantity, matchMethod, seller }) => {
+          onExecuteSale={async ({ product, quantity, matchMethod }) => {
             const saleSeller: 'Rakib' | 'Limon' = currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib';
             const actorId = saleSeller;
             const actorEmail = `${saleSeller.toLowerCase()}@glowzaa.shop`;
@@ -10960,7 +10991,7 @@ export default function App() {
           products={products}
           featureMode="drawing"
           initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
-          onExecuteSale={async ({ product, quantity, matchMethod, seller }) => {
+          onExecuteSale={async ({ product, quantity, matchMethod }) => {
             const saleSeller: 'Rakib' | 'Limon' = currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib';
             const actorId = saleSeller;
             const actorEmail = `${saleSeller.toLowerCase()}@glowzaa.shop`;

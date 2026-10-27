@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Sparkles,
   Tag,
+  Trash2,
   Volume2,
   VolumeX,
   X,
@@ -358,7 +359,7 @@ export default function CameraAutoSaleModal({
   const [savingSkuId, setSavingSkuId] = useState<string | null>(null);
   const [scanStatusText, setScanStatusText] = useState<string>(
     isDrawingFeature
-      ? '🏷️ নিচে সরাসরি SKU কোড (A–Z / AA–GZ) লিখুন বা প্রডাক্টে ট্যাপ করে তাৎক্ষণিক সেল করুন'
+      ? '🏷️ নিচে সরাসরি SKU কোড (A-Z / AA-GZ) লিখুন বা প্রডাক্টে ট্যাপ করে তাৎক্ষণিক সেল করুন'
       : '🏷️ ক্যামেরার বক্সের ভেতরে প্রডাক্টের SKU কোড (A-Z / AA-GZ) ধরুন — ১ সেকেন্ডে অটো-সেল হবে'
   );
   const [pendingProduct, setPendingProduct] = useState<{
@@ -723,15 +724,15 @@ export default function CameraAutoSaleModal({
   ) {
     if (isPostingSale) return;
     const cleanQty = qtyToSell > 0 ? qtyToSell : 1;
+    const prodIndex = productsRef.current.findIndex((p) => p.id === product.id);
+    const effectiveSku =
+      matchedSkuCode || getEffectiveProductSku(product, prodIndex >= 0 ? prodIndex : 0);
+
     const unitPrice = Number(product.sellingPrice) || 0;
     const unitCost = Number(product.averageCost) || 0;
     const totalAmount = Math.round(cleanQty * unitPrice * 100) / 100;
     const totalCost = Math.round(cleanQty * unitCost * 100) / 100;
     const profitAmount = Math.round((totalAmount - totalCost) * 100) / 100;
-
-    const prodIndex = productsRef.current.findIndex((p) => p.id === product.id);
-    const effectiveSku =
-      matchedSkuCode || getEffectiveProductSku(product, prodIndex >= 0 ? prodIndex : 0);
 
     // 0.85s cooldown so back-to-back scans are super fast while preventing double-trigger
     cooldownUntilRef.current = Date.now() + 850;
@@ -778,9 +779,9 @@ export default function CameraAutoSaleModal({
     };
     setSaleLogs((prev) => [optimisticLogItem, ...prev]);
     setScanStatusText(
-      `✅ SKU "${effectiveSku}" ১০০% ম্যাচ ও সেল সম্পন্ন: ${toBengaliNumerals(cleanQty)} ${
+      `✅ SKU "${effectiveSku}" সেল সম্পন্ন: ${toBengaliNumerals(cleanQty)} ${
         product.unit || 'পিস'
-      } ${product.name} (${money(totalAmount)})`
+      } ${product.name} — ${money(totalAmount)}`
     );
     setPendingProduct(null);
 
@@ -1033,15 +1034,15 @@ export default function CameraAutoSaleModal({
     if (!strictCode) {
       playScannerSound('undo');
       setScanStatusText(
-        `❌ "${raw}" অনুমোদিত SKU কোড (A থেকে Z এবং AA থেকে GZ)-এর বাহিরে! অনুগ্রহ করে শুধু A-Z বা AA-GZ কোড ব্যবহার করুন।`
+        `❌ "${raw}" গ্রহণযোগ্য নয়! শুধুমাত্র A থেকে Z (A–Z) অথবা AA থেকে GZ (AA–GZ) এর মধ্যকার SKU কোড ব্যবহার করুন।`
       );
       return;
     }
 
     const hit = matchProductBySkuClient(strictCode, products);
     if (hit) {
-      setManualSkuInput('');
       const qty = Math.max(0.1, Number(defaultQty) || 1);
+      setManualSkuInput('');
       if (autoPostMode) {
         await triggerSaleForProduct(hit.product, qty, 'barcode', hit.matchedSku);
       } else {
@@ -1590,13 +1591,11 @@ export default function CameraAutoSaleModal({
               <h3
                 style={{
                   margin: 0,
-                  fontSize: '14.5px',
+                  fontSize: '13.5px',
                   fontWeight: 800,
                   color: '#ffffff',
                   lineHeight: 1.25,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  wordBreak: 'break-word',
                 }}
               >
                 {isDrawingFeature
@@ -1605,13 +1604,11 @@ export default function CameraAutoSaleModal({
               </h3>
               <p
                 style={{
-                  margin: '1px 0 0',
-                  fontSize: '11px',
+                  margin: '2px 0 0',
+                  fontSize: '10.5px',
                   color: '#e0f2fe',
-                  lineHeight: 1.25,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  lineHeight: 1.3,
+                  wordBreak: 'break-word',
                 }}
               >
                 {isDrawingFeature
@@ -2318,7 +2315,7 @@ export default function CameraAutoSaleModal({
               borderBottom: '1px solid #1e293b',
               display: 'flex',
               flexDirection: 'column',
-              gap: '8px',
+              gap: '10px',
               flexShrink: 0,
             }}
           >
@@ -2399,11 +2396,10 @@ export default function CameraAutoSaleModal({
               </div>
             )}
 
-            {/* Direct Instant SKU Code Entry / Dropdown Selector (Large & Prominent) */}
+            {/* Direct Instant SKU Code Entry / Selector (A..Z, AA..GZ) */}
             {(() => {
-              const typedClean = toStrictAllowedSkuClient(manualSkuInput.trim().toUpperCase());
-              const livePreviewHit = typedClean
-                ? matchProductBySkuClient(typedClean, products)
+              const livePreviewHit = manualSkuInput.trim()
+                ? matchProductBySkuClient(manualSkuInput.trim(), products)
                 : null;
               return (
                 <div
@@ -2458,7 +2454,8 @@ export default function CameraAutoSaleModal({
                           fontWeight: 900,
                         }}
                       >
-                        ✅ {livePreviewHit.matchedSku}: {livePreviewHit.product.name} ({money(Number(livePreviewHit.product.sellingPrice) || 0)})
+                        ✅ {livePreviewHit.matchedSku}: {livePreviewHit.product.name} (
+                        {money(livePreviewHit.product.sellingPrice)})
                       </span>
                     ) : manualSkuInput.trim() ? (
                       <span
@@ -2492,13 +2489,15 @@ export default function CameraAutoSaleModal({
                     style={{
                       display: "flex",
                       alignItems: "stretch",
-                      gap: "9px",
+                      gap: "8px",
+                      width: "100%",
                     }}
                   >
                     <div
                       style={{
                         position: "relative",
                         flex: 1,
+                        minWidth: 0,
                         display: "flex",
                         alignItems: "center",
                       }}
@@ -2506,9 +2505,9 @@ export default function CameraAutoSaleModal({
                       <span
                         style={{
                           position: "absolute",
-                          left: "13px",
+                          left: "10px",
                           pointerEvents: "none",
-                          fontSize: "17px",
+                          fontSize: "15px",
                           lineHeight: 1,
                         }}
                       >
@@ -2519,22 +2518,22 @@ export default function CameraAutoSaleModal({
                         list="allowed-sku-codes-datalist"
                         value={manualSkuInput}
                         onChange={(e) => setManualSkuInput(e.target.value.toUpperCase())}
-                        placeholder="SKU কোড লিখুন (A–Z, AA–GZ)..."
+                        placeholder="SKU কোড (A, B, AB)"
                         autoComplete="off"
                         style={{
                           width: "100%",
-                          height: "52px",
-                          minHeight: "52px",
-                          padding: "0 36px 0 40px",
-                          borderRadius: "13px",
+                          height: "48px",
+                          minHeight: "48px",
+                          padding: manualSkuInput ? "0 34px 0 32px" : "0 10px 0 32px",
+                          borderRadius: "12px",
                           border: livePreviewHit
                             ? "2px solid #10b981"
                             : "2px solid #0d9488",
                           background: "#020617",
                           color: "#ffffff",
-                          fontSize: manualSkuInput ? "18px" : "14.5px",
-                          fontWeight: 900,
-                          letterSpacing: manualSkuInput ? "1.5px" : "0.2px",
+                          fontSize: manualSkuInput ? "17px" : "13px",
+                          fontWeight: 800,
+                          letterSpacing: manualSkuInput ? "1.2px" : "0px",
                           outline: "none",
                           boxShadow:
                             "inset 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 3px rgba(13, 148, 136, 0.15)",
@@ -2548,10 +2547,10 @@ export default function CameraAutoSaleModal({
                           title="মুছে ফেলুন"
                           style={{
                             position: "absolute",
-                            right: "9px",
-                            width: "26px",
-                            height: "26px",
-                            minHeight: "26px",
+                            right: "7px",
+                            width: "24px",
+                            height: "24px",
+                            minHeight: "24px",
                             borderRadius: "50%",
                             border: "1px solid #475569",
                             background: "#1e293b",
@@ -2563,7 +2562,7 @@ export default function CameraAutoSaleModal({
                             justifyContent: "center",
                           }}
                         >
-                          <X size={14} />
+                          <X size={13} />
                         </button>
                       )}
                     </div>
@@ -2572,10 +2571,10 @@ export default function CameraAutoSaleModal({
                       type="submit"
                       disabled={!manualSkuInput.trim() || isPostingSale}
                       style={{
-                        height: "52px",
-                        minHeight: "52px",
-                        padding: "0 20px",
-                        borderRadius: "13px",
+                        height: "48px",
+                        minHeight: "48px",
+                        padding: "0 14px",
+                        borderRadius: "12px",
                         background: manualSkuInput.trim()
                           ? "linear-gradient(135deg, #10b981 0%, #0d9488 100%)"
                           : "#1e293b",
@@ -2583,7 +2582,7 @@ export default function CameraAutoSaleModal({
                         border: manualSkuInput.trim()
                           ? "1.5px solid #34d399"
                           : "1.5px solid #334155",
-                        fontSize: "15px",
+                        fontSize: "13.5px",
                         fontWeight: 900,
                         cursor: manualSkuInput.trim() ? "pointer" : "not-allowed",
                         whiteSpace: "nowrap",
@@ -2591,14 +2590,14 @@ export default function CameraAutoSaleModal({
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        gap: "6px",
+                        gap: "5px",
                         boxShadow: manualSkuInput.trim()
                           ? "0 6px 18px rgba(16, 185, 129, 0.38)"
                           : "none",
                         transition: "all 0.2s ease",
                       }}
                     >
-                      <Zap size={16} />
+                      <Zap size={15} />
                       <span>SKU সেল</span>
                     </button>
                   </form>
@@ -2799,7 +2798,7 @@ export default function CameraAutoSaleModal({
             </div>
           )}
 
-          {/* 7. STOCK PRODUCTS WITH SKU CODES (A-Z / AA-GZ), INLINE SKU SELECTOR & 1-TAP SALE */}
+          {/* 7. STOCK PRODUCTS WITH SKU CODES (A-Z / AA-GZ), INLINE SKU SELECTOR & 1-TAP SALE / CART */}
           <div
             style={{
               padding: '12px 14px',
@@ -2878,11 +2877,11 @@ export default function CameraAutoSaleModal({
                       key={p.id}
                       style={{
                         flexShrink: 0,
-                        width: '172px',
+                        width: '188px',
                         background: '#0f172a',
                         border: `1.5px solid ${inStock ? '#0d9488' : '#475569'}`,
                         borderRadius: '12px',
-                        padding: '8px',
+                        padding: '8px 9px',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',

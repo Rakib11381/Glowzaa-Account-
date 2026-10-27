@@ -7243,7 +7243,7 @@ td b {
 }
 
 @media print {
-  .sidebar, .topbar, .top-actions, .icon-btn, .primary, .secondary, .danger, .filter-bar, .mobile-menu-btn, .mobile-tab-strip, .mobile-bottom-nav, .dash-filter-card, .action-loading-overlay, .brand-popup-backdrop, .welcome-calc-slot, .calc-modal-backdrop {
+  .sidebar, .topbar, .top-actions, .icon-btn, .primary, .secondary, .danger, .filter-bar, .mobile-menu-btn, .mobile-tab-strip, .mobile-bottom-nav, .dash-filter-card, .action-loading-overlay, .brand-popup-backdrop, .welcome-calc-slot, .calc-modal-backdrop, .floating-calc-trigger-btn, button[aria-label="ড্রইং প্যাড অটো-সেল"], button[aria-label="লাইভ ক্যামেরা অটো-সেল"] {
     display: none !important;
   }
   .main {
@@ -7259,5 +7259,235 @@ td b {
   .panel {
     box-shadow: none !important;
     border: 1px solid #ccc !important;
+  }
+}
+
+/* ==========================================================================
+   COMPREHENSIVE UI & LAYOUT AUDIT FIXES (Desktop & Mobile Zero-Clipping)
+   ========================================================================== */
+
+/* 1. Password Input with Eye Toggle Button (Login & Admin Profile) */
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-with-icon input {
+  width: 100% !important;
+  padding-right: 44px !important;
+  box-sizing: border-box;
+}
+
+.toggle-eye-btn {
+  position: absolute !important;
+  right: 6px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 34px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: #64748b !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  z-index: 2;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.toggle-eye-btn:hover,
+.toggle-eye-btn:focus-visible {
+  background: rgba(15, 23, 42, 0.06) !important;
+  color: #0f172a !important;
+  transform: translateY(-50%) !important;
+}
+
+/* 2. Missing .grid-2 and .modal-body .field Support (Waste Modal & Forms) */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.modal-body .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.modal-body .field label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.modal-body .field small {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+@media (max-width: 640px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* 3. Unified Floating Action Buttons Stack & Modal Z-Index Hierarchy */
+.floating-calc-trigger-btn {
+  top: auto !important;
+  bottom: 84px !important;
+  right: 14px !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  padding: 0 !important;
+  z-index: 940 !important;
+}
+
+button[aria-label="ড্রইং প্যাড অটো-সেল"],
+button[aria-label="লাইভ ক্যামেরা অটো-সেল"] {
+  right: 14px !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  padding: 0 !important;
+  z-index: 940 !important;
+}
+
+.calc-modal-backdrop {
+  z-index: 9995 !important;
+}
+
+.modal-backdrop {
+  z-index: 9999 !important;
+}
+
+/* 4. Prevent Button & Toolbar Overflow Across All Pages */
+.report-top-actions,
+.inventory-top-actions {
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}
+
+.report-top-actions button,
+.inventory-top-actions button {
+  height: auto !important;
+  min-height: 36px !important;
+  padding: 6px 12px !important;
+  line-height: 1.3 !important;
+}
+
+/* 5. Zero Text-Clipping on Cards, KPIs, Modals & Mobile Viewports */
+.dash-kpi-label,
+.dash-kpi-amount,
+.dash-breakdown-btn-label,
+.dash-breakdown-btn-val,
+.dash-breakdown-btn-hint,
+.exec-meta-cell span,
+.exec-meta-cell strong,
+.profit-modal-title-text h2,
+.profit-modal-title-text p,
+.profit-kpi-label,
+.profit-kpi-val,
+.profit-kpi-sub,
+.profit-spotlight-title h3,
+.topbar-title h1,
+.topbar-subtitle,
+.brand-title-wrap h2 {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  word-break: break-word;
+}
+
+.today-summary-head-right {
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+.today-balance-pill,
+.today-inspect-btn {
+  white-space: normal !important;
+  height: auto !important;
+  min-height: 30px !important;
+  line-height: 1.25 !important;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .report-top-actions,
+  .inventory-top-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+    width: 100% !important;
+  }
+
+  .report-top-actions button,
+  .inventory-top-actions button {
+    white-space: normal !important;
+    text-align: center !important;
+    justify-content: center !important;
+    padding: 7px 8px !important;
+    font-size: 11.5px !important;
+    line-height: 1.25 !important;
+    min-height: 38px !important;
+  }
+
+  .inventory-top-actions button:first-child:nth-last-child(4),
+  .report-top-actions button:last-child:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .dash-kpi-amount {
+    font-size: clamp(14.5px, 4.2vw, 18px) !important;
+    line-height: 1.2 !important;
+  }
+
+  .dash-breakdown-btn-val {
+    font-size: clamp(13px, 3.8vw, 15px) !important;
+    line-height: 1.25 !important;
+  }
+
+  .profit-kpi-val {
+    font-size: clamp(13.5px, 3.8vw, 16px) !important;
+    line-height: 1.25 !important;
+  }
+
+  .calc-ai-input-row {
+    flex-wrap: wrap !important;
+  }
+
+  .calc-ai-text-input {
+    min-width: 140px !important;
+  }
+
+  .bottom-nav button {
+    padding: 5px 2px !important;
+  }
+
+  .bottom-nav button .nav-label {
+    font-size: 10px !important;
+    letter-spacing: -0.1px;
+  }
+}
+
+@media (max-width: 400px) {
+  .inventory-top-actions,
+  .report-top-actions {
+    grid-template-columns: 1fr !important;
   }
 }
