@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   ShieldCheck,
   ShieldAlert,
@@ -60,6 +60,39 @@ interface AdminProfileProps {
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
 
+export function getFridayNightWithdrawalStatus(now: Date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Dhaka',
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(now);
+
+  const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
+  const rawHour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const hour = Number.isFinite(rawHour) ? rawHour % 24 : 0;
+
+  // শুক্রবার সারা রাত: শুক্রবার সন্ধ্যা ৬:০০টা (18:00) থেকে শনিবার ভোর ৬:০০টা (05:59) পর্যন্ত এবং শুক্রবার রাত ১২:০০টা - ভোর ৬:০০টা
+  const isOpen =
+    (weekday === 'Fri' && (hour >= 18 || hour < 6)) ||
+    (weekday === 'Sat' && hour < 6);
+
+  const dayTimeBn = new Intl.DateTimeFormat('bn-BD', {
+    timeZone: 'Asia/Dhaka',
+    weekday: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(now);
+
+  return {
+    isOpen,
+    dayTimeBn,
+    windowTextBn: 'শুক্রবার সন্ধ্যা ৬:০০টা থেকে সারা রাত (শনিবার ভোর ৬:০০টা পর্যন্ত)',
+  };
+}
+
 function compressAvatarImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -114,6 +147,9 @@ export default function AdminProfile({
   const [activeSection, setActiveSection] = useState<'all' | 'approvals' | 'wallet' | 'security' | 'terms'>('all');
 
   // Withdrawal & Special Loan Modal states
+  const [withdrawalWindow, setWithdrawalWindow] = useState(() => getFridayNightWithdrawalStatus());
+  const [showFridayLockNotice, setShowFridayLockNotice] = useState(false);
+  const [showFridayLockModal, setShowFridayLockModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawMode, setWithdrawMode] = useState<'withdrawal' | 'loan'>('withdrawal');
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -122,6 +158,34 @@ export default function AdminProfile({
   const [withdrawReason, setWithdrawReason] = useState('');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const nextStatus = getFridayNightWithdrawalStatus();
+      setWithdrawalWindow(nextStatus);
+      if (nextStatus.isOpen) {
+        setShowFridayLockNotice(false);
+        setShowFridayLockModal(false);
+      }
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleOpenWithdrawal = () => {
+    const currentWindow = getFridayNightWithdrawalStatus();
+    setWithdrawalWindow(currentWindow);
+    if (!currentWindow.isOpen) {
+      setShowFridayLockNotice(true);
+      setShowFridayLockModal(true);
+      return;
+    }
+    setShowFridayLockNotice(false);
+    setShowFridayLockModal(false);
+    setWithdrawMode('withdrawal');
+    setWithdrawError(null);
+    setWithdrawDate(getTodayStr());
+    setShowWithdrawModal(true);
+  };
 
   // Password change form states
   const [oldPass, setOldPass] = useState('');
@@ -331,6 +395,15 @@ export default function AdminProfile({
     }
 
     if (withdrawMode === 'withdrawal') {
+      const currentWindow = getFridayNightWithdrawalStatus();
+      setWithdrawalWindow(currentWindow);
+      if (!currentWindow.isOpen) {
+        setWithdrawError(
+          `শুক্রবার সারা রাত ছাড়া উত্তোলন বাটন কাজ করবে না! (${currentWindow.windowTextBn} উত্তোলন করা যাবে — বর্তমান সময়: ${currentWindow.dayTimeBn})।`
+        );
+        return;
+      }
+
       if (myPartner.withdrawableLimit <= 0) {
         setWithdrawError(
           `আপনার বর্তমানে কোনো উত্তোলনযোগ্য লাভাংশ নেই (${money(0)})। শর্তাবলী অনুযায়ী বিনিয়োগের টাকা (${money(myPartner.capital)}) উত্তোলনযোগ্য নয়—শুধুমাত্র লাভাংশ উত্তোলন করতে পারবেন (বিশেষ প্রয়োজনে "বিশেষ লোন" অপশন ব্যবহার করুন)।`
@@ -604,52 +677,76 @@ export default function AdminProfile({
         <div className="profile-wallet-strip">
           <div className="wallet-strip-info">
             <div className="wallet-strip-label">
-              <TrendingUp size={15} />
+              <TrendingUp size={15} style={{ flexShrink: 0 }} />
               <span>আমার উত্তোলনযোগ্য নিট লাভাংশ (বিনিয়োগের টাকা উত্তোলনযোগ্য নয় • প্রতি শুক্রবার রাতে উত্তোলন)</span>
             </div>
             <div className="wallet-strip-amount-row">
               <strong className="wallet-strip-balance">{money(myPartner.withdrawableLimit)}</strong>
-              <span className="wallet-strip-limit" title="বিনিয়োগের টাকা উত্তোলন যোগ্য নয়">
-                🔒 স্থির বিনিয়োগ: <b>{money(myPartner.capital)}</b>
-              </span>
-              {myPartner.loans > 0 && (
-                <span className="wallet-strip-limit" style={{ background: 'rgba(245, 158, 11, 0.2)', borderColor: 'rgba(251, 191, 36, 0.4)', color: '#fef3c7' }}>
-                  ⚡ লোন কর্তনকৃত: <b>-{money(myPartner.loans)}</b>
+              <div className="wallet-strip-meta-pills">
+                <span className="wallet-strip-limit" title="বিনিয়োগের টাকা উত্তোলন যোগ্য নয়">
+                  🔒 স্থির বিনিয়োগ: <b>{money(myPartner.capital)}</b>
                 </span>
-              )}
-              <span className="wallet-strip-limit">
-                মোট ইক্যুইটি: <b>{money(myPartner.accountBalance)}</b>
-              </span>
+                {myPartner.loans > 0 && (
+                  <span
+                    className="wallet-strip-limit"
+                    style={{
+                      background: 'rgba(245, 158, 11, 0.2)',
+                      borderColor: 'rgba(251, 191, 36, 0.4)',
+                      color: '#fef3c7',
+                    }}
+                  >
+                    ⚡ লোন কর্তনকৃত: <b>-{money(myPartner.loans)}</b>
+                  </span>
+                )}
+                <span className="wallet-strip-limit">
+                  মোট ইক্যুইটি: <b>{money(myPartner.accountBalance)}</b>
+                </span>
+              </div>
             </div>
           </div>
 
           <div className="wallet-strip-actions">
-            <button
-              type="button"
-              className="profile-withdraw-cta"
-              onClick={() => {
-                setWithdrawMode('withdrawal');
-                setWithdrawError(null);
-                setWithdrawDate(getTodayStr());
-                setShowWithdrawModal(true);
-              }}
-            >
-              <ArrowDownLeft size={16} />
-              <span>লাভাংশ উত্তোলন (Withdraw)</span>
-            </button>
-            <button
-              type="button"
-              className="profile-loan-cta"
-              onClick={() => {
-                setWithdrawMode('loan');
-                setWithdrawError(null);
-                setWithdrawDate(getTodayStr());
-                setShowWithdrawModal(true);
-              }}
-            >
-              <Banknote size={16} />
-              <span>বিশেষ লোন নিন</span>
-            </button>
+            <div className="wallet-cta-row">
+              <button
+                type="button"
+                className="profile-withdraw-cta"
+                onClick={handleOpenWithdrawal}
+              >
+                <ArrowDownLeft size={16} className="cta-icon" />
+                <span>লাভাংশ উত্তোলন</span>
+              </button>
+
+              <button
+                type="button"
+                className="profile-loan-cta"
+                onClick={() => {
+                  setWithdrawMode('loan');
+                  setWithdrawError(null);
+                  setWithdrawDate(getTodayStr());
+                  setShowWithdrawModal(true);
+                }}
+              >
+                <Banknote size={16} className="cta-icon" />
+                <span>বিশেষ লোন নিন</span>
+              </button>
+            </div>
+
+            {showFridayLockNotice && !withdrawalWindow.isOpen && (
+              <div className="wallet-friday-status-bar locked" role="alert">
+                <Clock size={14} className="status-clock-icon" />
+                <span>
+                  🔒 শুক্রবার সারা রাত ছাড়া লাভাংশ উত্তোলন বন্ধ! শুধুমাত্র প্রতি শুক্রবার সন্ধ্যা ৬:০০টা থেকে সারা রাত উত্তোলন করা যাবে। (এখন: {withdrawalWindow.dayTimeBn})
+                </span>
+                <button
+                  type="button"
+                  className="friday-notice-close"
+                  onClick={() => setShowFridayLockNotice(false)}
+                  aria-label="বার্তা বন্ধ করুন"
+                >
+                  ×
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1258,15 +1355,14 @@ export default function AdminProfile({
                   <button
                     type="button"
                     className="primary"
-                    style={{ height: '30px', fontSize: '11.5px', padding: '4px 11px' }}
-                    onClick={() => {
-                      setWithdrawMode('withdrawal');
-                      setWithdrawError(null);
-                      setWithdrawDate(getTodayStr());
-                      setShowWithdrawModal(true);
+                    style={{
+                      height: '30px',
+                      fontSize: '11.5px',
+                      padding: '4px 11px',
                     }}
+                    onClick={handleOpenWithdrawal}
                   >
-                    <ArrowDownLeft size={13} /> নতুন উত্তোলন / লোন
+                    <ArrowDownLeft size={13} /> নতুন উত্তোলন
                   </button>
                 </div>
               </div>
@@ -1323,11 +1419,7 @@ export default function AdminProfile({
                   <button
                     type="button"
                     className="primary"
-                    onClick={() => {
-                      setWithdrawError(null);
-                      setWithdrawDate(getTodayStr());
-                      setShowWithdrawModal(true);
-                    }}
+                    onClick={handleOpenWithdrawal}
                   >
                     <ArrowDownLeft size={15} /> টাকা উত্তোলন করুন (Withdraw)
                   </button>
@@ -1618,6 +1710,13 @@ export default function AdminProfile({
                     type="button"
                     className={`withdraw-mode-tab ${withdrawMode === 'withdrawal' ? 'active' : ''}`}
                     onClick={() => {
+                      const currentWindow = getFridayNightWithdrawalStatus();
+                      setWithdrawalWindow(currentWindow);
+                      if (!currentWindow.isOpen) {
+                        setShowFridayLockNotice(true);
+                        setShowFridayLockModal(true);
+                        return;
+                      }
                       setWithdrawMode('withdrawal');
                       setWithdrawError(null);
                     }}
@@ -1625,7 +1724,7 @@ export default function AdminProfile({
                     <ArrowDownLeft size={15} />
                     <div>
                       <strong>লাভাংশ উত্তোলন</strong>
-                      <small>প্রতি শুক্রবার রাতে • শুধু লাভ</small>
+                      <small>প্রতি শুক্রবার সারা রাত • শুধু লাভ</small>
                     </div>
                   </button>
                   <button
@@ -1657,8 +1756,10 @@ export default function AdminProfile({
                     ]}
                     investors={investors}
                     onApplyFields={(fields) => {
-                      if (fields.mode === 'loan' || fields.mode === 'withdrawal') {
-                        setWithdrawMode(fields.mode);
+                      if (fields.mode === 'loan') {
+                        setWithdrawMode('loan');
+                      } else if (fields.mode === 'withdrawal' && withdrawalWindow.isOpen) {
+                        setWithdrawMode('withdrawal');
                       }
                       if (fields.amount && Number(fields.amount) > 0) {
                         setWithdrawAmount(String(fields.amount));
@@ -1918,13 +2019,22 @@ export default function AdminProfile({
                     className="primary"
                     disabled={
                       isWithdrawing ||
-                      (withdrawMode === 'withdrawal' && myPartner.withdrawableLimit <= 0)
+                      (withdrawMode === 'withdrawal' &&
+                        (!withdrawalWindow.isOpen || myPartner.withdrawableLimit <= 0))
                     }
                   >
-                    {isWithdrawing ? <span className="btn-spinner" /> : <Check size={16} />}
+                    {isWithdrawing ? (
+                      <span className="btn-spinner" />
+                    ) : withdrawMode === 'withdrawal' && !withdrawalWindow.isOpen ? (
+                      <Lock size={16} />
+                    ) : (
+                      <Check size={16} />
+                    )}
                     <span>
                       {isWithdrawing
                         ? 'প্রসেস হচ্ছে…'
+                        : withdrawMode === 'withdrawal' && !withdrawalWindow.isOpen
+                        ? 'শুক্রবার সারা রাত ছাড়া উত্তোলন বন্ধ'
                         : adminUser.username === 'Limon'
                         ? withdrawMode === 'loan'
                           ? 'বিশেষ লোনের অনুরোধ পাঠান'
@@ -2005,6 +2115,90 @@ export default function AdminProfile({
                   </button>
                   <button type="button" className="secondary" onClick={() => setRejectingReq(null)}>
                     ফিরে যান
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FRIDAY NIGHT ONLY WITHDRAWAL NOTICE MODAL */}
+      {showFridayLockModal && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowFridayLockModal(false);
+          }}
+        >
+          <div className="modal friday-lock-modal" role="alertdialog" aria-modal="true">
+            <div className="modal-head">
+              <h2 style={{ color: '#b45309', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock size={20} style={{ color: '#d97706', flexShrink: 0 }} />
+                <span>শুক্রবার ছাড়া লাভাংশ উত্তোলন বন্ধ!</span>
+              </h2>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setShowFridayLockModal(false)}
+                aria-label="বন্ধ করুন"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="modal-content-area">
+              <div className="modal-body" style={{ gap: '14px' }}>
+                <div className="friday-lock-alert-box">
+                  <div className="friday-lock-badge">
+                    <Lock size={16} />
+                    <span>শুধুমাত্র শুক্রবার সারা রাত উত্তোলনযোগ্য</span>
+                  </div>
+                  <p className="friday-lock-message">
+                    পার্টনারশিপ নিয়ম অনুযায়ী <b>লাভাংশ উত্তোলন শুধুমাত্র প্রতি শুক্রবার সারা রাত</b> (শুক্রবার সন্ধ্যা ৬:০০টা থেকে শনিবার ভোর ৬:০০টা পর্যন্ত) চালু থাকে। আজ শুক্রবার রাত না হওয়ায় এখন লাভাংশ উত্তোলন করা যাবে না।
+                  </p>
+                  <div className="friday-lock-time-pill">
+                    <Clock size={14} />
+                    <span>বর্তমান সময়: <b>{withdrawalWindow.dayTimeBn}</b></span>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#f5f3ff',
+                    border: '1px solid #ddd6fe',
+                    borderRadius: '10px',
+                    padding: '10px 12px',
+                    fontSize: '12.5px',
+                    color: '#5b21b6',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  💡 <b>জরুরি টাকার প্রয়োজন?</b> আপনি চাইলে এখনই <b>“বিশেষ লোন নিন”</b> বাটনে চাপ দিয়ে লোন নিতে পারবেন, যা আপনার পরবর্তী অর্জিত লাভাংশ থেকে অটোমেটিক সমন্বয় হয়ে যাবে।
+                </div>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => setShowFridayLockModal(false)}
+                  >
+                    <Check size={16} />
+                    <span>বুঝেছি, ঠিক আছে</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setShowFridayLockModal(false);
+                      setWithdrawMode('loan');
+                      setWithdrawError(null);
+                      setWithdrawDate(getTodayStr());
+                      setShowWithdrawModal(true);
+                    }}
+                  >
+                    <Banknote size={16} />
+                    <span>বিশেষ লোন নিন</span>
                   </button>
                 </div>
               </div>

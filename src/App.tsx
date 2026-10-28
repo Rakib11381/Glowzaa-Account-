@@ -96,7 +96,7 @@ import {
   getLocalApprovalRequests,
   type DemoCleanupPreview,
 } from './data';
-import AdminProfile from './components/AdminProfile';
+import AdminProfile, { getFridayNightWithdrawalStatus } from './components/AdminProfile';
 import TermsConditionsCard from './components/TermsConditionsCard';
 import PWAInstallButton from './components/PWAInstallButton';
 import SalesTrendChartSection from './components/SalesTrendChartSection';
@@ -1190,6 +1190,16 @@ export default function App() {
       const amount = Number(entryForm.amount);
       if (!entryForm.title.trim() || !Number.isFinite(amount) || amount <= 0) {
         throw new Error('দয়া করে সঠিক বিবরণ এবং ০ এর অধিক টাকার পরিমাণ দিন।');
+      }
+
+      // STRICT RULE: Profit withdrawal is only allowed on Friday all night (Asia/Dhaka)
+      if (!editingEntry && entryForm.type === 'withdrawal') {
+        const fw = getFridayNightWithdrawalStatus();
+        if (!fw.isOpen) {
+          throw new Error(
+            `উত্তোলন বন্ধ: শুক্রবার সারা রাত ছাড়া উত্তোলন বাটন কাজ করবে না! (${fw.windowTextBn} উত্তোলন করা যাবে — এখন: ${fw.dayTimeBn})।`
+          );
+        }
       }
 
       // STRICT RULE: Capital/investment cannot be withdrawn; only earned profit (withdrawableLimit) can be withdrawn
@@ -3377,6 +3387,14 @@ export default function App() {
             availableBusinessCash={cashSummary.availableCash}
             onSubmitWithdrawal={async ({ amount, date, method, reason, investorId, investorName, entryType = 'withdrawal' }) => {
               const isLoan = entryType === 'loan';
+              if (!isLoan) {
+                const fw = getFridayNightWithdrawalStatus();
+                if (!fw.isOpen) {
+                  throw new Error(
+                    `শুক্রবার সারা রাত ছাড়া উত্তোলন বাটন কাজ করবে না! (${fw.windowTextBn} উত্তোলন করা যাবে — এখন: ${fw.dayTimeBn})।`
+                  );
+                }
+              }
               const titleText = isLoan
                 ? `${currentAdmin.displayName}-এর বিশেষ লোন (${method} — পরবর্তী লাভাংশ থেকে অটো কর্তন)`
                 : `${currentAdmin.displayName}-এর লাভাংশ উত্তোলন (${method})`;
@@ -7246,12 +7264,32 @@ export default function App() {
               </label>
             )}
 
-            {entryForm.type === 'withdrawal' && entryForm.investorId && (() => {
-              const pAcc = partnerAccounts.find(p => p.id === entryForm.investorId);
+            {entryForm.type === 'withdrawal' && (() => {
+              const pAcc = entryForm.investorId ? partnerAccounts.find(p => p.id === entryForm.investorId) : undefined;
+              const fw = getFridayNightWithdrawalStatus();
               return (
-                <div className="full note" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}>
-                  🔒 <b>মূলধন ({money(pAcc?.capital || 0)}) উত্তোলনযোগ্য নয়।</b> শুধুমাত্র অর্জিত লাভ উত্তোলন করা যাবে। এই অংশীদারের বর্তমান <b>উত্তোলনযোগ্য লাভের সীমা: {money(pAcc?.withdrawableLimit || 0)}</b> (মোট লাভ: {money(pAcc?.allocatedProfit || 0)} − পূর্বের উত্তোলন: {money((pAcc?.withdrawals || 0) + (pAcc?.loans || 0))})
-                </div>
+                <>
+                  {!editingEntry && (
+                    <div
+                      className="full note"
+                      style={{
+                        background: fw.isOpen ? '#ecfdf5' : '#fef2f2',
+                        borderColor: fw.isOpen ? '#6ee7b7' : '#fecaca',
+                        color: fw.isOpen ? '#065f46' : '#991b1b',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {fw.isOpen
+                        ? `✅ শুক্রবার রাতের উত্তোলন চালু আছে (${fw.dayTimeBn}) — শুক্রবার সারা রাত লাভাংশ উত্তোলন করা যাবে।`
+                        : `🔒 শুক্রবার সারা রাত ছাড়া উত্তোলন বাটন কাজ করবে না! (${fw.windowTextBn} উত্তোলন খোলা থাকে — বর্তমান সময়: ${fw.dayTimeBn})`}
+                    </div>
+                  )}
+                  {pAcc && (
+                    <div className="full note" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}>
+                      🔒 <b>মূলধন ({money(pAcc.capital || 0)}) উত্তোলনযোগ্য নয়।</b> শুধুমাত্র অর্জিত লাভ উত্তোলন করা যাবে। এই অংশীদারের বর্তমান <b>উত্তোলনযোগ্য লাভের সীমা: {money(pAcc.withdrawableLimit || 0)}</b> (মোট লাভ: {money(pAcc.allocatedProfit || 0)} − পূর্বের উত্তোলন: {money((pAcc.withdrawals || 0) + (pAcc.loans || 0))})
+                    </div>
+                  )}
+                </>
               );
             })()}
 
@@ -7302,12 +7340,26 @@ export default function App() {
 
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={() => setShowEntryModal(false)} disabled={busy}>বাতিল</button>
-              <button className="primary" type="submit" disabled={busy}>
+              <button
+                className="primary"
+                type="submit"
+                disabled={
+                  busy ||
+                  (!editingEntry && entryForm.type === 'withdrawal' && !getFridayNightWithdrawalStatus().isOpen)
+                }
+                title={
+                  !editingEntry && entryForm.type === 'withdrawal' && !getFridayNightWithdrawalStatus().isOpen
+                    ? 'শুক্রবার সারা রাত ছাড়া উত্তোলন বাটন কাজ করবে না'
+                    : undefined
+                }
+              >
                 {busy ? (
                   <>
                     <span className="btn-spinner" />
                     <span>সংরক্ষণ হচ্ছে…</span>
                   </>
+                ) : !editingEntry && entryForm.type === 'withdrawal' && !getFridayNightWithdrawalStatus().isOpen ? (
+                  '🔒 শুক্রবার রাতে উত্তোলন চালু হবে'
                 ) : needsPartnerApproval ? (
                   `অনুমোদনের জন্য পাঠান (${otherPartner.displayName})`
                 ) : editingEntry ? (
@@ -11093,6 +11145,35 @@ function Modal({ title, close, children }: { title: string; close: () => void; c
   );
 }
 
+function Panel({
+  title,
+  subtitle,
+  actions,
+  className = '',
+  children,
+}: {
+  title?: React.ReactNode;
+  subtitle?: React.ReactNode;
+  actions?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`panel ${className}`.trim()}>
+      {(title || subtitle || actions) && (
+        <div className="panel-head">
+          <div className="panel-head-info">
+            {title && <h2>{title}</h2>}
+            {subtitle && <p>{subtitle}</p>}
+          </div>
+          {actions && <div className="inline-actions">{actions}</div>}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
 function EntryTable({
   rows,
   investors,
@@ -11117,18 +11198,18 @@ function EntryTable({
   onVoid: (e: Entry) => void;
 }) {
   return (
-    <div className="table-wrap">
-      <table>
+    <div className="table-wrap entry-table-wrap">
+      <table className="entry-table">
         <thead>
           <tr>
-            {admin && <th style={{ width: '40px' }}>নির্বাচন</th>}
-            <th>তারিখ</th>
-            <th>ধরন</th>
-            <th>বিবরণ</th>
-            <th>ইনভেস্টর</th>
-            <th>পরিমাণ</th>
-            <th>স্ট্যাটাস</th>
-            {admin && <th>অ্যাকশন</th>}
+            {admin && <th className="col-select">নির্বাচন</th>}
+            <th className="col-date">তারিখ</th>
+            <th className="col-type">ধরন</th>
+            <th className="col-desc">বিবরণ</th>
+            <th className="col-partner">ইনভেস্টর</th>
+            <th className="col-amount">পরিমাণ</th>
+            <th className="col-status">স্ট্যাটাস</th>
+            {admin && <th className="col-actions">অ্যাকশন</th>}
           </tr>
         </thead>
         <tbody>
@@ -11142,16 +11223,23 @@ function EntryTable({
             const isSelected = selectedIds.includes(e.id);
 
             return (
-              <tr key={e.id}>
+              <tr key={e.id} className={isSelected ? 'selected-row' : undefined}>
                 {admin && (
-                  <td>
-                    <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(e.id)} />
+                  <td className="col-select">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => onToggleSelect(e.id)}
+                      aria-label={`${e.title} নির্বাচন করুন`}
+                    />
                   </td>
                 )}
-                <td>{dateLabel(e.date)}</td>
-                <td><span className="type-pill">{typeLabels[e.type] || e.type}</span></td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <td className="col-date">{dateLabel(e.date)}</td>
+                <td className="col-type">
+                  <span className="type-pill">{typeLabels[e.type] || e.type}</span>
+                </td>
+                <td className="col-desc">
+                  <div className="entry-desc-flex">
                     {(() => {
                       const lp = e.productId ? products.find((p) => p.id === e.productId) : null;
                       if (!lp?.imageUrl) return null;
@@ -11160,24 +11248,17 @@ function EntryTable({
                           src={lp.imageUrl}
                           alt={lp.name}
                           title={lp.name}
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '6px',
-                            objectFit: 'cover',
-                            border: '1px solid #cbd5e1',
-                            flexShrink: 0
-                          }}
+                          className="entry-desc-thumb"
                         />
                       );
                     })()}
-                    <div>
-                      <b style={{ display: 'block' }}>{e.title}</b>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <div className="entry-desc-content">
+                      <b className="entry-desc-title">{e.title}</b>
+                      <div className="entry-desc-meta">
                         {e.productId && (() => {
                           const lp = products.find((p) => p.id === e.productId);
                           return lp ? (
-                            <span style={{ fontSize: '11px', color: '#0d9488', fontWeight: 600 }}>
+                            <span className="entry-product-tag">
                               📦 {lp.name} {e.quantity ? `(${e.quantity} ${lp.unit})` : ''}
                             </span>
                           ) : null;
@@ -11186,14 +11267,14 @@ function EntryTable({
                           const s = getEntrySeller(e);
                           if (s === 'Rakib') {
                             return (
-                              <span style={{ fontSize: '11px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>
+                              <span className="entry-seller-chip seller-rakib">
                                 👤 রাকিব
                               </span>
                             );
                           }
                           if (s === 'Limon') {
                             return (
-                              <span style={{ fontSize: '11px', background: '#faf5ff', color: '#7e22ce', border: '1px solid #e9d5ff', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>
+                              <span className="entry-seller-chip seller-limon">
                                 👤 লিমন
                               </span>
                             );
@@ -11205,53 +11286,68 @@ function EntryTable({
                     </div>
                   </div>
                 </td>
-                <td>
+                <td className="col-partner">
                   {e.type === 'sale' ? (
                     (() => {
                       const s = getEntrySeller(e);
                       return s === 'Rakib' ? (
-                        <span style={{ color: '#1d4ed8', fontWeight: 600 }}>👤 রাকিব (Rakib)</span>
+                        <span className="partner-cell-text seller-rakib-text">👤 রাকিব (Rakib)</span>
                       ) : s === 'Limon' ? (
-                        <span style={{ color: '#7e22ce', fontWeight: 600 }}>👤 লিমন (Limon)</span>
+                        <span className="partner-cell-text seller-limon-text">👤 লিমন (Limon)</span>
                       ) : (
                         <span style={{ color: '#94a3b8' }}>—</span>
                       );
                     })()
                   ) : (
-                    resolvedPartnerName
+                    <span className="partner-cell-text">{resolvedPartnerName}</span>
                   )}
                 </td>
-                <td className={e.type === 'sale' ? 'positive' : ''}>
-                  <div>{money(e.amount)}</div>
+                <td className={`col-amount ${e.type === 'sale' ? 'positive' : ''}`}>
+                  <div className="entry-amount-val">{money(e.amount)}</div>
                   {e.type === 'sale' && (e.grossProfit !== undefined || e.cogsAmount !== undefined) && (
-                    <small style={{ display: 'block', fontSize: '11px', color: '#047857', fontWeight: 600 }}>
+                    <small className="entry-profit-sub">
                       লাভ: +{money(e.grossProfit !== undefined ? e.grossProfit : Math.max(0, e.amount - (e.cogsAmount || 0)))}
                     </small>
                   )}
                 </td>
-                <td><span className={`status ${e.status}`}>{e.status === 'posted' ? 'পোস্টেড' : e.status === 'void' ? 'বাতিল' : 'ড্রাফট'}</span></td>
-                <td>
-                  <div className="action-group">
-                    <button className="action-btn" title="বিস্তারিত দেখুন" onClick={() => onView(e)}><Eye size={16} /></button>
-                    {admin && (
-                      <>
-                        <button className="action-btn" title="সম্পাদনা" onClick={() => onEdit(e)}><Edit3 size={16} /></button>
-                        <button className="action-btn danger" title="স্থায়ী ডিলিট" onClick={() => onDelete(e)}><Trash2 size={16} /></button>
-                        {e.status === 'posted' && (
-                          <button className="action-btn warning" title="রিভার্স (Void)" onClick={() => onVoid(e)}><RotateCcw size={16} /></button>
-                        )}
-                      </>
-                    )}
-                  </div>
+                <td className="col-status">
+                  <span className={`status ${e.status}`}>
+                    {e.status === 'posted' ? 'পোস্টেড' : e.status === 'void' ? 'বাতিল' : 'ড্রাফট'}
+                  </span>
                 </td>
+                {admin && (
+                  <td className="col-actions">
+                    <div className="action-group">
+                      <button type="button" className="action-btn" title="বিস্তারিত দেখুন" onClick={() => onView(e)}>
+                        <Eye size={16} />
+                      </button>
+                      <button type="button" className="action-btn" title="সম্পাদনা" onClick={() => onEdit(e)}>
+                        <Edit3 size={16} />
+                      </button>
+                      <button type="button" className="action-btn danger" title="স্থায়ী ডিলিট" onClick={() => onDelete(e)}>
+                        <Trash2 size={16} />
+                      </button>
+                      {e.status === 'posted' && (
+                        <button type="button" className="action-btn warning" title="রিভার্স (Void)" onClick={() => onVoid(e)}>
+                          <RotateCcw size={16} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
               </tr>
             );
           })}
           {!rows.length && (
-            <tr><td colSpan={admin ? 8 : 6} className="empty">কোনো লেনদেন পাওয়া যায়নি</td></tr>
+            <tr>
+              <td colSpan={admin ? 8 : 6} className="empty">
+                কোনো লেনদেন পাওয়া যায়নি
+              </td>
+            </tr>
           )}
         </tbody>
       </table>
     </div>
   );
 }
+
