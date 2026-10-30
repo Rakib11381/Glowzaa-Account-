@@ -50,6 +50,11 @@ service cloud.firestore {
       allow read, write: if hasAccess();
     }
 
+    // AI Business Assistant Chat Sessions
+    match /aiChatSessions/{id} {
+      allow read, write: if hasAccess();
+    }
+
     // Connection testing endpoint
     match /test/{id} {
       allow read: if true;

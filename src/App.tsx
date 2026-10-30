@@ -9,6 +9,7 @@ import {
   BadgeDollarSign,
   Banknote,
   Bell,
+  Bot,
   Boxes,
   Calculator,
   Calendar,
@@ -23,6 +24,7 @@ import {
   FileSpreadsheet,
   FileText,
   Filter,
+  Flame,
   History,
   Image as ImageIcon,
   Info,
@@ -44,6 +46,7 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   Tag,
   Trash2,
@@ -52,6 +55,7 @@ import {
   Wallet,
   X,
   XCircle,
+  Zap,
 } from 'lucide-react';
 
 import { auth, db, firebaseConfigured, googleProvider, testConnection } from './firebase';
@@ -98,6 +102,7 @@ import {
 } from './data';
 import AdminProfile, { getFridayNightWithdrawalStatus } from './components/AdminProfile';
 import TermsConditionsCard from './components/TermsConditionsCard';
+import AiBusinessAssistant from './components/AiBusinessAssistant';
 import PWAInstallButton from './components/PWAInstallButton';
 import SalesTrendChartSection from './components/SalesTrendChartSection';
 import EmailNotificationSection from './components/EmailNotificationSection';
@@ -112,7 +117,12 @@ import CameraAutoSaleModal, {
   ALLOWED_SKU_CODES,
   ALLOWED_SKU_SET,
   toStrictAllowedSkuClient,
+  getNextSequentialSku,
+  getEffectiveProductSku,
 } from './components/CameraAutoSaleModal';
+import StockCatalogAndMarketAdvisorModal, {
+  downloadFullStockCatalogWithPhotosPdf,
+} from './components/StockCatalogAndMarketAdvisorModal';
 import ScannerSoundSettingsCard from './components/ScannerSoundSettingsCard';
 import {
   money,
@@ -215,6 +225,9 @@ const blankSettings: BusinessSettings = {
   enableVoiceInput: true,
   enableCameraScan: true,
   enableDrawingPad: true,
+  enableSpecialOfferAutoSale: true,
+  enableAiAssistant: true,
+  lowStockReorderPoint: 15,
 };
 
 function compressImage(file: File): Promise<string> {
@@ -336,7 +349,7 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tab, setTab] = useState<
-    'dashboard' | 'transactions' | 'seller_sales' | 'investors' | 'inventory' | 'profit' | 'reports' | 'audit' | 'settings' | 'profile' | 'terms'
+    'dashboard' | 'ai_assistant' | 'transactions' | 'seller_sales' | 'investors' | 'inventory' | 'profit' | 'reports' | 'audit' | 'settings' | 'profile' | 'terms'
   >('dashboard');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -370,9 +383,12 @@ export default function App() {
   const [showInvestorModal, setShowInvestorModal] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const [showProfitabilityModal, setShowProfitabilityModal] = useState(false);
+  const [showStockCatalogAdvisorModal, setShowStockCatalogAdvisorModal] = useState(false);
+  const [isStockCatalogPdfLoading, setIsStockCatalogPdfLoading] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
   const [showCameraSaleModal, setShowCameraSaleModal] = useState(false);
   const [showDrawingSaleModal, setShowDrawingSaleModal] = useState(false);
+  const [showSpecialOfferSaleModal, setShowSpecialOfferSaleModal] = useState(false);
   const [calcState, setCalcState] = useState<PersistedCalcState>(() => loadPersistedCalcState());
   const [showProfitModal, setShowProfitModal] = useState(false);
   const [viewRecordModal, setViewRecordModal] = useState<Entry | null>(null);
@@ -436,8 +452,72 @@ export default function App() {
     currentStock: '',
     averageCost: '',
     sellingPrice: '',
+    reorderPoint: '',
     imageUrl: '',
   });
+
+  // Inventory Product Search, Filter, Sorting & Reorder Point States
+  const [productSearchQuery, setProductSearchQuery] = useState<string>('');
+  const [productSearchField, setProductSearchField] = useState<
+    'all' | 'name' | 'sku' | 'averageCost' | 'sellingPrice' | 'anyPrice'
+  >('all');
+  const [productSortBy, setProductSortBy] = useState<
+    | 'default'
+    | 'name_asc'
+    | 'name_desc'
+    | 'sku_asc'
+    | 'sku_desc'
+    | 'cost_asc'
+    | 'cost_desc'
+    | 'price_asc'
+    | 'price_desc'
+    | 'stock_asc'
+    | 'stock_desc'
+    | 'total_val_desc'
+    | 'total_val_asc'
+  >('default');
+  const [productStockFilter, setProductStockFilter] = useState<
+    'all' | 'in_stock' | 'below_reorder' | 'low_stock' | 'out_of_stock'
+  >('all');
+  const [productSkuFilter, setProductSkuFilter] = useState<string>('all');
+  const [productMinPrice, setProductMinPrice] = useState<string>('');
+  const [productMaxPrice, setProductMaxPrice] = useState<string>('');
+
+  // Audit Log (অডিট লগ ও ডিলিট ইতিহাস) Search, Filter & Sort States
+  const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
+  const [auditCategoryFilter, setAuditCategoryFilter] = useState<
+    'all' | 'delete' | 'email' | 'approval' | 'edit'
+  >('all');
+  const [auditActionFilter, setAuditActionFilter] = useState<string>('all');
+  const [auditMakerFilter, setAuditMakerFilter] = useState<'all' | 'Rakib' | 'Limon'>('all');
+  const [auditTypeStatusFilter, setAuditTypeStatusFilter] = useState<
+    'all' | 'dual' | 'system' | 'approver_rakib' | 'approver_limon'
+  >('all');
+  const [auditDatePreset, setAuditDatePreset] = useState<
+    'all' | 'today' | 'yesterday' | '7d' | '30d' | 'custom'
+  >('all');
+  const [auditStartDate, setAuditStartDate] = useState<string>('');
+  const [auditEndDate, setAuditEndDate] = useState<string>('');
+  const [auditSortBy, setAuditSortBy] = useState<
+    'newest' | 'oldest' | 'action_asc' | 'action_desc' | 'maker_asc'
+  >('newest');
+
+  // Configurable Reorder Point (পুনঃঅর্ডার সতর্কতা সীমা) & Toast Notification State
+  const [reorderPointThreshold, setReorderPointThreshold] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('glowzaa_reorder_point');
+      if (saved !== null && saved.trim() !== '') {
+        const parsed = Number(saved);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+      }
+    } catch {}
+    return 15;
+  });
+  const [reorderPointInput, setReorderPointInput] = useState<string>(() =>
+    String(reorderPointThreshold)
+  );
+  const [showReorderBanner, setShowReorderBanner] = useState<boolean>(true);
+  const [reorderToastPopupVisible, setReorderToastPopupVisible] = useState<boolean>(false);
 
   // Batch (5-6 Products) Average Cost & Selling Price Upload State
   const createDefaultBatchRows = (count = 5) =>
@@ -538,6 +618,8 @@ export default function App() {
                   enableVoiceInput: merged.enableVoiceInput !== false,
                   enableCameraScan: merged.enableCameraScan !== false,
                   enableDrawingPad: merged.enableDrawingPad !== false,
+                  enableSpecialOfferAutoSale: merged.enableSpecialOfferAutoSale !== false,
+                  enableAiAssistant: merged.enableAiAssistant !== false,
                 })
               );
             } catch {}
@@ -610,7 +692,19 @@ export default function App() {
               enableVoiceInput: merged.enableVoiceInput !== false,
               enableCameraScan: merged.enableCameraScan !== false,
               enableDrawingPad: merged.enableDrawingPad !== false,
+              enableSpecialOfferAutoSale: merged.enableSpecialOfferAutoSale !== false,
+              enableAiAssistant: merged.enableAiAssistant !== false,
+              lowStockReorderPoint: merged.lowStockReorderPoint ?? 15,
             }));
+            if (
+              typeof merged.lowStockReorderPoint === 'number' &&
+              Number.isFinite(merged.lowStockReorderPoint) &&
+              merged.lowStockReorderPoint >= 0
+            ) {
+              setReorderPointThreshold(merged.lowStockReorderPoint);
+              setReorderPointInput(String(merged.lowStockReorderPoint));
+              localStorage.setItem('glowzaa_reorder_point', String(merged.lowStockReorderPoint));
+            }
           } catch {}
         }
       })
@@ -842,6 +936,272 @@ export default function App() {
       return matchesSearch && matchesType && matchesStatus && matchesDate && matchesSeller;
     });
   }, [entries, search, typeFilter, statusFilter, startDateFilter, endDateFilter, sellerFilter]);
+
+  // Unique SKUs for quick SKU filter dropdown
+  const uniqueProductSkus = useMemo(() => {
+    const skuSet = new Set<string>();
+    products.forEach((p, idx) => {
+      const displaySku = getEffectiveProductSku(p, idx);
+      skuSet.add(displaySku);
+    });
+    return Array.from(skuSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [products]);
+
+  // Effective Reorder Point helper (uses product-specific reorderPoint if set, otherwise global reorderPointThreshold)
+  const getProductReorderPoint = (p: Product): number => {
+    if (typeof p.reorderPoint === 'number' && Number.isFinite(p.reorderPoint) && p.reorderPoint >= 0) {
+      return p.reorderPoint;
+    }
+    return reorderPointThreshold;
+  };
+
+  const applyGlobalReorderPoint = (nextVal: number, showToastFeedback = true) => {
+    const clean = Math.max(0, Math.round(nextVal));
+    setReorderPointThreshold(clean);
+    setReorderPointInput(String(clean));
+    setShowReorderBanner(true);
+    try {
+      localStorage.setItem('glowzaa_reorder_point', String(clean));
+    } catch {}
+    setSettings((prev) => ({ ...prev, lowStockReorderPoint: clean }));
+    if (db) {
+      setDoc(
+        doc(db, 'businessSettings', 'main'),
+        { lowStockReorderPoint: clean, updatedAt: new Date().toISOString() },
+        { merge: true }
+      ).catch(() => {});
+    }
+    if (showToastFeedback) {
+      setReorderToastPopupVisible(true);
+    }
+  };
+
+  // Summary of products at or below their Reorder Point
+  const reorderAlertSummary = useMemo(() => {
+    const belowReorderProducts: {
+      product: Product;
+      displaySku: string;
+      stock: number;
+      reorderPoint: number;
+      isOutOfStock: boolean;
+    }[] = [];
+    const outOfStockProducts: Product[] = [];
+    const lowStockOnlyProducts: Product[] = [];
+
+    products.forEach((p, idx) => {
+      const stock = Number(p.currentStock || 0);
+      const rp =
+        typeof p.reorderPoint === 'number' && Number.isFinite(p.reorderPoint) && p.reorderPoint >= 0
+          ? p.reorderPoint
+          : reorderPointThreshold;
+      const displaySku = getEffectiveProductSku(p, idx);
+
+      if (stock <= rp) {
+        belowReorderProducts.push({
+          product: p,
+          displaySku,
+          stock,
+          reorderPoint: rp,
+          isOutOfStock: stock <= 0,
+        });
+        if (stock <= 0) {
+          outOfStockProducts.push(p);
+        } else {
+          lowStockOnlyProducts.push(p);
+        }
+      }
+    });
+
+    // Sort most critical (lowest stock first)
+    belowReorderProducts.sort((a, b) => a.stock - b.stock);
+
+    return {
+      belowReorderProducts,
+      outOfStockProducts,
+      lowStockOnlyProducts,
+      totalAlertCount: belowReorderProducts.length,
+    };
+  }, [products, reorderPointThreshold]);
+
+  // Trigger floating toast notification when entering Inventory tab if any product is below reorder point
+  useEffect(() => {
+    if (tab === 'inventory' && reorderAlertSummary.totalAlertCount > 0) {
+      setReorderToastPopupVisible(true);
+      const timer = setTimeout(() => {
+        setReorderToastPopupVisible(false);
+      }, 9000);
+      return () => clearTimeout(timer);
+    }
+  }, [tab, reorderAlertSummary.totalAlertCount, reorderPointThreshold]);
+
+  // Filtered and Sorted Inventory Products
+  const filteredAndSortedProducts = useMemo(() => {
+    const toEnDigits = (str: string) =>
+      str.replace(/[০-৯]/g, (d) => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
+
+    const rawQ = productSearchQuery.trim();
+    const qNorm = toEnDigits(rawQ).toLowerCase();
+    const qNumClean = qNorm.replace(/[৳,\s]/g, '');
+
+    const minVal = productMinPrice.trim() ? Number(toEnDigits(productMinPrice.trim())) : null;
+    const maxVal = productMaxPrice.trim() ? Number(toEnDigits(productMaxPrice.trim())) : null;
+
+    const indexed = products.map((p, idx) => ({
+      product: p,
+      originalIdx: idx,
+      displaySku: getEffectiveProductSku(p, idx),
+      totalStockValue: Number(p.currentStock || 0) * Number(p.averageCost || 0),
+    }));
+
+    const filteredList = indexed.filter(({ product: p, displaySku, totalStockValue }) => {
+      // 1. SKU Filter
+      if (productSkuFilter !== 'all' && displaySku.toLowerCase() !== productSkuFilter.toLowerCase()) {
+        return false;
+      }
+
+      // 2. Stock Status Filter (respects configurable Reorder Point)
+      const stock = Number(p.currentStock || 0);
+      const effectiveRp =
+        typeof p.reorderPoint === 'number' && Number.isFinite(p.reorderPoint) && p.reorderPoint >= 0
+          ? p.reorderPoint
+          : reorderPointThreshold;
+      if (productStockFilter === 'in_stock' && stock <= 0) return false;
+      if (productStockFilter === 'below_reorder' && stock > effectiveRp) return false;
+      if (productStockFilter === 'low_stock' && (stock <= 0 || stock > effectiveRp)) return false;
+      if (productStockFilter === 'out_of_stock' && stock > 0) return false;
+
+      // 3. Min / Max Price Range Filter (checks sellingPrice or averageCost based on selected field)
+      const targetPriceForRange =
+        productSearchField === 'averageCost' ? Number(p.averageCost || 0) : Number(p.sellingPrice || 0);
+      if (minVal !== null && !Number.isNaN(minVal) && targetPriceForRange < minVal) {
+        return false;
+      }
+      if (maxVal !== null && !Number.isNaN(maxVal) && targetPriceForRange > maxVal) {
+        return false;
+      }
+
+      // 4. Search Query Match (Name, SKU, Purchase Cost, Selling Price, Total Price, Stock)
+      if (!qNorm) return true;
+
+      const nameStr = toEnDigits(p.name || '').toLowerCase();
+      const skuStr = toEnDigits(displaySku).toLowerCase();
+      const rawSkuStr = toEnDigits(p.sku || '').toLowerCase();
+      const unitStr = toEnDigits(p.unit || '').toLowerCase();
+
+      const costNum = Number(p.averageCost || 0);
+      const sellNum = Number(p.sellingPrice || 0);
+      const stockNum = Number(p.currentStock || 0);
+
+      const costStr = String(costNum);
+      const costFixed = costNum.toFixed(2);
+      const sellStr = String(sellNum);
+      const sellFixed = sellNum.toFixed(2);
+      const totalValStr = String(Math.round(totalStockValue));
+      const stockStr = String(stockNum);
+
+      const matchesName = nameStr.includes(qNorm);
+      const matchesSku = skuStr.includes(qNorm) || rawSkuStr.includes(qNorm);
+      const matchesCost =
+        Boolean(qNumClean) &&
+        (costStr.includes(qNumClean) ||
+          costFixed.includes(qNumClean) ||
+          (!Number.isNaN(Number(qNumClean)) && costNum === Number(qNumClean)));
+      const matchesSell =
+        Boolean(qNumClean) &&
+        (sellStr.includes(qNumClean) ||
+          sellFixed.includes(qNumClean) ||
+          (!Number.isNaN(Number(qNumClean)) && sellNum === Number(qNumClean)));
+      const matchesAnyPrice =
+        matchesCost ||
+        matchesSell ||
+        (Boolean(qNumClean) && totalValStr.includes(qNumClean));
+      const matchesStockOrUnit =
+        (Boolean(qNumClean) && stockStr.includes(qNumClean)) || unitStr.includes(qNorm);
+
+      if (productSearchField === 'name') return matchesName;
+      if (productSearchField === 'sku') return matchesSku;
+      if (productSearchField === 'averageCost') return matchesCost;
+      if (productSearchField === 'sellingPrice') return matchesSell;
+      if (productSearchField === 'anyPrice') return matchesAnyPrice;
+
+      return matchesName || matchesSku || matchesAnyPrice || matchesStockOrUnit;
+    });
+
+    // 5. Sorting
+    if (productSortBy === 'default') {
+      return filteredList;
+    }
+
+    const sorted = [...filteredList];
+    sorted.sort((a, b) => {
+      switch (productSortBy) {
+        case 'name_asc':
+          return (a.product.name || '').localeCompare(b.product.name || '', 'bn', { sensitivity: 'base' });
+        case 'name_desc':
+          return (b.product.name || '').localeCompare(a.product.name || '', 'bn', { sensitivity: 'base' });
+        case 'sku_asc':
+          return a.displaySku.localeCompare(b.displaySku, undefined, { numeric: true, sensitivity: 'base' });
+        case 'sku_desc':
+          return b.displaySku.localeCompare(a.displaySku, undefined, { numeric: true, sensitivity: 'base' });
+        case 'cost_asc':
+          return Number(a.product.averageCost || 0) - Number(b.product.averageCost || 0);
+        case 'cost_desc':
+          return Number(b.product.averageCost || 0) - Number(a.product.averageCost || 0);
+        case 'price_asc':
+          return Number(a.product.sellingPrice || 0) - Number(b.product.sellingPrice || 0);
+        case 'price_desc':
+          return Number(b.product.sellingPrice || 0) - Number(a.product.sellingPrice || 0);
+        case 'stock_asc':
+          return Number(a.product.currentStock || 0) - Number(b.product.currentStock || 0);
+        case 'stock_desc':
+          return Number(b.product.currentStock || 0) - Number(a.product.currentStock || 0);
+        case 'total_val_asc':
+          return a.totalStockValue - b.totalStockValue;
+        case 'total_val_desc':
+          return b.totalStockValue - a.totalStockValue;
+        default:
+          return 0;
+      }
+    });
+
+    return sorted;
+  }, [
+    products,
+    productSearchQuery,
+    productSearchField,
+    productSortBy,
+    productStockFilter,
+    productSkuFilter,
+    productMinPrice,
+    productMaxPrice,
+    reorderPointThreshold,
+  ]);
+
+  const hasActiveProductFilters =
+    Boolean(productSearchQuery.trim()) ||
+    productSearchField !== 'all' ||
+    productSortBy !== 'default' ||
+    productStockFilter !== 'all' ||
+    productSkuFilter !== 'all' ||
+    Boolean(productMinPrice.trim()) ||
+    Boolean(productMaxPrice.trim());
+
+  const resetProductFilters = () => {
+    setProductSearchQuery('');
+    setProductSearchField('all');
+    setProductSortBy('default');
+    setProductStockFilter('all');
+    setProductSkuFilter('all');
+    setProductMinPrice('');
+    setProductMaxPrice('');
+  };
+
+  const toggleProductColumnSort = (
+    ascKey: typeof productSortBy,
+    descKey: typeof productSortBy
+  ) => {
+    setProductSortBy((prev) => (prev === ascKey ? descKey : prev === descKey ? 'default' : ascKey));
+  };
 
   // Handlers
   async function handleAdminLogin(e: React.FormEvent) {
@@ -1411,15 +1771,21 @@ export default function App() {
       if (!productForm.name.trim()) throw new Error('পণ্যের নাম আবশ্যক');
       const strictSku =
         toStrictAllowedSkuClient(productForm.sku) ||
-        ALLOWED_SKU_CODES[products.length % ALLOWED_SKU_CODES.length] ||
-        'A';
-      const payload = {
+        getNextSequentialSku(products);
+      const parsedReorderPoint =
+        productForm.reorderPoint !== undefined && String(productForm.reorderPoint).trim() !== ''
+          ? Math.max(0, Number(productForm.reorderPoint))
+          : undefined;
+      const payload: Omit<Product, 'id'> = {
         name: productForm.name.trim(),
         sku: strictSku,
         unit: productForm.unit.trim() || 'পিস',
         currentStock: Number(productForm.currentStock) || 0,
         averageCost: Number(productForm.averageCost) || 0,
         sellingPrice: Number(productForm.sellingPrice) || 0,
+        ...(parsedReorderPoint !== undefined && !Number.isNaN(parsedReorderPoint)
+          ? { reorderPoint: parsedReorderPoint }
+          : {}),
         imageUrl: productForm.imageUrl.trim() || undefined,
       };
 
@@ -1464,7 +1830,16 @@ export default function App() {
         }
         setProductReason('');
       }
-      setProductForm({ name: '', sku: '', unit: 'পিস', currentStock: '', averageCost: '', sellingPrice: '', imageUrl: '' });
+      setProductForm({
+        name: '',
+        sku: '',
+        unit: 'পিস',
+        currentStock: '',
+        averageCost: '',
+        sellingPrice: '',
+        reorderPoint: '',
+        imageUrl: '',
+      });
       setEditingProduct(null);
       setShowProductModal(false);
     } catch (err: any) {
@@ -1515,10 +1890,12 @@ export default function App() {
     const matchedExisting = products.find(
       (p) => p.name.toLowerCase().includes(n) || n.includes(p.name.toLowerCase())
     );
-    const nextSkuCode = ALLOWED_SKU_CODES[products.length % ALLOWED_SKU_CODES.length] || 'A';
+    const nextSkuCode = getNextSequentialSku(products);
     if (matchedExisting) {
       return {
-        sku: toStrictAllowedSkuClient(matchedExisting.sku || '') || nextSkuCode,
+        sku: editingProduct
+          ? toStrictAllowedSkuClient(matchedExisting.sku || '') || nextSkuCode
+          : nextSkuCode,
         unit: matchedExisting.unit || 'কেজি',
         averageCost: matchedExisting.averageCost ? String(matchedExisting.averageCost) : '',
         sellingPrice: matchedExisting.sellingPrice ? String(matchedExisting.sellingPrice) : '',
@@ -1603,10 +1980,12 @@ export default function App() {
         const targetCount = Math.max(5, Math.min(6, data.products.length));
         const newRows = Array.from({ length: targetCount }, (_, idx) => {
           const item = data.products[idx];
+          const autoRowSku = getNextSequentialSku(products, idx);
+          const candidateSku = toStrictAllowedSkuClient(item?.sku || '');
           return {
             id: `row-${Date.now()}-${idx}`,
             name: item?.name || '',
-            sku: item?.sku || '',
+            sku: /^\d+$/.test(candidateSku) ? candidateSku : autoRowSku,
             unit: item?.unit || 'কেজি',
             currentStock: item?.currentStock ? String(item.currentStock) : '',
             averageCost: item?.averageCost ? String(item.averageCost) : '',
@@ -1618,13 +1997,21 @@ export default function App() {
         if (data.totalLotCost > 0) setQuickTotalLotCost(String(data.totalLotCost));
         if (data.totalLotSell > 0) setQuickTotalLotSell(String(data.totalLotSell));
         if (data.reason) setProductReason(data.reason);
-        setAiSummaryNote(data.summaryBn || `✨ এআই এক ক্লিকে ${toBengaliNumerals(data.products.length)}টি পণ্যের তথ্য পূরণ করেছে!`);
+        setAiSummaryNote(data.summaryBn || `✨ এআই এক ক্লিকে ${toBengaliNumerals(data.products.length)}টি পণ্যের তথ্য ও অটো SKU নাম্বার পূরণ করেছে!`);
       } else if (data.product) {
         const p = data.product;
+        const autoNextSku = getNextSequentialSku(products);
+        const candidateSingleSku = toStrictAllowedSkuClient(p.sku || '');
         setProductForm((prev) => ({
           ...prev,
           name: p.name || prev.name,
-          sku: p.sku || prev.sku,
+          sku: editingProduct
+            ? prev.sku || candidateSingleSku || autoNextSku
+            : /^\d+$/.test(prev.sku)
+            ? prev.sku
+            : /^\d+$/.test(candidateSingleSku)
+            ? candidateSingleSku
+            : autoNextSku,
           unit: p.unit || prev.unit || 'কেজি',
           currentStock: p.currentStock !== undefined && p.currentStock !== null ? String(p.currentStock) : prev.currentStock,
           averageCost: p.averageCost ? String(p.averageCost) : prev.averageCost,
@@ -1861,8 +2248,7 @@ export default function App() {
 
         const strictRowSku =
           toStrictAllowedSkuClient(row.sku) ||
-          ALLOWED_SKU_CODES[(products.length + rowIdx) % ALLOWED_SKU_CODES.length] ||
-          'A';
+          getNextSequentialSku(products, rowIdx);
 
         return {
           name: row.name.trim(),
@@ -1931,16 +2317,62 @@ export default function App() {
   function handleOpenEditProduct(p: Product) {
     setEditingProduct(p);
     setProductUploadMode('single');
+    const idx = products.findIndex((item) => item.id === p.id);
+    const effectiveExistingSku = getEffectiveProductSku(p, idx >= 0 ? idx : 0);
     setProductForm({
       name: p.name,
-      sku: p.sku || '',
+      sku: p.sku && p.sku.trim() ? p.sku.trim() : effectiveExistingSku,
       unit: p.unit || 'পিস',
       currentStock: String(p.currentStock ?? ''),
       averageCost: String(p.averageCost ?? ''),
       sellingPrice: String(p.sellingPrice ?? ''),
+      reorderPoint:
+        typeof p.reorderPoint === 'number' && Number.isFinite(p.reorderPoint)
+          ? String(p.reorderPoint)
+          : '',
       imageUrl: p.imageUrl || '',
     });
     setShowProductModal(true);
+  }
+
+  async function handleAutoNumberAllProductSkus() {
+    if (!admin || products.length === 0) return;
+    setError('');
+    setBusyTone('default');
+    setBusyText('সব পণ্যে ১ থেকে ক্রমিক অটো-SKU নাম্বার সেট করা হচ্ছে…');
+    setBusy(true);
+    try {
+      const actorUid = currentAdmin?.username || user?.uid || 'Rakib';
+      const actorEmail = currentAdmin
+        ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+        : user?.email || undefined;
+      for (let i = 0; i < products.length; i++) {
+        const prod = products[i];
+        const nextSerial = String(i + 1);
+        if (String(prod.sku || '').trim() !== nextSerial) {
+          await updateProduct(
+            prod.id,
+            {
+              name: prod.name,
+              sku: nextSerial,
+              unit: prod.unit || 'পিস',
+              currentStock: Number(prod.currentStock) || 0,
+              averageCost: Number(prod.averageCost) || 0,
+              sellingPrice: Number(prod.sellingPrice) || 0,
+              ...(prod.reorderPoint !== undefined ? { reorderPoint: prod.reorderPoint } : {}),
+              ...(prod.imageUrl ? { imageUrl: prod.imageUrl } : {}),
+            },
+            actorUid,
+            actorEmail
+          );
+        }
+      }
+      setMessage(`সফলভাবে ${toBengaliNumerals(products.length)}টি পণ্যে 1 থেকে ${products.length} পর্যন্ত অটোমেটিক ক্রমিক SKU নাম্বার সেট করা হয়েছে!`);
+    } catch (err: any) {
+      setError(err?.message || 'অটো-SKU নাম্বার আপডেট ব্যর্থ হয়েছে');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleSaveProfitDistribution(e: React.FormEvent) {
@@ -2693,6 +3125,7 @@ export default function App() {
       showCalculator: settings.showCalculator !== false,
       enableVoiceInput: settings.enableVoiceInput !== false,
       showBrandPopup: settings.showBrandPopup !== false,
+      enableAiAssistant: settings.enableAiAssistant !== false,
       updatedBy: actorId,
     };
     setSettings(updatedSettings);
@@ -2719,8 +3152,91 @@ export default function App() {
     }
     setMessage(
       enabled
-        ? '✍️ ড্রইং প্যাড অটো-সেল ফিচার চালু (ON) করা হয়েছে!'
-        : 'ড্রইং প্যাড অটো-সেল ফিচার বন্ধ (OFF) করা হয়েছে।'
+        ? '⚡ কুইক SKU অটো-সেল ফিচার চালু (ON) করা হয়েছে!'
+        : 'কুইক SKU অটো-সেল ফিচার বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
+  async function handleToggleSpecialOfferAutoSale(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      enableSpecialOfferAutoSale: enabled,
+      enableDrawingPad: settings.enableDrawingPad !== false,
+      enableCameraScan: settings.enableCameraScan !== false,
+      showCalculator: settings.showCalculator !== false,
+      enableVoiceInput: settings.enableVoiceInput !== false,
+      showBrandPopup: settings.showBrandPopup !== false,
+      enableAiAssistant: settings.enableAiAssistant !== false,
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (!enabled) {
+      setShowSpecialOfferSaleModal(false);
+    }
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            enableSpecialOfferAutoSale: enabled,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Special offer auto-sale toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '🎁 বিশেষ অফার অটো-সেল ফিচার চালু (ON) করা হয়েছে!'
+        : 'বিশেষ অফার অটো-সেল ফিচার বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
+  async function handleToggleAiAssistant(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      enableAiAssistant: enabled,
+      enableDrawingPad: settings.enableDrawingPad !== false,
+      enableCameraScan: settings.enableCameraScan !== false,
+      showCalculator: settings.showCalculator !== false,
+      enableVoiceInput: settings.enableVoiceInput !== false,
+      showBrandPopup: settings.showBrandPopup !== false,
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (!enabled && tab === 'ai_assistant') {
+      setTab('dashboard');
+    }
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            enableAiAssistant: enabled,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('AI Assistant toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '🤖 AI Business Assistant (ব্যবসার হিসাব সহকারী) চালু (ON) করা হয়েছে!'
+        : 'AI Business Assistant (ব্যবসার হিসাব সহকারী) বন্ধ (OFF) করা হয়েছে।'
     );
   }
 
@@ -2747,6 +3263,7 @@ export default function App() {
         enableVoiceInput: settings.enableVoiceInput !== false,
         enableCameraScan: settings.enableCameraScan !== false,
         enableDrawingPad: settings.enableDrawingPad !== false,
+        enableAiAssistant: settings.enableAiAssistant !== false,
         updatedBy: actorId,
       };
       const payload = deepClean({
@@ -3037,6 +3554,25 @@ export default function App() {
           >
             <Activity /> ড্যাশবোর্ড
           </button>
+          {settings.enableAiAssistant !== false && (
+            <button
+              type="button"
+              className={tab === 'ai_assistant' ? 'nav active' : 'nav'}
+              onClick={() => { setTab('ai_assistant'); setIsMobileMenuOpen(false); }}
+              style={{
+                background: tab === 'ai_assistant' ? undefined : 'rgba(45, 212, 191, 0.08)',
+                border: tab === 'ai_assistant' ? undefined : '1px solid rgba(45, 212, 191, 0.25)',
+              }}
+            >
+              <Bot style={{ color: '#2dd4bf', flexShrink: 0 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.2, minWidth: 0 }}>
+                <span>AI Business Assistant</span>
+                <small style={{ fontSize: '10.5px', color: tab === 'ai_assistant' ? '#ccfbf1' : '#94a3b8', fontWeight: 500 }}>
+                  আপনার ব্যবসার হিসাব জিজ্ঞাসা করুন
+                </small>
+              </div>
+            </button>
+          )}
           <button
             type="button"
             className={tab === 'transactions' ? 'nav active' : 'nav'}
@@ -3218,6 +3754,20 @@ export default function App() {
           >
             <Activity size={14} /> ড্যাশবোর্ড
           </button>
+          {settings.enableAiAssistant !== false && (
+            <button
+              type="button"
+              className={`mobile-strip-pill ${tab === 'ai_assistant' ? 'active' : ''}`}
+              onClick={() => setTab('ai_assistant')}
+              style={
+                tab === 'ai_assistant'
+                  ? undefined
+                  : { borderColor: '#5eead4', background: '#f0fdfa', color: '#0f766e' }
+              }
+            >
+              <Bot size={14} /> AI Business Assistant
+            </button>
+          )}
           <button
             type="button"
             className={`mobile-strip-pill ${tab === 'transactions' ? 'active' : ''}`}
@@ -5561,6 +6111,57 @@ export default function App() {
                 <button
                   type="button"
                   className="primary"
+                  disabled={isStockCatalogPdfLoading}
+                  style={{
+                    background: 'linear-gradient(135deg, #0f766e, #0284c7)',
+                    borderColor: '#0f766e',
+                    boxShadow: '0 3px 10px rgba(15, 118, 110, 0.28)',
+                  }}
+                  onClick={async () => {
+                    if (isStockCatalogPdfLoading) return;
+                    setIsStockCatalogPdfLoading(true);
+                    try {
+                      await downloadFullStockCatalogWithPhotosPdf({
+                        products,
+                        entries,
+                        settings,
+                        defaultReorderPoint: reorderPointThreshold,
+                        mode: 'full_catalog',
+                      });
+                      setMessage('📸 ছবিসহ সমস্ত স্টক ও বাজার তালিকা PDF সফলভাবে ডাউনলোড হয়েছে!');
+                    } catch (e: any) {
+                      console.error(e);
+                      setError('স্টক তালিকা PDF ডাউনলোড করতে সমস্যা হয়েছে: ' + (e?.message || String(e)));
+                    } finally {
+                      setIsStockCatalogPdfLoading(false);
+                    }
+                  }}
+                >
+                  <Download size={16} />
+                  <span>
+                    {isStockCatalogPdfLoading
+                      ? 'ছবিসহ স্টক PDF ডাউনলোড হচ্ছে…'
+                      : '📸 ছবিসহ সমস্ত স্টক ও বাজার তালিকা PDF ডাউনলোড'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                    borderColor: '#7c3aed',
+                    boxShadow: '0 3px 10px rgba(124, 58, 237, 0.28)',
+                  }}
+                  onClick={() => {
+                    setShowStockCatalogAdvisorModal(true);
+                  }}
+                >
+                  <Flame size={16} />
+                  <span>🔥 আগামী কেনাকাটা ও ট্রেন্ডিং পণ্যের পরামর্শ</span>
+                </button>
+                <button
+                  type="button"
+                  className="primary"
                   style={{
                     background: '#0f2438',
                     borderColor: '#0f2438',
@@ -5578,11 +6179,21 @@ export default function App() {
                       onClick={() => {
                         setEditingProduct(null);
                         setProductUploadMode('single');
+                        setProductForm({
+                          name: '',
+                          sku: getNextSequentialSku(products),
+                          unit: 'পিস',
+                          currentStock: '',
+                          averageCost: '',
+                          sellingPrice: '',
+                          reorderPoint: '',
+                          imageUrl: '',
+                        });
                         setShowProductModal(true);
                       }}
                     >
                       <Plus size={16} />
-                      <span>একটা করে পণ্য যোগ</span>
+                      <span>একটা করে পণ্য যোগ (SKU #{getNextSequentialSku(products)})</span>
                     </button>
                     <button
                       type="button"
@@ -5595,15 +6206,32 @@ export default function App() {
                       onClick={() => {
                         setEditingProduct(null);
                         setProductUploadMode('batch_avg');
-                        if (batchProductsForm.length < 5) {
-                          setBatchProductsForm(createDefaultBatchRows(5));
-                        }
+                        const defaultRows = createDefaultBatchRows(5).map((r, i) => ({
+                          ...r,
+                          sku: getNextSequentialSku(products, i),
+                        }));
+                        setBatchProductsForm(defaultRows);
                         setShowProductModal(true);
                       }}
                     >
                       <Boxes size={16} />
                       <span>৫-৬টি পণ্য গড় হিসাবে যোগ</span>
                     </button>
+                    {products.some((p, i) => String(p.sku || '').trim() !== String(i + 1)) && (
+                      <button
+                        type="button"
+                        className="primary"
+                        style={{
+                          background: 'linear-gradient(135deg, #0d9488, #0f766e)',
+                          borderColor: '#0d9488',
+                          boxShadow: '0 2px 8px rgba(13, 148, 136, 0.22)',
+                        }}
+                        onClick={handleAutoNumberAllProductSkus}
+                        title="সব পণ্যের SKU কোড 1 থেকে ক্রমিক নাম্বারে (1, 2, 3...) সেট করুন"
+                      >
+                        <span>🔢 সব পণ্যে 1 থেকে অটো-SKU সেট করুন</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="primary"
@@ -5631,105 +6259,722 @@ export default function App() {
                 )}
               </div>
             </div>
+            {/* PRODUCT SEARCH, FIELD FILTER & SORTING TOOLBAR */}
+            <div className="inventory-search-filter-shell">
+              {/* Row 1: Search Input + Field Scope Chips */}
+              <div className="inventory-search-top-row">
+                <div className="inventory-search-input-wrap">
+                  <Search size={18} className="inventory-search-icon" />
+                  <input
+                    type="text"
+                    inputMode={
+                      productSearchField === 'sku' ||
+                      productSearchField === 'averageCost' ||
+                      productSearchField === 'sellingPrice' ||
+                      productSearchField === 'anyPrice'
+                        ? 'numeric'
+                        : 'text'
+                    }
+                    value={productSearchQuery}
+                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    placeholder={
+                      productSearchField === 'name'
+                        ? 'পণ্যের নাম লিখে সার্চ করুন (যেমন: রাবার, কাকড়া)...'
+                        : productSearchField === 'sku'
+                        ? 'SKU নাম্বার লিখে সার্চ করুন (যেমন: 1, 2, 3, 4)...'
+                        : productSearchField === 'averageCost'
+                        ? 'গড় ক্রয়মূল্য (কেনা দাম) লিখে সার্চ করুন (যেমন: 6, 35, ৪০)...'
+                        : productSearchField === 'sellingPrice'
+                        ? 'বিক্রয়মূল্য (বেচা দাম) লিখে সার্চ করুন (যেমন: 10, 50, ৮০)...'
+                        : productSearchField === 'anyPrice'
+                        ? 'যেকোনো দাম (ক্রয়মূল্য, বিক্রয়মূল্য বা মোট মূল্য) লিখে সার্চ করুন...'
+                        : 'পণ্যের নাম, SKU, ক্রয়মূল্য, বিক্রয়মূল্য বা দাম দিয়ে সার্চ করুন...'
+                    }
+                    className="inventory-search-input"
+                  />
+                  {productSearchQuery && (
+                    <button
+                      type="button"
+                      className="inventory-search-clear-btn"
+                      onClick={() => setProductSearchQuery('')}
+                      title="সার্চ মুছুন"
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Search Field Scope Selector Pills */}
+                <div className="inventory-search-scope-pills" role="group" aria-label="সার্চ ক্ষেত্র নির্বাচন">
+                  {(
+                    [
+                      { id: 'all', label: '🔍 সব কিছু' },
+                      { id: 'name', label: '📦 নাম' },
+                      { id: 'sku', label: '🏷️ SKU' },
+                      { id: 'averageCost', label: '📥 ক্রয়মূল্য' },
+                      { id: 'sellingPrice', label: '🏷️ বিক্রয়মূল্য' },
+                      { id: 'anyPrice', label: '৳ দাম' },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`inv-scope-pill ${productSearchField === item.id ? 'active' : ''}`}
+                      onClick={() => setProductSearchField(item.id)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 2: Sorting Dropdown, SKU Filter, Stock Filter & Price Range */}
+              <div className="inventory-filter-controls-grid">
+                {/* Sort By Select */}
+                <div className="inv-filter-group">
+                  <label className="inv-filter-label">
+                    <Filter size={13} />
+                    <span>শর্টিং / ক্রম সাজান:</span>
+                  </label>
+                  <select
+                    value={productSortBy}
+                    onChange={(e) => setProductSortBy(e.target.value as any)}
+                    className="inv-filter-select"
+                  >
+                    <option value="default">ডিফল্ট তালিকা (পূর্বনির্ধারিত)</option>
+                    <option value="price_asc">বিক্রয়মূল্য: কম থেকে বেশি (Low → High)</option>
+                    <option value="price_desc">বিক্রয়মূল্য: বেশি থেকে কম (High → Low)</option>
+                    <option value="cost_asc">ক্রয়মূল্য: কম থেকে বেশি (Low → High)</option>
+                    <option value="cost_desc">ক্রয়মূল্য: বেশি থেকে কম (High → Low)</option>
+                    <option value="name_asc">পণ্যের নাম: ক → হ (A → Z)</option>
+                    <option value="name_desc">পণ্যের নাম: হ → ক (Z → A)</option>
+                    <option value="sku_asc">SKU কোড: ছোট থেকে বড় (A → Z)</option>
+                    <option value="sku_desc">SKU কোড: বড় থেকে ছোট (Z → A)</option>
+                    <option value="stock_desc">স্টক পরিমাণ: বেশি থেকে কম</option>
+                    <option value="stock_asc">স্টক পরিমাণ: কম থেকে বেশি</option>
+                    <option value="total_val_desc">মোট স্টক মূল্য: বেশি থেকে কম</option>
+                    <option value="total_val_asc">মোট স্টক মূল্য: কম থেকে বেশি</option>
+                  </select>
+                </div>
+
+                {/* SKU Quick Filter */}
+                <div className="inv-filter-group">
+                  <label className="inv-filter-label">
+                    <Tag size={13} />
+                    <span>SKU ফিল্টার:</span>
+                  </label>
+                  <select
+                    value={productSkuFilter}
+                    onChange={(e) => setProductSkuFilter(e.target.value)}
+                    className="inv-filter-select"
+                  >
+                    <option value="all">সকল SKU ({toBengaliNumerals(uniqueProductSkus.length)}টি)</option>
+                    {uniqueProductSkus.map((skuCode) => (
+                      <option key={skuCode} value={skuCode}>
+                        🏷️ SKU: {skuCode}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Stock Status Filter */}
+                <div className="inv-filter-group">
+                  <label className="inv-filter-label">
+                    <Boxes size={13} />
+                    <span>স্টক অবস্থা:</span>
+                  </label>
+                  <select
+                    value={productStockFilter}
+                    onChange={(e) => setProductStockFilter(e.target.value as any)}
+                    className="inv-filter-select"
+                  >
+                    <option value="all">সকল পণ্য ({toBengaliNumerals(products.length)}টি)</option>
+                    <option value="below_reorder">
+                      ⚠️ পুনঃঅর্ডার প্রয়োজন (≤ {toBengaliNumerals(reorderPointThreshold)} একক) —{' '}
+                      {toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি
+                    </option>
+                    <option value="in_stock">স্টকে আছে (In Stock &gt; ০)</option>
+                    <option value="low_stock">
+                      স্টক কম আছে (১ – {toBengaliNumerals(reorderPointThreshold)} একক) —{' '}
+                      {toBengaliNumerals(reorderAlertSummary.lowStockOnlyProducts.length)}টি
+                    </option>
+                    <option value="out_of_stock">
+                      🚨 স্টক শেষ (Out of Stock = ০) —{' '}
+                      {toBengaliNumerals(reorderAlertSummary.outOfStockProducts.length)}টি
+                    </option>
+                  </select>
+                </div>
+
+                {/* Min - Max Price Filter */}
+                <div className="inv-filter-group inv-price-range-group">
+                  <label className="inv-filter-label">
+                    <BadgeDollarSign size={13} />
+                    <span>
+                      {productSearchField === 'averageCost' ? 'ক্রয়মূল্য রেঞ্জ (৳):' : 'দাম রেঞ্জ (৳):'}
+                    </span>
+                  </label>
+                  <div className="inv-price-inputs">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={productMinPrice}
+                      onChange={(e) => setProductMinPrice(e.target.value)}
+                      placeholder="সর্বনিম্ন ৳"
+                      className="inv-price-input"
+                    />
+                    <span className="inv-price-sep">–</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={productMaxPrice}
+                      onChange={(e) => setProductMaxPrice(e.target.value)}
+                      placeholder="সর্বোচ্চ ৳"
+                      className="inv-price-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2.5: Configurable Reorder Point Control (পুনঃঅর্ডার সতর্কতা সীমা) */}
+              <div className="inv-reorder-config-bar">
+                <div className="inv-reorder-config-left">
+                  <span className="inv-reorder-icon-wrap">
+                    <Bell size={15} />
+                  </span>
+                  <div className="inv-reorder-config-text">
+                    <strong>স্টক পুনঃঅর্ডার সতর্কতা সীমা (Reorder Point):</strong>
+                    <span>
+                      স্টক <b>{toBengaliNumerals(reorderPointThreshold)}</b> বা তার নিচে নামলে টেবিলে হাইলাইট ও সতর্কতা দেখাবে
+                    </span>
+                  </div>
+                </div>
+
+                <div className="inv-reorder-controls">
+                  <div className="inv-reorder-stepper">
+                    <button
+                      type="button"
+                      className="inv-reorder-step-btn"
+                      onClick={() => applyGlobalReorderPoint(Math.max(0, reorderPointThreshold - 1))}
+                      title="১ কমান"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      value={reorderPointInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setReorderPointInput(val);
+                        const num = Number(val);
+                        if (val.trim() !== '' && Number.isFinite(num) && num >= 0) {
+                          applyGlobalReorderPoint(num, false);
+                        }
+                      }}
+                      onBlur={() => {
+                        const num = Number(reorderPointInput);
+                        if (Number.isFinite(num) && num >= 0) {
+                          applyGlobalReorderPoint(num, true);
+                        } else {
+                          setReorderPointInput(String(reorderPointThreshold));
+                        }
+                      }}
+                      className="inv-reorder-number-input"
+                      aria-label="পুনঃঅর্ডার সতর্কতা সীমা"
+                    />
+                    <button
+                      type="button"
+                      className="inv-reorder-step-btn"
+                      onClick={() => applyGlobalReorderPoint(reorderPointThreshold + 1)}
+                      title="১ বাড়ান"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <div className="inv-reorder-presets">
+                    {[5, 10, 15, 25, 50].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        className={`inv-reorder-preset-chip ${
+                          reorderPointThreshold === preset ? 'active' : ''
+                        }`}
+                        onClick={() => applyGlobalReorderPoint(preset)}
+                      >
+                        ≤ {toBengaliNumerals(preset)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Live Search Result Summary & Quick Reset */}
+              <div className="inventory-search-status-bar">
+                <div className="inventory-status-metrics">
+                  <span className="inv-metric-badge primary">
+                    দেখানো হচ্ছে: <b>{toBengaliNumerals(filteredAndSortedProducts.length)}টি</b> / মোট{' '}
+                    {toBengaliNumerals(products.length)}টি পণ্য
+                  </span>
+                  <span className="inv-metric-badge">
+                    মোট স্টক:{' '}
+                    <b>
+                      {toBengaliNumerals(
+                        filteredAndSortedProducts.reduce(
+                          (sum, item) => sum + Number(item.product.currentStock || 0),
+                          0
+                        )
+                      )}
+                    </b>
+                  </span>
+                  <span className="inv-metric-badge">
+                    স্টক মূল্য:{' '}
+                    <b>
+                      {money(
+                        filteredAndSortedProducts.reduce((sum, item) => sum + item.totalStockValue, 0)
+                      )}
+                    </b>
+                  </span>
+                  {reorderAlertSummary.totalAlertCount > 0 && (
+                    <button
+                      type="button"
+                      className={`inv-metric-badge warning-clickable ${
+                        productStockFilter === 'below_reorder' ? 'active' : ''
+                      }`}
+                      onClick={() =>
+                        setProductStockFilter((prev) =>
+                          prev === 'below_reorder' ? 'all' : 'below_reorder'
+                        )
+                      }
+                      title="পুনঃঅর্ডার সীমার নিচে থাকা পণ্যগুলো ফিল্টার করতে ক্লিক করুন"
+                    >
+                      ⚠️ পুনঃঅর্ডার প্রয়োজন:{' '}
+                      <b>{toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি পণ্য</b>
+                    </button>
+                  )}
+                </div>
+
+                {hasActiveProductFilters && (
+                  <button
+                    type="button"
+                    className="inv-reset-filter-btn"
+                    onClick={resetProductFilters}
+                  >
+                    <RotateCcw size={13} />
+                    <span>ফিল্টার ও সার্চ রিসেট করুন</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* FLOATING TOAST NOTIFICATION FOR LOW STOCK / REORDER POINT */}
+            {reorderToastPopupVisible && reorderAlertSummary.totalAlertCount > 0 && (
+              <div className="inv-reorder-floating-toast" role="status" aria-live="polite">
+                <div className="inv-reorder-toast-icon">
+                  <AlertTriangle size={20} />
+                </div>
+                <div className="inv-reorder-toast-content">
+                  <div className="inv-reorder-toast-title">
+                    <span>
+                      🔔 স্টক পুনঃঅর্ডার সতর্কতা! ({toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি পণ্য সীমার নিচে)
+                    </span>
+                    <button
+                      type="button"
+                      className="inv-reorder-toast-close"
+                      onClick={() => setReorderToastPopupVisible(false)}
+                      aria-label="টুলটিপ বন্ধ করুন"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                  <p className="inv-reorder-toast-desc">
+                    বর্তমানে{' '}
+                    {reorderAlertSummary.outOfStockProducts.length > 0 && (
+                      <b className="text-danger">
+                        {toBengaliNumerals(reorderAlertSummary.outOfStockProducts.length)}টি পণ্যের স্টক সম্পূর্ণ শেষ (০){' '}
+                      </b>
+                    )}
+                    {reorderAlertSummary.outOfStockProducts.length > 0 &&
+                      reorderAlertSummary.lowStockOnlyProducts.length > 0 &&
+                      'এবং '}
+                    {reorderAlertSummary.lowStockOnlyProducts.length > 0 && (
+                      <b>
+                        {toBengaliNumerals(reorderAlertSummary.lowStockOnlyProducts.length)}টি পণ্যের স্টক পুনঃঅর্ডার সীমা (≤{' '}
+                        {toBengaliNumerals(reorderPointThreshold)}) এর নিচে নেমেছে।
+                      </b>
+                    )}
+                  </p>
+                  <div className="inv-reorder-toast-actions">
+                    <button
+                      type="button"
+                      className="inv-reorder-toast-btn primary"
+                      onClick={() => {
+                        setProductStockFilter((prev) =>
+                          prev === 'below_reorder' ? 'all' : 'below_reorder'
+                        );
+                        setReorderToastPopupVisible(false);
+                      }}
+                    >
+                      {productStockFilter === 'below_reorder'
+                        ? 'সব পণ্য দেখুন'
+                        : '⚠️ কম স্টকের পণ্যগুলো দেখুন'}
+                    </button>
+                    <button
+                      type="button"
+                      className="inv-reorder-toast-btn secondary"
+                      onClick={() => setReorderToastPopupVisible(false)}
+                    >
+                      ঠিক আছে
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* INLINE VISUAL ALERT BANNER ABOVE INVENTORY TABLE */}
+            {showReorderBanner && reorderAlertSummary.totalAlertCount > 0 && (
+              <div
+                className={`inv-reorder-inline-banner ${
+                  reorderAlertSummary.outOfStockProducts.length > 0 ? 'has-critical' : ''
+                }`}
+              >
+                <div className="inv-reorder-banner-head">
+                  <div className="inv-reorder-banner-title-wrap">
+                    <span className="inv-reorder-pulse-dot" />
+                    <div>
+                      <h4>
+                        ⚠️ স্টক পুনঃঅর্ডার সতর্কতা (Low Stock Reorder Alert):{' '}
+                        {toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি পণ্য পুনঃঅর্ডার সীমা (≤{' '}
+                        {toBengaliNumerals(reorderPointThreshold)}) বা তার নিচে রয়েছে
+                      </h4>
+                      <p>
+                        নিচের তালিকায় হলুদ ও লাল রঙের সারিগুলো দ্রুত স্টক পুনঃভর্তি (Restock / Reorder) করার জন্য চিহ্নিত করা হয়েছে।
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="inv-reorder-banner-actions">
+                    <button
+                      type="button"
+                      className={`inv-reorder-filter-toggle-btn ${
+                        productStockFilter === 'below_reorder' ? 'active' : ''
+                      }`}
+                      onClick={() =>
+                        setProductStockFilter((prev) =>
+                          prev === 'below_reorder' ? 'all' : 'below_reorder'
+                        )
+                      }
+                    >
+                      <Filter size={13} />
+                      <span>
+                        {productStockFilter === 'below_reorder'
+                          ? `সব পণ্য দেখান (${toBengaliNumerals(products.length)}টি)`
+                          : `শুধু পুনঃঅর্ডার প্রয়োজন এমন পণ্য দেখুন (${toBengaliNumerals(
+                              reorderAlertSummary.totalAlertCount
+                            )}টি)`}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="inv-reorder-banner-dismiss"
+                      onClick={() => setShowReorderBanner(false)}
+                      title="সতর্কতা ব্যানার লুকান"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Chips of Low-Stock Products */}
+                <div className="inv-reorder-product-chips">
+                  {reorderAlertSummary.belowReorderProducts.slice(0, 8).map((item) => (
+                    <button
+                      key={item.product.id}
+                      type="button"
+                      className={`inv-reorder-chip ${item.isOutOfStock ? 'critical' : 'warning'}`}
+                      onClick={() => {
+                        if (admin) {
+                          handleOpenEditProduct(item.product);
+                        } else {
+                          setProductSearchQuery(item.product.name);
+                        }
+                      }}
+                      title={
+                        admin
+                          ? `${item.product.name} — স্টক আপডেট করতে ক্লিক করুন`
+                          : `${item.product.name} (স্টক: ${item.stock} ${item.product.unit})`
+                      }
+                    >
+                      <span className="inv-reorder-chip-status">
+                        {item.isOutOfStock ? '🚨' : '⚠️'}
+                      </span>
+                      <span className="inv-reorder-chip-name">{item.product.name}</span>
+                      <span className="inv-reorder-chip-sku">({item.displaySku})</span>
+                      <span className="inv-reorder-chip-stock">
+                        {toBengaliNumerals(item.stock)} {item.product.unit} / সীমা:{' '}
+                        {toBengaliNumerals(item.reorderPoint)}
+                      </span>
+                    </button>
+                  ))}
+                  {reorderAlertSummary.belowReorderProducts.length > 8 && (
+                    <span className="inv-reorder-chip-more">
+                      + আরও {toBengaliNumerals(reorderAlertSummary.belowReorderProducts.length - 8)}টি পণ্য
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th style={{ width: '56px' }}>ছবি</th>
-                    <th>পণ্যের নাম</th>
-                    <th>SKU</th>
-                    <th>স্টক</th>
-                    <th>গড় ক্রয়মূল্য</th>
-                    <th>বিক্রয়মূল্য</th>
-                    <th>মোট স্টক মূল্য</th>
+                    <th
+                      className="sortable-th"
+                      onClick={() => toggleProductColumnSort('name_asc', 'name_desc')}
+                      title="নাম অনুযায়ী সাজাতে ক্লিক করুন"
+                    >
+                      <span className="sortable-th-inner">
+                        পণ্যের নাম
+                        <span className={`sort-indicator ${productSortBy.startsWith('name_') ? 'active' : ''}`}>
+                          {productSortBy === 'name_asc' ? '↑' : productSortBy === 'name_desc' ? '↓' : '↕'}
+                        </span>
+                      </span>
+                    </th>
+                    <th
+                      className="sortable-th"
+                      onClick={() => toggleProductColumnSort('sku_asc', 'sku_desc')}
+                      title="SKU অনুযায়ী সাজাতে ক্লিক করুন"
+                    >
+                      <span className="sortable-th-inner">
+                        SKU
+                        <span className={`sort-indicator ${productSortBy.startsWith('sku_') ? 'active' : ''}`}>
+                          {productSortBy === 'sku_asc' ? '↑' : productSortBy === 'sku_desc' ? '↓' : '↕'}
+                        </span>
+                      </span>
+                    </th>
+                    <th
+                      className="sortable-th"
+                      onClick={() => toggleProductColumnSort('stock_desc', 'stock_asc')}
+                      title="স্টক পরিমাণ অনুযায়ী সাজাতে ক্লিক করুন"
+                    >
+                      <span className="sortable-th-inner">
+                        স্টক ও সতর্কতা
+                        <span className={`sort-indicator ${productSortBy.startsWith('stock_') ? 'active' : ''}`}>
+                          {productSortBy === 'stock_asc' ? '↑' : productSortBy === 'stock_desc' ? '↓' : '↕'}
+                        </span>
+                      </span>
+                    </th>
+                    <th
+                      className="sortable-th"
+                      onClick={() => toggleProductColumnSort('cost_asc', 'cost_desc')}
+                      title="গড় ক্রয়মূল্য অনুযায়ী সাজাতে ক্লিক করুন"
+                    >
+                      <span className="sortable-th-inner">
+                        গড় ক্রয়মূল্য
+                        <span className={`sort-indicator ${productSortBy.startsWith('cost_') ? 'active' : ''}`}>
+                          {productSortBy === 'cost_asc' ? '↑' : productSortBy === 'cost_desc' ? '↓' : '↕'}
+                        </span>
+                      </span>
+                    </th>
+                    <th
+                      className="sortable-th"
+                      onClick={() => toggleProductColumnSort('price_asc', 'price_desc')}
+                      title="বিক্রয়মূল্য অনুযায়ী সাজাতে ক্লিক করুন"
+                    >
+                      <span className="sortable-th-inner">
+                        বিক্রয়মূল্য
+                        <span className={`sort-indicator ${productSortBy.startsWith('price_') ? 'active' : ''}`}>
+                          {productSortBy === 'price_asc' ? '↑' : productSortBy === 'price_desc' ? '↓' : '↕'}
+                        </span>
+                      </span>
+                    </th>
+                    <th
+                      className="sortable-th"
+                      onClick={() => toggleProductColumnSort('total_val_desc', 'total_val_asc')}
+                      title="মোট স্টক মূল্য অনুযায়ী সাজাতে ক্লিক করুন"
+                    >
+                      <span className="sortable-th-inner">
+                        মোট স্টক মূল্য
+                        <span className={`sort-indicator ${productSortBy.startsWith('total_val_') ? 'active' : ''}`}>
+                          {productSortBy === 'total_val_asc' ? '↑' : productSortBy === 'total_val_desc' ? '↓' : '↕'}
+                        </span>
+                      </span>
+                    </th>
                     {admin && <th>অ্যাকশন</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((p, idx) => (
-                    <tr key={p.id}>
-                      <td>
-                        {p.imageUrl ? (
-                          <img
-                            src={p.imageUrl}
-                            alt={p.name}
-                            style={{
-                              width: '42px',
-                              height: '42px',
-                              borderRadius: '8px',
-                              objectFit: 'cover',
-                              border: '1px solid #cbd5e1',
-                              boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-                              display: 'block'
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: '42px',
-                              height: '42px',
-                              borderRadius: '8px',
-                              background: '#f1f5f9',
-                              border: '1px solid #e2e8f0',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: '#94a3b8'
-                            }}
-                            title="কোনো ছবি নেই"
-                          >
-                            <Package size={20} />
-                          </div>
-                        )}
-                      </td>
-                      <td><b>{p.name}</b></td>
-                      <td>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            background: p.sku ? '#ecfdf5' : '#f1f5f9',
-                            color: p.sku ? '#047857' : '#334155',
-                            border: `1px solid ${p.sku ? '#6ee7b7' : '#cbd5e1'}`,
-                            padding: '2px 8px',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            fontWeight: 800,
-                          }}
-                          title="এই SKU কোডটি প্রডাক্টের গায়ে লিখে ক্যামেরায় ধরলে অটো-সেল হবে"
-                        >
-                          🏷️ {p.sku && p.sku.trim() ? p.sku.trim() : `SKU-${idx + 1}`}
-                        </span>
-                      </td>
-                      <td>{p.currentStock} {p.unit}</td>
-                      <td>{money(p.averageCost)}</td>
-                      <td>{money(p.sellingPrice)}</td>
-                      <td><b>{money(p.currentStock * p.averageCost)}</b></td>
-                      {admin && (
+                  {filteredAndSortedProducts.map(({ product: p, displaySku, totalStockValue }) => {
+                    const stockNum = Number(p.currentStock || 0);
+                    const effectiveRp = getProductReorderPoint(p);
+                    const isOutOfStock = stockNum <= 0;
+                    const isBelowReorder = stockNum > 0 && stockNum <= effectiveRp;
+                    const rowStatusClass = isOutOfStock
+                      ? 'inv-row-out-of-stock'
+                      : isBelowReorder
+                      ? 'inv-row-below-reorder'
+                      : '';
+
+                    return (
+                      <tr key={p.id} className={rowStatusClass}>
                         <td>
-                          <div className="action-group">
-                            <button
-                              className="action-btn"
-                              title="পণ্য সম্পাদনা ও ছবি পরিবর্তন"
-                              onClick={() => handleOpenEditProduct(p)}
+                          {p.imageUrl ? (
+                            <img
+                              src={p.imageUrl}
+                              alt={p.name}
+                              style={{
+                                width: '42px',
+                                height: '42px',
+                                borderRadius: '8px',
+                                objectFit: 'cover',
+                                border: isOutOfStock
+                                  ? '2px solid #ef4444'
+                                  : isBelowReorder
+                                  ? '2px solid #f59e0b'
+                                  : '1px solid #cbd5e1',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                                display: 'block',
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: '42px',
+                                height: '42px',
+                                borderRadius: '8px',
+                                background: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#94a3b8',
+                              }}
+                              title="কোনো ছবি নেই"
                             >
-                              <Edit3 size={16} />
-                            </button>
-                            <button
-                              className="action-btn danger"
-                              title="পণ্য ডিলিট"
-                              onClick={() => setShowProductDeleteModal(p)}
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                              <Package size={20} />
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <div className="inv-product-name-cell">
+                            <b>{p.name}</b>
+                            {isOutOfStock && (
+                              <span className="inv-inline-alert-pill critical">
+                                🚨 স্টক শেষ
+                              </span>
+                            )}
+                            {isBelowReorder && (
+                              <span className="inv-inline-alert-pill warning">
+                                ⚠️ পুনঃঅর্ডার প্রয়োজন
+                              </span>
+                            )}
                           </div>
                         </td>
-                      )}
+                        <td>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              background: p.sku ? '#ecfdf5' : '#f1f5f9',
+                              color: p.sku ? '#047857' : '#334155',
+                              border: `1px solid ${p.sku ? '#6ee7b7' : '#cbd5e1'}`,
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                            onClick={() =>
+                              setProductSkuFilter((prev) => (prev === displaySku ? 'all' : displaySku))
+                            }
+                            title="এই SKU দিয়ে ফিল্টার করতে ক্লিক করুন"
+                          >
+                            🏷️ {displaySku}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="inv-stock-cell-wrap">
+                            <span
+                              className={`inv-stock-qty-text ${
+                                isOutOfStock ? 'critical' : isBelowReorder ? 'warning' : 'healthy'
+                              }`}
+                            >
+                              {p.currentStock} {p.unit}
+                            </span>
+                            {isOutOfStock ? (
+                              <span
+                                className="stock-reorder-badge critical"
+                                title={`স্টক শেষ! পুনঃঅর্ডার সীমা: ${effectiveRp} ${p.unit}`}
+                              >
+                                🚨 স্টক শেষ (সীমা: {toBengaliNumerals(effectiveRp)})
+                              </span>
+                            ) : isBelowReorder ? (
+                              <span
+                                className="stock-reorder-badge warning"
+                                title={`বর্তমান স্টক (${stockNum} ${p.unit}) পুনঃঅর্ডার সীমা (${effectiveRp} ${p.unit}) বা তার নিচে নেমেছে`}
+                              >
+                                ⚠️ সীমার নিচে (সীমা: {toBengaliNumerals(effectiveRp)})
+                              </span>
+                            ) : (
+                              <span
+                                className="stock-reorder-badge healthy"
+                                title={`পর্যাপ্ত স্টক রয়েছে (পুনঃঅর্ডার সীমা: ${effectiveRp} ${p.unit})`}
+                              >
+                                ✓ পর্যাপ্ত (সীমা: {toBengaliNumerals(effectiveRp)})
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>{money(p.averageCost)}</td>
+                        <td>{money(p.sellingPrice)}</td>
+                        <td>
+                          <b>{money(totalStockValue)}</b>
+                        </td>
+                        {admin && (
+                          <td>
+                            <div className="action-group">
+                              <button
+                                className="action-btn"
+                                title="পণ্য সম্পাদনা, স্টক ও পুনঃঅর্ডার সীমা পরিবর্তন"
+                                onClick={() => handleOpenEditProduct(p)}
+                              >
+                                <Edit3 size={16} />
+                              </button>
+                              <button
+                                className="action-btn danger"
+                                title="পণ্য ডিলিট"
+                                onClick={() => setShowProductDeleteModal(p)}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                  {!filteredAndSortedProducts.length && (
+                    <tr>
+                      <td colSpan={admin ? 8 : 7} className="empty">
+                        {products.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '12px 0' }}>
+                            <span>আপনার সার্চ বা ফিল্টারের সাথে মিলে এমন কোনো পণ্য পাওয়া যায়নি।</span>
+                            <button
+                              type="button"
+                              className="inv-reset-filter-btn"
+                              onClick={resetProductFilters}
+                            >
+                              <RotateCcw size={13} /> সব পণ্য দেখুন
+                            </button>
+                          </div>
+                        ) : (
+                          'কোনো পণ্য পাওয়া যায়নি'
+                        )}
+                      </td>
                     </tr>
-                  ))}
-                  {!products.length && (
-                    <tr><td colSpan={admin ? 8 : 7} className="empty">কোনো পণ্য পাওয়া যায়নি</td></tr>
                   )}
                 </tbody>
               </table>
@@ -6299,90 +7544,709 @@ export default function App() {
         )}
 
         {/* TAB 7: AUDIT LOG */}
-        {tab === 'audit' && (
-          <div className="panel">
-            <div className="panel-head">
-              <div className="panel-head-info">
-                <h2>অডিট লগ ও ডিলিট ইতিহাস</h2>
-                <p>সিস্টেমে হওয়া সমস্ত ডিলিট, পরিবর্তন ও কার্যকলাপের রেকর্ড</p>
-              </div>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>তারিখ ও সময়</th>
-                    <th>অ্যাকশন</th>
-                    <th>অনুরোধকারী (Maker)</th>
-                    <th>অনুমোদনকারী (Approver)</th>
-                    <th>কারণ ও বিবরণ</th>
-                    <th>স্ট্যাটাস / প্রমাণ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => {
-                    const isDual = log.action.startsWith('dual_') || log.action.startsWith('request_');
-                    const timeStr = log.formattedTime || (log.createdAt?.toDate ? formatBengaliDateTime(log.createdAt.toDate()) : 'এইমাত্র');
-                    const makerName = log.makerName || log.maker || (log.actorEmail?.includes('rakib') ? 'Rakib' : log.actorEmail?.includes('limon') ? 'Limon' : log.actor);
-                    const approverName = log.approverName || log.approver;
+        {tab === 'audit' && (() => {
+          const getAuditActionLabelBn = (action: string): string => {
+            const act = (action || '').toLowerCase();
+            if (act === 'delete_entry') return 'লেনদেন ডিলিট';
+            if (act === 'delete_draft') return 'খসড়া লেনদেন ডিলিট';
+            if (act === 'delete_product') return 'পণ্য ডিলিট';
+            if (act === 'delete_investor') return 'অংশীদার ডিলিট';
+            if (act === 'delete_distribution') return 'লভ্যাংশ বণ্টন ডিলিট';
+            if (act === 'void_entry') return 'পোস্টকৃত লেনদেন বাতিল (Void)';
+            if (act === 'edit_entry') return 'লেনদেন সম্পাদনা';
+            if (act === 'edit_product') return 'পণ্য ও স্টক সম্পাদনা';
+            if (act === 'edit_investor') return 'অংশীদার সম্পাদনা';
+            if (act.startsWith('email_summary_transaction')) return 'ইমেইল সামারি (লেনদেন)';
+            if (act.startsWith('email_high_value')) return 'উচ্চ অংকের উত্তোলন ইমেইল';
+            if (act.startsWith('email_')) return 'ইমেইল নোটিফিকেশন লগ';
+            if (act.startsWith('dual_approved_delete')) return 'দ্বৈত অনুমোদনে ডিলিট';
+            if (act.startsWith('dual_approved_create')) return 'দ্বৈত অনুমোদনে সংযোজন';
+            if (act.startsWith('dual_approved_edit')) return 'দ্বৈত অনুমোদনে পরিবর্তন';
+            if (act.startsWith('dual_approved_')) return 'দ্বৈত অনুমোদিত কার্যক্রম';
+            if (act.startsWith('request_')) return 'অনুমোদনের অনুরোধ';
+            if (act.includes('reject')) return 'অনুরোধ প্রত্যাখ্যান';
+            if (act.includes('waste')) return 'নষ্ট/ক্ষতিগ্রস্ত পণ্য সমন্বয়';
+            if (act.includes('reset')) return 'ডেটা রিসেট';
+            if (act.includes('delete')) return 'ডিলিট রেকর্ড';
+            return 'সিস্টেম অ্যাকশন';
+          };
 
-                    return (
-                      <tr key={log.id}>
-                        <td>
-                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>
-                            {timeStr}
+          const getAuditCategory = (action: string): 'delete' | 'email' | 'approval' | 'edit' => {
+            const act = (action || '').toLowerCase();
+            if (act.startsWith('email_')) return 'email';
+            if (
+              act.includes('delete') ||
+              act.includes('void') ||
+              act.includes('reset') ||
+              act.includes('remove')
+            ) {
+              return 'delete';
+            }
+            if (
+              act.startsWith('dual_') ||
+              act.startsWith('request_') ||
+              act.includes('approve') ||
+              act.includes('reject')
+            ) {
+              return 'approval';
+            }
+            return 'edit';
+          };
+
+          const getAuditLogMeta = (log: AuditLog, index: number) => {
+            const action = log.action || 'unknown';
+            const actionBn = getAuditActionLabelBn(action);
+            const category = getAuditCategory(action);
+            const isDual =
+              action.startsWith('dual_') ||
+              action.startsWith('request_') ||
+              Boolean(log.approver || log.approverName);
+            const timeStr =
+              log.formattedTime ||
+              (log.createdAt?.toDate ? formatBengaliDateTime(log.createdAt.toDate()) : 'এইমাত্র');
+
+            const rawMaker =
+              log.makerName ||
+              log.maker ||
+              (log.actorEmail?.toLowerCase().includes('rakib')
+                ? 'Rakib'
+                : log.actorEmail?.toLowerCase().includes('limon')
+                ? 'Limon'
+                : log.actor || 'Admin');
+            const normalizedMaker: 'Rakib' | 'Limon' | 'Other' =
+              rawMaker.toLowerCase().includes('rakib') || rawMaker.includes('রাকিব')
+                ? 'Rakib'
+                : rawMaker.toLowerCase().includes('limon') || rawMaker.includes('লিমন')
+                ? 'Limon'
+                : 'Other';
+
+            const approverName = log.approverName || log.approver || '';
+            const normalizedApprover: 'Rakib' | 'Limon' | 'None' =
+              approverName.toLowerCase().includes('rakib') || approverName.includes('রাকিব')
+                ? 'Rakib'
+                : approverName.toLowerCase().includes('limon') || approverName.includes('লিমন')
+                ? 'Limon'
+                : 'None';
+
+            // Extract timestamp (ms) and YYYY-MM-DD date string for date filtering
+            let timestampMs = 0;
+            if (log.createdAt?.toMillis) {
+              timestampMs = log.createdAt.toMillis();
+            } else if (typeof log.createdAt?.seconds === 'number') {
+              timestampMs = log.createdAt.seconds * 1000;
+            } else if (typeof log.createdAt === 'string' || typeof log.createdAt === 'number') {
+              const parsed = new Date(log.createdAt).getTime();
+              if (Number.isFinite(parsed)) timestampMs = parsed;
+            }
+
+            let dateYmd = '';
+            if (timestampMs > 0) {
+              const d = new Date(timestampMs);
+              const yr = d.getFullYear();
+              const mo = String(d.getMonth() + 1).padStart(2, '0');
+              const da = String(d.getDate()).padStart(2, '0');
+              dateYmd = `${yr}-${mo}-${da}`;
+            } else if (typeof log.details?.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(log.details.date)) {
+              dateYmd = log.details.date.slice(0, 10);
+            } else if (timeStr) {
+              // Parse Bengali digits DD/MM/YYYY if present in formattedTime
+              const enTime = timeStr.replace(/[০-৯]/g, (d) =>
+                String('০১২৩৪৫৬৭৮৯'.indexOf(d))
+              );
+              const slashMatch = enTime.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+              if (slashMatch) {
+                const day = slashMatch[1].padStart(2, '0');
+                const month = slashMatch[2].padStart(2, '0');
+                const year = slashMatch[3];
+                dateYmd = `${year}-${month}-${day}`;
+                const parsed = new Date(`${year}-${month}-${day}T12:00:00`).getTime();
+                if (Number.isFinite(parsed)) timestampMs = parsed - index;
+              }
+            }
+
+            if (!timestampMs) {
+              timestampMs = Date.now() - index * 1000;
+            }
+
+            return {
+              log,
+              action,
+              actionBn,
+              category,
+              isDual,
+              timeStr,
+              makerName: rawMaker,
+              normalizedMaker,
+              approverName,
+              normalizedApprover,
+              timestampMs,
+              dateYmd,
+            };
+          };
+
+          const enrichedLogs = auditLogs.map((log, idx) => getAuditLogMeta(log, idx));
+
+          // Unique actions count for dropdown
+          const actionCountMap = new Map<string, { count: number; labelBn: string }>();
+          let deleteCount = 0;
+          let emailCount = 0;
+          let approvalCount = 0;
+          let editCount = 0;
+
+          for (const item of enrichedLogs) {
+            const prev = actionCountMap.get(item.action);
+            if (prev) {
+              prev.count += 1;
+            } else {
+              actionCountMap.set(item.action, { count: 1, labelBn: item.actionBn });
+            }
+            if (item.category === 'delete') deleteCount += 1;
+            else if (item.category === 'email') emailCount += 1;
+            else if (item.category === 'approval') approvalCount += 1;
+            else editCount += 1;
+          }
+
+          const uniqueActions = Array.from(actionCountMap.entries()).sort(
+            (a, b) => b[1].count - a[1].count
+          );
+
+          const todayStr = today();
+          const yesterdayStr = getNDaysAgo(1);
+          const sevenDaysAgoStr = getNDaysAgo(6);
+          const thirtyDaysAgoStr = getNDaysAgo(29);
+
+          const normalizeDigitsToEn = (val: string) =>
+            val.replace(/[০-৯]/g, (d) => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
+
+          const filteredAuditLogs = enrichedLogs
+            .filter((item) => {
+              // 1. Category filter
+              if (auditCategoryFilter !== 'all' && item.category !== auditCategoryFilter) {
+                return false;
+              }
+              // 2. Exact Action filter
+              if (auditActionFilter !== 'all' && item.action !== auditActionFilter) {
+                return false;
+              }
+              // 3. Maker filter
+              if (auditMakerFilter !== 'all' && item.normalizedMaker !== auditMakerFilter) {
+                return false;
+              }
+              // 4. Audit Type / Approver filter
+              if (auditTypeStatusFilter === 'dual' && !item.isDual) return false;
+              if (auditTypeStatusFilter === 'system' && item.isDual) return false;
+              if (auditTypeStatusFilter === 'approver_rakib' && item.normalizedApprover !== 'Rakib')
+                return false;
+              if (auditTypeStatusFilter === 'approver_limon' && item.normalizedApprover !== 'Limon')
+                return false;
+
+              // 5. Date Preset / Custom Range filter
+              if (auditDatePreset !== 'all') {
+                if (!item.dateYmd) return false;
+                if (auditDatePreset === 'today' && item.dateYmd !== todayStr) return false;
+                if (auditDatePreset === 'yesterday' && item.dateYmd !== yesterdayStr) return false;
+                if (auditDatePreset === '7d' && (item.dateYmd < sevenDaysAgoStr || item.dateYmd > todayStr))
+                  return false;
+                if (auditDatePreset === '30d' && (item.dateYmd < thirtyDaysAgoStr || item.dateYmd > todayStr))
+                  return false;
+                if (auditDatePreset === 'custom') {
+                  if (auditStartDate && item.dateYmd < auditStartDate) return false;
+                  if (auditEndDate && item.dateYmd > auditEndDate) return false;
+                }
+              }
+
+              // 6. Search Query filter
+              const q = auditSearchQuery.trim().toLowerCase();
+              if (q) {
+                const qEn = normalizeDigitsToEn(q);
+                const haystack = [
+                  item.action,
+                  item.actionBn,
+                  item.makerName,
+                  item.approverName,
+                  item.log.reason || '',
+                  item.log.details?.title || '',
+                  item.log.details?.name || '',
+                  item.log.recordId || '',
+                  item.timeStr,
+                  item.dateYmd,
+                ]
+                  .join(' ')
+                  .toLowerCase();
+                const haystackEn = normalizeDigitsToEn(haystack);
+                if (!haystack.includes(q) && !haystackEn.includes(qEn)) {
+                  return false;
+                }
+              }
+
+              return true;
+            })
+            .sort((a, b) => {
+              if (auditSortBy === 'oldest') return a.timestampMs - b.timestampMs;
+              if (auditSortBy === 'action_asc') return a.action.localeCompare(b.action);
+              if (auditSortBy === 'action_desc') return b.action.localeCompare(a.action);
+              if (auditSortBy === 'maker_asc') return a.makerName.localeCompare(b.makerName);
+              return b.timestampMs - a.timestampMs;
+            });
+
+          const hasActiveAuditFilters =
+            auditSearchQuery.trim() !== '' ||
+            auditCategoryFilter !== 'all' ||
+            auditActionFilter !== 'all' ||
+            auditMakerFilter !== 'all' ||
+            auditTypeStatusFilter !== 'all' ||
+            auditDatePreset !== 'all' ||
+            auditSortBy !== 'newest';
+
+          const resetAuditFilters = () => {
+            setAuditSearchQuery('');
+            setAuditCategoryFilter('all');
+            setAuditActionFilter('all');
+            setAuditMakerFilter('all');
+            setAuditTypeStatusFilter('all');
+            setAuditDatePreset('all');
+            setAuditStartDate('');
+            setAuditEndDate('');
+            setAuditSortBy('newest');
+          };
+
+          return (
+            <div className="panel">
+              <div className="panel-head">
+                <div className="panel-head-info">
+                  <h2>অডিট লগ ও ডিলিট ইতিহাস</h2>
+                  <p>সিস্টেমে হওয়া সমস্ত ডিলিট, পরিবর্তন ও কার্যকলাপের রেকর্ড সার্চ ও ফিল্টার করে দেখুন</p>
+                </div>
+              </div>
+
+              {/* AUDIT LOG SEARCH, FILTER & SORTING TOOLBAR */}
+              <div className="inventory-search-filter-shell" style={{ marginBottom: '16px' }}>
+                {/* Row 1: Search Box + Quick Category Scope Pills */}
+                <div className="inventory-search-top-row">
+                  <div className="inventory-search-input-wrap">
+                    <Search size={18} className="inventory-search-icon" />
+                    <input
+                      type="text"
+                      value={auditSearchQuery}
+                      onChange={(e) => setAuditSearchQuery(e.target.value)}
+                      placeholder="অ্যাকশন (delete_entry), কারণ, পণ্যের নাম, তারিখ বা ইউজার (Rakib/Limon) লিখে সার্চ করুন..."
+                      className="inventory-search-input"
+                    />
+                    {auditSearchQuery && (
+                      <button
+                        type="button"
+                        className="inventory-search-clear-btn"
+                        onClick={() => setAuditSearchQuery('')}
+                        title="সার্চ মুছুন"
+                      >
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Quick Category Filter Pills */}
+                  <div className="inventory-search-scope-pills" role="group" aria-label="অডিট ক্যাটাগরি ফিল্টার">
+                    {(
+                      [
+                        { id: 'all', label: `🔍 সব লগ (${toBengaliNumerals(enrichedLogs.length)})` },
+                        { id: 'delete', label: `🗑️ ডিলিট ও বাতিল (${toBengaliNumerals(deleteCount)})` },
+                        { id: 'email', label: `📧 ইমেইল সামারি (${toBengaliNumerals(emailCount)})` },
+                        { id: 'approval', label: `🛡️ দ্বৈত অনুমোদন (${toBengaliNumerals(approvalCount)})` },
+                        { id: 'edit', label: `✏️ এডিট ও অন্যান্য (${toBengaliNumerals(editCount)})` },
+                      ] as const
+                    ).map((pill) => (
+                      <button
+                        key={pill.id}
+                        type="button"
+                        className={`inv-scope-pill ${auditCategoryFilter === pill.id ? 'active' : ''}`}
+                        onClick={() => {
+                          setAuditCategoryFilter(pill.id);
+                          setAuditActionFilter('all');
+                        }}
+                      >
+                        {pill.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Row 2: Action Dropdown, Maker Filter, Audit Type/Approver Filter, Date Filter & Sort */}
+                <div className="inventory-filter-controls-grid">
+                  {/* Exact Action Select */}
+                  <div className="inv-filter-group">
+                    <label className="inv-filter-label">
+                      <Tag size={13} />
+                      <span>নির্দিষ্ট অ্যাকশন (Action):</span>
+                    </label>
+                    <select
+                      value={auditActionFilter}
+                      onChange={(e) => setAuditActionFilter(e.target.value)}
+                      className="inv-filter-select"
+                    >
+                      <option value="all">
+                        সকল অ্যাকশন ({toBengaliNumerals(uniqueActions.length)} ধরন)
+                      </option>
+                      {uniqueActions.map(([actCode, info]) => (
+                        <option key={actCode} value={actCode}>
+                          {info.labelBn} ({actCode}) — {toBengaliNumerals(info.count)}টি
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Maker / Actor Filter */}
+                  <div className="inv-filter-group">
+                    <label className="inv-filter-label">
+                      <UserIcon size={13} />
+                      <span>অনুরোধকারী (Maker):</span>
+                    </label>
+                    <select
+                      value={auditMakerFilter}
+                      onChange={(e) => setAuditMakerFilter(e.target.value as any)}
+                      className="inv-filter-select"
+                    >
+                      <option value="all">সকল ইউজার (রাকিব ও লিমন)</option>
+                      <option value="Rakib">👤 রাকিব (Rakib)</option>
+                      <option value="Limon">👤 লিমন (Limon)</option>
+                    </select>
+                  </div>
+
+                  {/* Audit Type & Approver Filter */}
+                  <div className="inv-filter-group">
+                    <label className="inv-filter-label">
+                      <ShieldCheck size={13} />
+                      <span>লগের ধরন ও অনুমোদনকারী:</span>
+                    </label>
+                    <select
+                      value={auditTypeStatusFilter}
+                      onChange={(e) => setAuditTypeStatusFilter(e.target.value as any)}
+                      className="inv-filter-select"
+                    >
+                      <option value="all">সকল লগ (দ্বৈত অডিট ও সিস্টেম লগ)</option>
+                      <option value="dual">🛡️ শুধু দ্বৈত অডিট লগ (Dual Audit)</option>
+                      <option value="system">⚡ শুধু সিস্টেম লগ (System Log)</option>
+                      <option value="approver_rakib">✅ রাকিব কর্তৃক অনুমোদিত</option>
+                      <option value="approver_limon">✅ লিমন কর্তৃক অনুমোদিত</option>
+                    </select>
+                  </div>
+
+                  {/* Date Range Filter */}
+                  <div className="inv-filter-group">
+                    <label className="inv-filter-label">
+                      <Calendar size={13} />
+                      <span>সময়সীমা / তারিখ ফিল্টার:</span>
+                    </label>
+                    <select
+                      value={auditDatePreset}
+                      onChange={(e) => setAuditDatePreset(e.target.value as any)}
+                      className="inv-filter-select"
+                    >
+                      <option value="all">সব সময়ের রেকর্ড</option>
+                      <option value="today">আজকের লগ (Today)</option>
+                      <option value="yesterday">গতকালের লগ (Yesterday)</option>
+                      <option value="7d">শেষ ৭ দিনের লগ</option>
+                      <option value="30d">শেষ ৩০ দিনের লগ</option>
+                      <option value="custom">📅 নির্দিষ্ট তারিখ রেঞ্জ নির্বাচন...</option>
+                    </select>
+                  </div>
+
+                  {/* Sort Order */}
+                  <div className="inv-filter-group">
+                    <label className="inv-filter-label">
+                      <Filter size={13} />
+                      <span>শর্টিং / ক্রম সাজান:</span>
+                    </label>
+                    <select
+                      value={auditSortBy}
+                      onChange={(e) => setAuditSortBy(e.target.value as any)}
+                      className="inv-filter-select"
+                    >
+                      <option value="newest">নতুন থেকে পুরাতন (সর্বশেষ আগে)</option>
+                      <option value="oldest">পুরাতন থেকে নতুন (শুরুর লগ আগে)</option>
+                      <option value="action_asc">অ্যাকশন নাম: A → Z</option>
+                      <option value="action_desc">অ্যাকশন নাম: Z → A</option>
+                      <option value="maker_asc">অনুরোধকারী অনুযায়ী (Maker)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Custom Date Inputs when 'custom' date preset is selected */}
+                {auditDatePreset === 'custom' && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginTop: '10px',
+                      padding: '10px 12px',
+                      background: '#f8fafc',
+                      borderRadius: '10px',
+                      border: '1px solid #cbd5e1',
+                    }}
+                  >
+                    <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#0f172a' }}>
+                      📅 তারিখ রেঞ্জ নির্বাচন করুন:
+                    </span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', margin: 0 }}>
+                      <span>শুরু:</span>
+                      <input
+                        type="date"
+                        value={auditStartDate}
+                        onChange={(e) => setAuditStartDate(e.target.value)}
+                        style={{ padding: '5px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', margin: 0 }}>
+                      <span>শেষ:</span>
+                      <input
+                        type="date"
+                        value={auditEndDate}
+                        onChange={(e) => setAuditEndDate(e.target.value)}
+                        style={{ padding: '5px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {/* Row 3: Live Status Summary & Reset Filter Button */}
+                <div className="inventory-search-status-bar">
+                  <div className="inventory-status-metrics">
+                    <span className="inv-metric-badge primary">
+                      দেখানো হচ্ছে: <b>{toBengaliNumerals(filteredAuditLogs.length)}টি</b> / মোট{' '}
+                      {toBengaliNumerals(auditLogs.length)}টি অডিট লগ
+                    </span>
+                    <button
+                      type="button"
+                      className={`inv-metric-badge warning-clickable ${
+                        auditCategoryFilter === 'delete' ? 'active' : ''
+                      }`}
+                      onClick={() =>
+                        setAuditCategoryFilter((prev) => (prev === 'delete' ? 'all' : 'delete'))
+                      }
+                      title="শুধু ডিলিট ও বাতিল ইতিহাস দেখতে ক্লিক করুন"
+                    >
+                      🗑️ ডিলিট লগ: <b>{toBengaliNumerals(deleteCount)}টি</b>
+                    </button>
+                    <span className="inv-metric-badge">
+                      📧 ইমেইল লগ: <b>{toBengaliNumerals(emailCount)}টি</b>
+                    </span>
+                    {auditActionFilter !== 'all' && (
+                      <span
+                        className="inv-metric-badge"
+                        style={{ background: '#e0f2fe', color: '#0369a1', borderColor: '#7dd3fc' }}
+                      >
+                        অ্যাকশন ফিল্টার: <b>{auditActionFilter}</b>
+                      </span>
+                    )}
+                  </div>
+
+                  {hasActiveAuditFilters && (
+                    <button
+                      type="button"
+                      className="inv-reset-filter-btn"
+                      onClick={resetAuditFilters}
+                    >
+                      <RotateCcw size={13} />
+                      <span>ফিল্টার ও সার্চ রিসেট করুন</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th
+                        className="sortable-th"
+                        onClick={() =>
+                          setAuditSortBy((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
+                        }
+                        title="সময় অনুযায়ী সাজাতে ক্লিক করুন"
+                      >
+                        <span className="sortable-th-inner">
+                          তারিখ ও সময়
+                          <span
+                            className={`sort-indicator ${
+                              auditSortBy === 'newest' || auditSortBy === 'oldest' ? 'active' : ''
+                            }`}
+                          >
+                            {auditSortBy === 'oldest' ? '↑' : '↓'}
                           </span>
-                        </td>
-                        <td>
-                          <span className={`badge ${log.action.includes('delete') ? 'void' : log.action.includes('approved') ? 'posted' : 'demo'}`}>
-                            {log.action}
+                        </span>
+                      </th>
+                      <th
+                        className="sortable-th"
+                        onClick={() =>
+                          setAuditSortBy((prev) =>
+                            prev === 'action_asc' ? 'action_desc' : 'action_asc'
+                          )
+                        }
+                        title="অ্যাকশন নাম অনুযায়ী সাজাতে ক্লিক করুন"
+                      >
+                        <span className="sortable-th-inner">
+                          অ্যাকশন (ক্লিক করে ফিল্টার করুন)
+                          <span
+                            className={`sort-indicator ${
+                              auditSortBy.startsWith('action_') ? 'active' : ''
+                            }`}
+                          >
+                            {auditSortBy === 'action_asc'
+                              ? '↑'
+                              : auditSortBy === 'action_desc'
+                              ? '↓'
+                              : '↕'}
                           </span>
-                        </td>
-                        <td>
-                          <b style={{ color: '#0f172a' }}>{makerName}</b>
-                        </td>
-                        <td>
-                          {approverName ? (
-                            <div>
-                              <b style={{ color: '#0d9488' }}>{approverName}</b>
-                              {log.approvedAtFormatted && (
-                                <small style={{ display: 'block', color: '#64748b', fontSize: '11px' }}>
-                                  {log.approvedAtFormatted}
-                                </small>
-                              )}
+                        </span>
+                      </th>
+                      <th>অনুরোধকারী (Maker)</th>
+                      <th>অনুমোদনকারী (Approver)</th>
+                      <th>কারণ ও বিবরণ</th>
+                      <th>স্ট্যাটাস / প্রমাণ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAuditLogs.map((item) => {
+                      const { log, action, actionBn, isDual, timeStr, makerName, normalizedMaker, approverName } = item;
+
+                      return (
+                        <tr key={log.id}>
+                          <td>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>
+                              {timeStr}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px' }}>
+                              <span
+                                className={`badge ${
+                                  action.includes('delete') || action.includes('void')
+                                    ? 'void'
+                                    : action.includes('approved')
+                                    ? 'posted'
+                                    : 'demo'
+                                }`}
+                                style={{ cursor: 'pointer' }}
+                                onClick={() =>
+                                  setAuditActionFilter((prev) => (prev === action ? 'all' : action))
+                                }
+                                title={`"${action}" দিয়ে ফিল্টার করতে ক্লিক করুন`}
+                              >
+                                {action}
+                              </span>
+                              <small style={{ fontSize: '11px', color: '#475569', fontWeight: 600 }}>
+                                {actionBn}
+                              </small>
+                            </div>
+                          </td>
+                          <td>
+                            <b
+                              style={{
+                                color: '#0f172a',
+                                cursor: normalizedMaker !== 'Other' ? 'pointer' : 'default',
+                                textDecoration:
+                                  auditMakerFilter === normalizedMaker ? 'underline' : 'none',
+                              }}
+                              onClick={() => {
+                                if (normalizedMaker === 'Rakib' || normalizedMaker === 'Limon') {
+                                  setAuditMakerFilter((prev) =>
+                                    prev === normalizedMaker ? 'all' : normalizedMaker
+                                  );
+                                }
+                              }}
+                              title="এই ইউজারের লগ ফিল্টার করতে ক্লিক করুন"
+                            >
+                              {makerName}
+                            </b>
+                          </td>
+                          <td>
+                            {approverName ? (
+                              <div>
+                                <b style={{ color: '#0d9488' }}>{approverName}</b>
+                                {log.approvedAtFormatted && (
+                                  <small style={{ display: 'block', color: '#64748b', fontSize: '11px' }}>
+                                    {log.approvedAtFormatted}
+                                  </small>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ maxWidth: '280px' }}>
+                            <div style={{ fontSize: '12.5px', color: '#1e293b' }}>
+                              {log.reason || '—'}
+                            </div>
+                            {log.details?.title && (
+                              <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>
+                                বিষয়: {log.details.title}
+                              </small>
+                            )}
+                            {!log.details?.title && log.details?.name && (
+                              <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>
+                                নাম: {log.details.name}
+                              </small>
+                            )}
+                          </td>
+                          <td>
+                            <span
+                              className={`status ${
+                                action.includes('approved')
+                                  ? 'posted'
+                                  : action.includes('rejected')
+                                  ? 'void'
+                                  : 'posted'
+                              }`}
+                              style={{ cursor: 'pointer' }}
+                              onClick={() =>
+                                setAuditTypeStatusFilter((prev) => {
+                                  const target = isDual ? 'dual' : 'system';
+                                  return prev === target ? 'all' : target;
+                                })
+                              }
+                              title="লগের ধরন অনুযায়ী ফিল্টার করতে ক্লিক করুন"
+                            >
+                              {isDual ? '🛡️ দ্বৈত অডিট' : 'সিস্টেম লগ'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!filteredAuditLogs.length && (
+                      <tr>
+                        <td colSpan={6} className="empty">
+                          {auditLogs.length > 0 ? (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '12px 0',
+                              }}
+                            >
+                              <span>আপনার সার্চ বা ফিল্টারের সাথে মিলে এমন কোনো অডিট লগ পাওয়া যায়নি।</span>
+                              <button
+                                type="button"
+                                className="inv-reset-filter-btn"
+                                onClick={resetAuditFilters}
+                              >
+                                <RotateCcw size={13} /> সব অডিট লগ দেখুন
+                              </button>
                             </div>
                           ) : (
-                            <span style={{ color: '#94a3b8' }}>—</span>
+                            'কোনো অডিট লগ রেকর্ড নেই'
                           )}
-                        </td>
-                        <td style={{ maxWidth: '280px' }}>
-                          <div style={{ fontSize: '12.5px', color: '#1e293b' }}>
-                            {log.reason || '—'}
-                          </div>
-                          {log.details?.title && (
-                            <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>
-                              বিষয়: {log.details.title}
-                            </small>
-                          )}
-                        </td>
-                        <td>
-                          <span className={`status ${log.action.includes('approved') ? 'posted' : log.action.includes('rejected') ? 'void' : 'posted'}`}>
-                            {isDual ? '🛡️ দ্বৈত অডিট' : 'সিস্টেম লগ'}
-                          </span>
                         </td>
                       </tr>
-                    );
-                  })}
-                  {!auditLogs.length && (
-                    <tr>
-                      <td colSpan={6} className="empty">কোনো অডিট লগ রেকর্ড নেই</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* TAB 8: SETTINGS */}
         {tab === 'settings' && (
@@ -6441,6 +8305,73 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            {/* AI BUSINESS ASSISTANT ON/OFF SETTING CARD */}
+            <div
+              className="brand-popup-setting-card"
+              style={{
+                marginBottom: '16px',
+                border: '1.5px solid #5eead4',
+                background: 'linear-gradient(180deg, #f0fdfa 0%, #ffffff 100%)',
+              }}
+            >
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div
+                    className="brand-popup-setting-icon"
+                    style={{
+                      background: 'linear-gradient(135deg, #091e32 0%, #0d9488 100%)',
+                      color: '#5eead4',
+                    }}
+                  >
+                    <Bot size={23} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>AI Business Assistant — ব্যবসার হিসাব সহকারী (ON/OFF)</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.enableAiAssistant !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.enableAiAssistant !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      এটি চালু থাকলে ওয়েবসাইটের মেনু ও উপরের বারে <b>&ldquo;AI Business Assistant&rdquo;</b> চ্যাট বক্স সচল থাকবে, যেখানে বাংলা, ইংরেজি বা বাংলিশে ব্যবসার যেকোনো হিসাব জিজ্ঞাসা করা যাবে। চাইলে এখান থেকে যেকোনো সময় এটি অন বা অফ করে রাখতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.enableAiAssistant !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.enableAiAssistant !== false ? 'active' : ''
+                    }`}
+                    onClick={() => handleToggleAiAssistant(settings.enableAiAssistant === false)}
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.enableAiAssistant !== false ? 'AI সহকারী: ON' : 'AI সহকারী: OFF'}
+                    </span>
+                  </button>
+
+                  {settings.enableAiAssistant !== false && (
+                    <button
+                      type="button"
+                      className="brand-preview-trigger-btn"
+                      onClick={() => setTab('ai_assistant')}
+                    >
+                      <Bot size={16} />
+                      <span>AI চ্যাট বক্স খুলুন</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
             {/* WEBSITE ENTRY BRAND POPUP ANIMATION ("Glowzaa এটা ব্রান্ড") ON/OFF SETTING CARD */}
             <div className="brand-popup-setting-card">
@@ -6713,11 +8644,11 @@ export default function App() {
                       color: '#ffffff',
                     }}
                   >
-                    <PenTool size={22} />
+                    <Zap size={22} />
                   </div>
                   <div className="brand-popup-setting-text">
                     <div className="brand-popup-setting-title-row">
-                      <h3>ড্রইং প্যাড অটো-সেল (Drawing Pad SKU Auto-Sale)</h3>
+                      <h3>কুইক SKU নাম্বার অটো-সেল (Quick SKU Auto-Sale POS)</h3>
                       <span
                         className={`brand-popup-status-pill ${
                           settings.enableDrawingPad !== false ? 'is-on' : 'is-off'
@@ -6727,7 +8658,7 @@ export default function App() {
                       </span>
                     </div>
                     <p>
-                      এটি চালু থাকলে আলাদা ড্রইং প্যাড বাটনে চাপ দিয়ে সাদা প্যাডে আঙুল বা মাউস দিয়ে A, B, AB, GZ লিখলেই সাথে সাথে প্রডাক্টের SKU ম্যাচ করে অটোমেটিক সেল কনফার্ম হয়ে যাবে।
+                      এটি চালু থাকলে কুইক অটো-সেল বাটনে চাপ দিয়ে সরাসরি নাম্বার কিবোর্ডে প্রডাক্টের SKU নাম্বার (1, 2, 3...) লিখলেই বা ১-ট্যাপ বাটনে চাপ দিলেই সাথে সাথে সেল কনফার্ম হয়ে যাবে।
                     </p>
                   </div>
                 </div>
@@ -6744,7 +8675,7 @@ export default function App() {
                   >
                     <span className="brand-toggle-knob" />
                     <span className="brand-toggle-label">
-                      {settings.enableDrawingPad !== false ? 'ড্রইং প্যাড: ON' : 'ড্রইং প্যাড: OFF'}
+                      {settings.enableDrawingPad !== false ? 'কুইক অটো-সেল: ON' : 'কুইক অটো-সেল: OFF'}
                     </span>
                   </button>
 
@@ -6754,8 +8685,76 @@ export default function App() {
                       className="brand-preview-trigger-btn"
                       onClick={() => setShowDrawingSaleModal(true)}
                     >
-                      <PenTool size={16} />
-                      <span>ড্রইং প্যাড খুলুন</span>
+                      <Zap size={16} />
+                      <span>কুইক অটো-সেল খুলুন</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="brand-popup-setting-card" style={{ marginTop: '16px' }}>
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div
+                    className="brand-popup-setting-icon"
+                    style={{
+                      background: 'linear-gradient(135deg, #e11d48, #d97706)',
+                      color: '#ffffff',
+                    }}
+                  >
+                    <Percent size={22} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>🎁 বিশেষ অফার অটো-সেল (Special Offer Auto-Sale POS)</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.enableSpecialOfferAutoSale !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.enableSpecialOfferAutoSale !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      এটি চালু থাকলে বিশেষ অফার বা ডিসকাউন্টে (৳ ছাড়, % ছাড়, ফিক্সড অফার দাম বা কেনা দামে) প্রডাক্টের SKU নাম্বার (1, 2, 3...) দিয়ে বা ১-ট্যাপ বাটনে চাপ দিয়ে সাথে সাথে অফার মূল্যে সেল করা যাবে।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.enableSpecialOfferAutoSale !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.enableSpecialOfferAutoSale !== false ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      handleToggleSpecialOfferAutoSale(settings.enableSpecialOfferAutoSale === false)
+                    }
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.enableSpecialOfferAutoSale !== false
+                        ? 'বিশেষ অফার সেল: ON'
+                        : 'বিশেষ অফার সেল: OFF'}
+                    </span>
+                  </button>
+
+                  {settings.enableSpecialOfferAutoSale !== false && (
+                    <button
+                      type="button"
+                      className="brand-preview-trigger-btn"
+                      onClick={() => setShowSpecialOfferSaleModal(true)}
+                      style={{
+                        borderColor: '#fda4af',
+                        color: '#be123c',
+                        background: '#fff1f2',
+                      }}
+                    >
+                      <Percent size={16} />
+                      <span>বিশেষ অফার অটো-সেল খুলুন</span>
                     </button>
                   )}
                 </div>
@@ -6805,6 +8804,79 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB: AI BUSINESS ASSISTANT */}
+        {tab === 'ai_assistant' && (
+          settings.enableAiAssistant === false ? (
+            <div
+              className="panel"
+              style={{
+                textAlign: 'center',
+                padding: '38px 20px',
+                maxWidth: '540px',
+                margin: '24px auto',
+                border: '1.5px dashed #cbd5e1',
+              }}
+            >
+              <div
+                style={{
+                  width: '54px',
+                  height: '54px',
+                  borderRadius: '14px',
+                  background: '#f1f5f9',
+                  color: '#64748b',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '12px',
+                }}
+              >
+                <Bot size={28} />
+              </div>
+              <h2 style={{ margin: '0 0 8px', fontSize: '18px', color: '#0f172a' }}>
+                AI Business Assistant বর্তমানে বন্ধ (OFF) আছে
+              </h2>
+              <p style={{ margin: '0 0 18px', fontSize: '13.5px', color: '#64748b', lineHeight: 1.55 }}>
+                সেটিংস থেকে AI Business Assistant ফিচারটি বন্ধ করে রাখা হয়েছে। পুনরায় ব্যবসার হিসাব চ্যাট বক্স ব্যবহার করতে নিচের বাটনে ক্লিক করে এটি চালু করুন।
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => handleToggleAiAssistant(true)}
+                >
+                  <Bot size={16} /> এখনই চালু করুন (Turn ON)
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setTab('settings')}
+                >
+                  <Settings size={16} /> সেটিংস পেজে যান
+                </button>
+              </div>
+            </div>
+          ) : (
+            <AiBusinessAssistant
+              currentAdmin={currentAdmin}
+              entries={entries}
+              investors={investors}
+              products={products}
+              distributions={distributions}
+              approvalRequests={approvalRequests}
+              onViewEntryRecord={(entry) => setViewRecordModal(entry)}
+              onOpenSettings={() => setTab('settings')}
+              onNavigateToTransactions={(presetFilter) => {
+                if (presetFilter?.type) setTypeFilter(presetFilter.type);
+                else setTypeFilter('all');
+                if (presetFilter?.startDate !== undefined) setStartDateFilter(presetFilter.startDate);
+                if (presetFilter?.endDate !== undefined) setEndDateFilter(presetFilter.endDate);
+                if (presetFilter?.search !== undefined) setSearch(presetFilter.search);
+                setTab('transactions');
+              }}
+            />
+          )
         )}
       </main>
 
@@ -7469,7 +9541,12 @@ export default function App() {
             >
               <button
                 type="button"
-                onClick={() => setProductUploadMode('single')}
+                onClick={() => {
+                  setProductUploadMode('single');
+                  if (!editingProduct && !productForm.sku) {
+                    setProductForm((prev) => ({ ...prev, sku: getNextSequentialSku(products) }));
+                  }
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -7495,7 +9572,19 @@ export default function App() {
                 onClick={() => {
                   setProductUploadMode('batch_avg');
                   if (batchProductsForm.length < 5) {
-                    setBatchProductsForm(createDefaultBatchRows(5));
+                    setBatchProductsForm(
+                      createDefaultBatchRows(5).map((r, i) => ({
+                        ...r,
+                        sku: getNextSequentialSku(products, i),
+                      }))
+                    );
+                  } else {
+                    setBatchProductsForm((prev) =>
+                      prev.map((r, i) => ({
+                        ...r,
+                        sku: r.sku || getNextSequentialSku(products, i),
+                      }))
+                    );
                   }
                 }}
                 style={{
@@ -7917,21 +10006,68 @@ export default function App() {
               </label>
 
               <label>
-                SKU / কোড (A–Z / AA–GZ) *
-                <select
-                  value={
-                    toStrictAllowedSkuClient(productForm.sku) ||
-                    ALLOWED_SKU_CODES[products.length % ALLOWED_SKU_CODES.length] ||
-                    'A'
-                  }
-                  onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })}
-                >
-                  {ALLOWED_SKU_CODES.map((code) => (
-                    <option key={code} value={code}>
-                      কোড: {code}
-                    </option>
-                  ))}
-                </select>
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
+                  <span>SKU নাম্বার (অটোমেটিক 1, 2, 3...) *</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      background: '#ecfdf5',
+                      color: '#047857',
+                      border: '1px solid #6ee7b7',
+                      padding: '1px 7px',
+                      borderRadius: '999px',
+                    }}
+                  >
+                    ⚡ অটো SKU: #{productForm.sku || getNextSequentialSku(products)}
+                  </span>
+                </span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    required
+                    value={productForm.sku || getNextSequentialSku(products)}
+                    placeholder={`যেমন: ${getNextSequentialSku(products)}`}
+                    onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })}
+                    style={{
+                      fontWeight: 800,
+                      color: '#0f766e',
+                      background: '#f0fdfa',
+                      border: '1.5px solid #5eead4',
+                      flex: 1,
+                    }}
+                  />
+                  {!editingProduct && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setProductForm((prev) => ({
+                          ...prev,
+                          sku: getNextSequentialSku(products),
+                        }))
+                      }
+                      title="পরবর্তী অটোমেটিক ক্রমিক নাম্বার বসান"
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #0d9488',
+                        color: '#0f766e',
+                        borderRadius: '8px',
+                        padding: '8px 10px',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      🔄 অটো #{getNextSequentialSku(products)}
+                    </button>
+                  )}
+                </div>
+                <small style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '3px' }}>
+                  ১ থেকে শুরু হয়ে অটোমেটিক চলতেই থাকবে — অটো সেল করার সময় এই নাম্বার ম্যাচ হবে
+                </small>
               </label>
 
               <label>
@@ -7972,6 +10108,17 @@ export default function App() {
                   value={productForm.sellingPrice}
                   placeholder="0.00"
                   onChange={(e) => setProductForm({ ...productForm, sellingPrice: e.target.value })}
+                />
+              </label>
+
+              <label>
+                পুনঃঅর্ডার সতর্কতা সীমা (Reorder Point - ঐচ্ছিক)
+                <input
+                  type="number"
+                  min="0"
+                  value={productForm.reorderPoint}
+                  placeholder={`ডিফল্ট: ${reorderPointThreshold} একক`}
+                  onChange={(e) => setProductForm({ ...productForm, reorderPoint: e.target.value })}
                 />
               </label>
 
@@ -8359,6 +10506,20 @@ export default function App() {
                           }}
                         >
                           পণ্য #{toBengaliNumerals(index + 1)}
+                        </span>
+                        <span
+                          style={{
+                            background: '#ecfdf5',
+                            color: '#047857',
+                            border: '1px solid #6ee7b7',
+                            borderRadius: '6px',
+                            padding: '2px 8px',
+                            fontSize: '11.5px',
+                            fontWeight: 800,
+                          }}
+                          title="অটোমেটিক ক্রমিক SKU নাম্বার (অটো সেলে এই নাম্বার ম্যাচ হবে)"
+                        >
+                          🏷️ অটো SKU: {toStrictAllowedSkuClient(row.sku) || getNextSequentialSku(products, index)}
                         </span>
 
                         {/* Mini Photo Preview & Quick Icons for this row */}
@@ -10852,17 +13013,63 @@ export default function App() {
           setShowProfitabilityModal(false);
           setEditingProduct(null);
           setProductUploadMode('single');
+          setProductForm({
+            name: '',
+            sku: getNextSequentialSku(products),
+            unit: 'পিস',
+            currentStock: '',
+            averageCost: '',
+            sellingPrice: '',
+            reorderPoint: '',
+            imageUrl: '',
+          });
           setShowProductModal(true);
         }}
       />
 
-      {/* GLOBAL FIXED FLOATING DRAWING PAD & CAMERA AUTO-SALE BUTTONS (SEPARATE FEATURES) */}
+      {/* GLOBAL FIXED FLOATING SPECIAL OFFER, QUICK SKU & CAMERA AUTO-SALE BUTTONS */}
+      {settings.enableSpecialOfferAutoSale !== false && (
+        <button
+          type="button"
+          onClick={() => setShowSpecialOfferSaleModal(true)}
+          title="🎁 বিশেষ অফার অটো-সেল (ডিসকাউন্ট বা অফার মূল্যে তাৎক্ষণিক সেল)"
+          aria-label="বিশেষ অফার অটো-সেল"
+          style={{
+            position: 'fixed',
+            right: '14px',
+            bottom: `${
+              84 +
+              54 *
+                ((settings.showCalculator !== false ? 1 : 0) +
+                  (settings.enableCameraScan !== false ? 1 : 0) +
+                  (settings.enableDrawingPad !== false ? 1 : 0))
+            }px`,
+            zIndex: 940,
+            width: '44px',
+            height: '44px',
+            minHeight: '44px',
+            padding: 0,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #e11d48, #d97706)',
+            color: '#ffffff',
+            border: '2px solid #ffffff',
+            boxShadow: '0 6px 18px rgba(225, 29, 72, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <Percent size={19} />
+        </button>
+      )}
+
       {settings.enableDrawingPad !== false && (
         <button
           type="button"
           onClick={() => setShowDrawingSaleModal(true)}
-          title="ড্রইং প্যাড অটো-সেল (হাতে A, AB লিখলেই অটোমেটিক সেল এন্ট্রি)"
-          aria-label="ড্রইং প্যাড অটো-সেল"
+          title="কুইক SKU নাম্বার অটো-সেল (1, 2, 3... নাম্বার দিলেই সাথে সাথে সেল)"
+          aria-label="কুইক SKU অটো-সেল"
           style={{
             position: 'fixed',
             right: '14px',
@@ -10880,17 +13087,17 @@ export default function App() {
             minHeight: '44px',
             padding: 0,
             borderRadius: '50%',
-            background: 'linear-gradient(135deg, #2563eb, #0284c7)',
+            background: 'linear-gradient(135deg, #0d9488, #0284c7)',
             color: '#ffffff',
             border: '2px solid #ffffff',
-            boxShadow: '0 6px 18px rgba(37, 99, 235, 0.42)',
+            boxShadow: '0 6px 18px rgba(13, 148, 136, 0.42)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
           }}
         >
-          <PenTool size={18} />
+          <Zap size={19} />
         </button>
       )}
 
@@ -11057,10 +13264,10 @@ export default function App() {
 
             const methodLabel =
               matchMethod === 'barcode'
-                ? 'ড্রইং প্যাড SKU এন্ট্রি'
+                ? 'কুইক SKU নাম্বার এন্ট্রি'
                 : matchMethod === 'quick_tap'
-                ? 'ড্রইং প্যাড কুইক সেল'
-                : 'ড্রইং প্যাড হাতের লেখা (A–GZ)';
+                ? '১-ট্যাপ কুইক SKU সেল'
+                : 'কুইক SKU অটো-সেল';
 
             const createdId = await addEntry(
               {
@@ -11076,7 +13283,7 @@ export default function App() {
                 cogsAmount,
                 grossProfit,
                 profit: grossProfit,
-                category: 'ড্রইং প্যাড অটো-সেল (POS)',
+                category: 'কুইক SKU অটো-সেল (POS)',
                 notes: `${methodLabel} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
                 demo: false,
               },
@@ -11086,7 +13293,7 @@ export default function App() {
             );
 
             setMessage(
-              `✅ ড্রইং প্যাড অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)} (লাভ: +${money(grossProfit)})`
+              `✅ কুইক SKU অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)} (লাভ: +${money(grossProfit)})`
             );
             return createdId;
           }}
@@ -11097,7 +13304,7 @@ export default function App() {
               : user?.email || '';
             await removeEntry(entryId, actorId, actorEmail);
             setMessage(
-              `↩️ ড্রইং প্যাড সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+              `↩️ কুইক SKU সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
             );
           }}
           onUpdateProductSku={async (product, newSku) => {
@@ -11110,6 +13317,111 @@ export default function App() {
           }}
         />
       )}
+
+      {/* SEPARATE SPECIAL OFFER AUTO-SALE POS MODAL */}
+      {settings.enableSpecialOfferAutoSale !== false && (
+        <CameraAutoSaleModal
+          isOpen={showSpecialOfferSaleModal}
+          onClose={() => setShowSpecialOfferSaleModal(false)}
+          products={products}
+          featureMode="special_offer"
+          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+          onExecuteSale={async ({ product, quantity, matchMethod, offerUnitPrice, offerDiscountLabel }) => {
+            const saleSeller: 'Rakib' | 'Limon' = currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib';
+            const actorId = saleSeller;
+            const actorEmail = `${saleSeller.toLowerCase()}@glowzaa.shop`;
+            const actorDisplay = saleSeller === 'Limon' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+
+            const regularPrice = Number(product.sellingPrice) || 0;
+            const unitPrice =
+              offerUnitPrice !== undefined && Number.isFinite(offerUnitPrice)
+                ? Math.max(0, offerUnitPrice)
+                : regularPrice;
+            const unitCost = Number(product.averageCost) || 0;
+            const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+            const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+            const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+
+            const offerTag = offerDiscountLabel ? ` [${offerDiscountLabel}]` : ' [বিশেষ অফার]';
+            const methodLabel =
+              matchMethod === 'barcode'
+                ? 'বিশেষ অফার SKU নাম্বার এন্ট্রি'
+                : '১-ট্যাপ বিশেষ অফার সেল';
+
+            const createdId = await addEntry(
+              {
+                type: 'sale',
+                title: `🎁 ${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})${offerTag}`,
+                amount: totalAmount,
+                date: today(),
+                status: 'posted',
+                productId: product.id,
+                quantity,
+                unitPrice,
+                unitCost,
+                cogsAmount,
+                grossProfit,
+                profit: grossProfit,
+                category: 'বিশেষ অফার অটো-সেল (POS)',
+                notes: `${methodLabel} দ্বারা অফার মূল্যে ৳${toBengaliNumerals(unitPrice)}/পিস (রেগুলার: ৳${toBengaliNumerals(regularPrice)}) এন্ট্রিকৃত (${actorDisplay})`,
+                demo: false,
+              },
+              actorId,
+              actorEmail,
+              actorDisplay
+            );
+
+            setMessage(
+              `🎁 বিশেষ অফার সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name}${offerTag} — ${money(totalAmount)} (লাভ: ${grossProfit >= 0 ? '+' : ''}${money(grossProfit)})`
+            );
+            return createdId;
+          }}
+          onUndoSale={async (entryId, product, quantity) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await removeEntry(entryId, actorId, actorEmail);
+            setMessage(
+              `↩️ বিশেষ অফার সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+            );
+          }}
+          onUpdateProductSku={async (product, newSku) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
+            setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+          }}
+        />
+      )}
+
+      {/* NEXT MARKET PURCHASE & TRENDING ADVISOR MODAL */}
+      <StockCatalogAndMarketAdvisorModal
+        isOpen={showStockCatalogAdvisorModal}
+        onClose={() => setShowStockCatalogAdvisorModal(false)}
+        products={products}
+        entries={entries}
+        settings={settings}
+        defaultReorderPoint={reorderPointThreshold}
+        onQuickAddSuggestedProduct={(suggestion) => {
+          setShowStockCatalogAdvisorModal(false);
+          setEditingProduct(null);
+          setProductUploadMode('single');
+          setProductForm({
+            name: suggestion.name,
+            sku: getNextSequentialSku(products),
+            unit: suggestion.unit || 'পিস',
+            currentStock: String(suggestion.recommendedQty || 12),
+            averageCost: String(suggestion.estimatedUnitCost || ''),
+            sellingPrice: String(suggestion.estimatedSellingPrice || ''),
+            reorderPoint: String(reorderPointThreshold || 5),
+            imageUrl: '',
+          });
+          setShowProductModal(true);
+        }}
+      />
     </div>
   );
 }

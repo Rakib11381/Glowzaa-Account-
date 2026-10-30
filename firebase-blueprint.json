@@ -105,6 +105,11 @@
         "currencySymbol": { "type": "string", "maxLength": 10 },
         "showBrandPopup": { "type": "boolean" },
         "brandPopupText": { "type": "string", "maxLength": 150 },
+        "showCalculator": { "type": "boolean" },
+        "enableVoiceInput": { "type": "boolean" },
+        "enableCameraScan": { "type": "boolean" },
+        "enableDrawingPad": { "type": "boolean" },
+        "enableAiAssistant": { "type": "boolean" },
         "updatedAt": { "type": "string" },
         "updatedBy": { "type": "string", "maxLength": 128 }
       },
@@ -123,6 +128,19 @@
         "createdAt": { "type": "string" }
       },
       "required": ["action", "actor", "createdAt"]
+    },
+    "AiChatSession": {
+      "title": "AI Business Assistant Chat Session",
+      "description": "Conversation history for Glowzaa Shop AI Business Assistant",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "ownerName": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["ownerId", "title", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -153,6 +171,10 @@
     "/auditLogs/{id}": {
       "schema": { "$ref": "#/entities/AuditLog" },
       "description": "Immutable security and accounting audit log"
+    },
+    "/aiChatSessions/{id}": {
+      "schema": { "$ref": "#/entities/AiChatSession" },
+      "description": "Partner-scoped AI Business Assistant conversation sessions"
     }
   }
 }

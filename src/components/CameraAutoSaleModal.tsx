@@ -49,37 +49,59 @@ interface CameraAutoSaleModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
-  featureMode?: 'camera' | 'drawing';
+  featureMode?: 'camera' | 'drawing' | 'special_offer';
   initialSeller?: 'Rakib' | 'Limon';
   onExecuteSale: (params: {
     product: Product;
     quantity: number;
     matchMethod: 'ai_vision' | 'barcode' | 'visual_hash' | 'quick_tap';
     seller: 'Rakib' | 'Limon';
+    offerUnitPrice?: number;
+    offerDiscountLabel?: string;
   }) => Promise<string | void>;
   onUndoSale?: (entryId: string, product: Product, quantity: number) => Promise<void>;
   onUpdateProductSku?: (product: Product, newSku: string) => Promise<void>;
 }
 
 // -----------------------------------------------------------------------------
-// STRICT MASTER SKU WHITELIST: ONLY A..Z (26) and AA..GZ (182) = 208 Valid Codes
+// SEQUENTIAL NUMERIC SKU (1, 2, 3, ...) + LEGACY LETTER SKU SUPPORT
+// Automatically starts from 1 and increments indefinitely (1, 2, 3, 4, ...).
+// Supports both English digits (1, 2, 3...) and Bengali digits (১, ২, ৩...).
 // -----------------------------------------------------------------------------
 const LETTERS_A_Z = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const PREFIXES_A_G = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+const NUMERIC_SKU_SUGGESTIONS = Array.from({ length: 200 }, (_, i) => String(i + 1));
 
 export const ALLOWED_SKU_CODES: string[] = [
+  ...NUMERIC_SKU_SUGGESTIONS,
   ...LETTERS_A_Z,
   ...PREFIXES_A_G.flatMap((prefix) => LETTERS_A_Z.map((ch) => `${prefix}${ch}`)),
 ];
 
 export const ALLOWED_SKU_SET = new Set<string>(ALLOWED_SKU_CODES);
 
+export function bnToEnSkuDigits(str: string): string {
+  const map: Record<string, string> = {
+    '০': '0',
+    '১': '1',
+    '২': '2',
+    '৩': '3',
+    '৪': '4',
+    '৫': '5',
+    '৬': '6',
+    '৭': '7',
+    '৮': '8',
+    '৯': '9',
+  };
+  return String(str || '').replace(/[০-৯]/g, (d) => map[d] || d);
+}
+
 function stripSkuPrefixesClient(val: string): string {
-  return String(val || '')
+  return bnToEnSkuDigits(String(val || ''))
     .trim()
     .toUpperCase()
     .replace(
-      /^(SKU\s*[:#\-=_.]?\s*|CODE\s*[:#\-=_.]?\s*|ITEM\s*[:#\-=_.]?\s*|ID\s*[:#\-=_.]?\s*|NO\s*[:#\-=_.]?\s*|কোড\s*[:#\-=_.]?\s*|পণ্য\s*[:#\-=_.]?\s*|#)/i,
+      /^(SKU\s*[:#\-=_.]?\s*|CODE\s*[:#\-=_.]?\s*|ITEM\s*[:#\-=_.]?\s*|ID\s*[:#\-=_.]?\s*|NO\s*[:#\-=_.]?\s*|কোড\s*[:#\-=_.]?\s*|পণ্য\s*[:#\-=_.]?\s*|নাম্বার\s*[:#\-=_.]?\s*|নম্বর\s*[:#\-=_.]?\s*|নং\s*[:#\-=_.]?\s*|#)/i,
       ''
     )
     .trim();
@@ -90,19 +112,49 @@ export function toStrictAllowedSkuClient(val: string): string {
     /[\s\-_.:/\\#,;|()[\]{}"'`~+*=&%$!@?<>]+/g,
     ''
   );
-  return ALLOWED_SKU_SET.has(cleaned) ? cleaned : '';
+  if (!cleaned) return '';
+
+  // 1. Primary: Any positive integer (1, 2, 3, ..., 999999)
+  if (/^\d+$/.test(cleaned)) {
+    const num = parseInt(cleaned, 10);
+    if (Number.isFinite(num) && num >= 1) {
+      return String(num);
+    }
+    return '';
+  }
+
+  // 2. Legacy / Alphanumeric SKU support (A..Z, AA..GZ)
+  if (ALLOWED_SKU_SET.has(cleaned)) {
+    return cleaned;
+  }
+
+  return '';
+}
+
+export function getNextSequentialSku(products: Product[], offset = 0): string {
+  let maxNumericSku = 0;
+  for (let i = 0; i < products.length; i++) {
+    const raw = String(products[i]?.sku || '').trim();
+    const normalized = toStrictAllowedSkuClient(raw);
+    if (/^\d+$/.test(normalized)) {
+      const n = parseInt(normalized, 10);
+      if (Number.isFinite(n) && n > maxNumericSku) {
+        maxNumericSku = n;
+      }
+    }
+  }
+  return String(maxNumericSku + 1 + Math.max(0, offset));
 }
 
 export function getEffectiveProductSku(p: Product, index: number): string {
   const raw = String(p.sku || '').trim();
   const strict = toStrictAllowedSkuClient(raw);
   if (strict) return strict;
-  return ALLOWED_SKU_CODES[index % ALLOWED_SKU_CODES.length] || 'A';
+  return String(index + 1);
 }
 
-// 100% STRICT DETERMINISTIC MATCHER:
-// Matches ONLY if the input code is in ALLOWED_SKU_SET (A..Z, AA..GZ) AND
-// is 100% identical to a product's effective SKU in the website catalog.
+// DETERMINISTIC NUMERIC & CODE SKU MATCHER:
+// Matches numeric SKUs (1, 2, 3, ... or ১, ২, ৩, ...) and legacy SKUs against the product catalog.
 export function matchProductBySkuClient(
   rawInput: string | string[],
   products: Product[]
@@ -115,13 +167,27 @@ export function matchProductBySkuClient(
 
   const indexed = products.map((p, idx) => ({
     product: p,
+    indexNumber: String(idx + 1),
     effectiveSku: getEffectiveProductSku(p, idx),
   }));
 
+  // Pass 1: 100% Exact match on product's effective SKU (1, 2, 3... or legacy code)
   for (const validCode of inputList) {
     for (const item of indexed) {
       if (validCode === item.effectiveSku) {
         return { product: item.product, matchedSku: item.effectiveSku };
+      }
+    }
+  }
+
+  // Pass 2: Fallback 1-based serial number match if a product still has a legacy letter SKU
+  // and the user scans/enters its sequential product number (1, 2, 3...)
+  for (const validCode of inputList) {
+    if (/^\d+$/.test(validCode)) {
+      for (const item of indexed) {
+        if (validCode === item.indexNumber) {
+          return { product: item.product, matchedSku: validCode };
+        }
       }
     }
   }
@@ -338,8 +404,11 @@ export default function CameraAutoSaleModal({
   useEffect(() => {
     if (initialSeller) setSelectedSeller(initialSeller);
   }, [initialSeller]);
-  const isDrawingFeature = featureMode === 'drawing';
+  const isSpecialOfferFeature = featureMode === 'special_offer';
+  const isDrawingFeature = featureMode === 'drawing' || isSpecialOfferFeature;
   const inputTab: 'camera' | 'drawing' = isDrawingFeature ? 'drawing' : 'camera';
+  const [offerMode, setOfferMode] = useState<'flat_discount' | 'fixed_price' | 'percent_discount' | 'at_cost'>('flat_discount');
+  const [offerValueInput, setOfferValueInput] = useState<string>('5');
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState('');
@@ -358,9 +427,11 @@ export default function CameraAutoSaleModal({
   const [editingSkuValue, setEditingSkuValue] = useState<string>('');
   const [savingSkuId, setSavingSkuId] = useState<string | null>(null);
   const [scanStatusText, setScanStatusText] = useState<string>(
-    isDrawingFeature
-      ? '🏷️ নিচে সরাসরি SKU কোড (A-Z / AA-GZ) লিখুন বা প্রডাক্টে ট্যাপ করে তাৎক্ষণিক সেল করুন'
-      : '🏷️ ক্যামেরার বক্সের ভেতরে প্রডাক্টের SKU কোড (A-Z / AA-GZ) ধরুন — ১ সেকেন্ডে অটো-সেল হবে'
+    isSpecialOfferFeature
+      ? '🎁 বিশেষ অফার মূল্য বা ছাড় নির্বাচন করে প্রডাক্টের SKU নাম্বার (1, 2, 3...) দিন — সাথে সাথে অফারে অটো-সেল হবে'
+      : isDrawingFeature
+      ? '🔢 নিচের বক্সে প্রডাক্টের SKU নাম্বার (1, 2, 3...) লিখুন বা ট্যাপ করুন — সাথে সাথে অটো-সেল হবে'
+      : '🏷️ ক্যামেরার বক্সে প্রডাক্টের SKU নাম্বার (1, 2, 3...) ধরুন অথবা নিচে নাম্বার লিখুন'
   );
   const [pendingProduct, setPendingProduct] = useState<{
     product: Product;
@@ -383,22 +454,7 @@ export default function CameraAutoSaleModal({
   const [isPostingSale, setIsPostingSale] = useState<boolean>(false);
   const [cooldownSec, setCooldownSec] = useState<number>(0);
 
-  // Drawing Pad State & Refs
-  const [padHasInk, setPadHasInk] = useState<boolean>(false);
-  const [isPadRecognizing, setIsPadRecognizing] = useState<boolean>(false);
-  const [padCountdownActive, setPadCountdownActive] = useState<boolean>(false);
-  const [padAutoDelayMs, setPadAutoDelayMs] = useState<number>(350);
-  const [padStatusBadge, setPadStatusBadge] = useState<string>(
-    '✍️ এখানে আঙুল বা মাউস দিয়ে A, B, AB, GZ লিখুন — লেখা শেষ করলেই অটো-সেল হবে'
-  );
-
-  const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const isDrawingPointerDownRef = useRef<boolean>(false);
-  const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null);
-  const padHasInkRef = useRef<boolean>(false);
-  const padAutoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const padRequestEpochRef = useRef<number>(0);
-
+  const skuInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const refThumbnailsRef = useRef<Map<string, string>>(new Map());
@@ -417,15 +473,6 @@ export default function CameraAutoSaleModal({
   const scanModeRef = useRef<'sku_fast' | 'sku_and_photo'>('sku_fast');
   const defaultQtyRef = useRef<string>('1');
   const productsRef = useRef<Product[]>(products);
-
-  // Initialize white background on Drawing Pad whenever visible
-  useEffect(() => {
-    if (!isOpen || !isDrawingFeature) return;
-    const timer = setTimeout(() => {
-      clearDrawingPad(false);
-    }, 15);
-    return () => clearTimeout(timer);
-  }, [isOpen, isDrawingFeature]);
 
   useEffect(() => {
     const handleSyncSound = () => setSoundConfig(loadScannerSoundConfig());
@@ -566,7 +613,6 @@ export default function CameraAutoSaleModal({
 
     const fastLocalTimer = setInterval(async () => {
       if (!videoRef.current || isBarcodeCheckingRef.current) return;
-      if (isDrawingPointerDownRef.current || padHasInkRef.current) return;
       if (Date.now() < cooldownUntilRef.current) return;
       if (pendingProduct) return;
 
@@ -716,6 +762,69 @@ export default function CameraAutoSaleModal({
     setCameraReady(false);
   }
 
+  function computeOfferPricing(product: Product): {
+    regularPrice: number;
+    effectiveUnitPrice: number;
+    discountPerUnit: number;
+    offerLabelBn: string;
+  } {
+    const regularPrice = Math.max(0, Number(product.sellingPrice) || 0);
+    const unitCost = Math.max(0, Number(product.averageCost) || 0);
+    if (!isSpecialOfferFeature) {
+      return {
+        regularPrice,
+        effectiveUnitPrice: regularPrice,
+        discountPerUnit: 0,
+        offerLabelBn: '',
+      };
+    }
+
+    const val = Math.max(0, Number(offerValueInput) || 0);
+    if (offerMode === 'at_cost') {
+      const offerPrice = unitCost > 0 ? unitCost : regularPrice;
+      const disc = Math.max(0, Math.round((regularPrice - offerPrice) * 100) / 100);
+      return {
+        regularPrice,
+        effectiveUnitPrice: offerPrice,
+        discountPerUnit: disc,
+        offerLabelBn: 'কেনা দামে বিশেষ অফার',
+      };
+    }
+
+    if (offerMode === 'fixed_price') {
+      const offerPrice = val > 0 ? val : regularPrice;
+      const disc = Math.max(0, Math.round((regularPrice - offerPrice) * 100) / 100);
+      return {
+        regularPrice,
+        effectiveUnitPrice: offerPrice,
+        discountPerUnit: disc,
+        offerLabelBn: `বিশেষ অফার দাম ${money(offerPrice)}`,
+      };
+    }
+
+    if (offerMode === 'percent_discount') {
+      const pct = Math.min(100, Math.max(0, val));
+      const disc = Math.round(((regularPrice * pct) / 100) * 100) / 100;
+      const offerPrice = Math.max(0, Math.round((regularPrice - disc) * 100) / 100);
+      return {
+        regularPrice,
+        effectiveUnitPrice: offerPrice,
+        discountPerUnit: disc,
+        offerLabelBn: `${toBengaliNumerals(pct)}% বিশেষ ছাড়`,
+      };
+    }
+
+    // Default: flat_discount (৳ discount per unit)
+    const disc = Math.min(regularPrice, val);
+    const offerPrice = Math.max(0, Math.round((regularPrice - disc) * 100) / 100);
+    return {
+      regularPrice,
+      effectiveUnitPrice: offerPrice,
+      discountPerUnit: disc,
+      offerLabelBn: disc > 0 ? `প্রতি পিসে ${money(disc)} বিশেষ ছাড়` : 'বিশেষ অফার সেল',
+    };
+  }
+
   async function triggerSaleForProduct(
     product: Product,
     qtyToSell: number,
@@ -728,7 +837,8 @@ export default function CameraAutoSaleModal({
     const effectiveSku =
       matchedSkuCode || getEffectiveProductSku(product, prodIndex >= 0 ? prodIndex : 0);
 
-    const unitPrice = Number(product.sellingPrice) || 0;
+    const { effectiveUnitPrice, offerLabelBn } = computeOfferPricing(product);
+    const unitPrice = effectiveUnitPrice;
     const unitCost = Number(product.averageCost) || 0;
     const totalAmount = Math.round(cleanQty * unitPrice * 100) / 100;
     const totalCost = Math.round(cleanQty * unitCost * 100) / 100;
@@ -779,7 +889,7 @@ export default function CameraAutoSaleModal({
     };
     setSaleLogs((prev) => [optimisticLogItem, ...prev]);
     setScanStatusText(
-      `✅ SKU "${effectiveSku}" সেল সম্পন্ন: ${toBengaliNumerals(cleanQty)} ${
+      `✅ ${isSpecialOfferFeature ? '🎁 বিশেষ অফার ' : ''}SKU "${effectiveSku}" সেল সম্পন্ন: ${toBengaliNumerals(cleanQty)} ${
         product.unit || 'পিস'
       } ${product.name} — ${money(totalAmount)}`
     );
@@ -791,6 +901,8 @@ export default function CameraAutoSaleModal({
       quantity: cleanQty,
       matchMethod,
       seller: selectedSeller,
+      offerUnitPrice: isSpecialOfferFeature ? unitPrice : undefined,
+      offerDiscountLabel: isSpecialOfferFeature ? offerLabelBn : undefined,
     })
       .then((createdEntryId) => {
         if (typeof createdEntryId === 'string') {
@@ -1002,18 +1114,18 @@ export default function CameraAutoSaleModal({
           setScanStatusText(
             data.reasonBn ||
               (detectedSku
-                ? `❌ স্ক্যানকৃত কোড "${detectedSku}" স্টকের কোনো প্রডাক্টের SKU-এর সাথে মেলেনি (নিচে প্রডাক্টের ✏️ SKU বাটনে চাপ দিয়ে "${detectedSku}" সেট করতে পারেন)`
-                : '❌ কোনো SKU কোড দেখা যায়নি — প্রডাক্টের গায়ের SKU কোড (A-Z / AA-GZ) বক্সের ভেতরে ধরুন')
+                ? `❌ স্ক্যানকৃত নাম্বার/কোড "${detectedSku}" স্টকের কোনো প্রডাক্টের SKU-এর সাথে মেলেনি (নিচে প্রডাক্টের ✏️ SKU বাটনে চাপ দিয়ে "${detectedSku}" সেট করতে পারেন)`
+                : '❌ কোনো SKU নাম্বার দেখা যায়নি — প্রডাক্টের গায়ের SKU নাম্বার (1, 2, 3...) বক্সের ভেতরে ধরুন')
           );
         } else {
           setScanStatusText(
-            '🏷️ বক্সের ভেতরে প্রডাক্টের SKU কোড (A-Z / AA-GZ) ধরুন — ১ সেকেন্ডে সেল হবে'
+            '🏷️ বক্সের ভেতরে প্রডাক্টের SKU নাম্বার (1, 2, 3...) ধরুন — ১ সেকেন্ডে সেল হবে'
           );
         }
       }
     } catch {
       if (isManualTrigger) {
-        setScanStatusText('⚠️ আবার চেষ্টা করুন বা স্পষ্ট আলোতে SKU কোডটি ধরুন');
+        setScanStatusText('⚠️ আবার চেষ্টা করুন বা স্পষ্ট আলোতে SKU নাম্বারটি ধরুন');
       }
     } finally {
       activeScanCountRef.current = Math.max(0, activeScanCountRef.current - 1);
@@ -1034,7 +1146,7 @@ export default function CameraAutoSaleModal({
     if (!strictCode) {
       playScannerSound('undo');
       setScanStatusText(
-        `❌ "${raw}" গ্রহণযোগ্য নয়! শুধুমাত্র A থেকে Z (A–Z) অথবা AA থেকে GZ (AA–GZ) এর মধ্যকার SKU কোড ব্যবহার করুন।`
+        `❌ "${raw}" গ্রহণযোগ্য নয়! অনুগ্রহ করে প্রডাক্টের সঠিক SKU নাম্বার (যেমন: 1, 2, 3, 4...) লিখুন।`
       );
       return;
     }
@@ -1058,14 +1170,14 @@ export default function CameraAutoSaleModal({
           matchMethod: 'barcode',
         });
         setScanStatusText(
-          `✅ SKU কোড "${hit.matchedSku}" ১০০% ম্যাচ হয়েছে: "${hit.product.name}"`
+          `✅ SKU নাম্বার "${hit.matchedSku}" ১০০% ম্যাচ হয়েছে: "${hit.product.name}"`
         );
       }
     } else {
       playScannerSound('undo');
       setLastDetectedRawCode(strictCode);
       setScanStatusText(
-        `❌ "${strictCode}" কোডে আপনার স্টকে কোনো প্রডাক্ট নেই! নিচের প্রডাক্ট লিস্টে ✏️ SKU বাটনে ক্লিক করে "${strictCode}" সেট করুন।`
+        `❌ "${strictCode}" নাম্বারে আপনার স্টকে কোনো প্রডাক্ট নেই! নিচের প্রডাক্ট লিস্টে ✏️ SKU বাটনে ক্লিক করে "${strictCode}" সেট করুন।`
       );
     }
   }
@@ -1077,7 +1189,7 @@ export default function CameraAutoSaleModal({
     unlockScannerAudio();
 
     setIsScanning(true);
-    setScanStatusText('📸 ছবির SKU কোড (A-Z / AA-GZ) স্টকের প্রডাক্টের কোডের সাথে মেলানো হচ্ছে...');
+    setScanStatusText('📸 ছবির SKU নাম্বার (1, 2, 3...) স্টকের প্রডাক্টের কোডের সাথে মেলানো হচ্ছে...');
 
     try {
       const reader = new FileReader();
@@ -1193,282 +1305,14 @@ export default function CameraAutoSaleModal({
     }
   }
 
-  function clearDrawingPad(resetStatus = true) {
-    if (padAutoTimerRef.current) {
-      clearTimeout(padAutoTimerRef.current);
-      padAutoTimerRef.current = null;
-    }
-    padRequestEpochRef.current += 1;
-    isDrawingPointerDownRef.current = false;
-    lastDrawPointRef.current = null;
-    padHasInkRef.current = false;
-    setPadHasInk(false);
-    setPadCountdownActive(false);
-    setIsPadRecognizing(false);
 
-    const canvas = drawingCanvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-    }
-    if (resetStatus) {
-      setPadStatusBadge(
-        '✍️ এখানে আঙুল বা মাউস দিয়ে A, B, AB, GZ লিখুন — লেখা শেষ করলেই অটো-সেল হবে'
-      );
-    }
-  }
-
-  function getDrawingPadCoords(
-    e: React.PointerEvent<HTMLCanvasElement>
-  ): { x: number; y: number } | null {
-    const canvas = drawingCanvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height),
-    };
-  }
-
-  function handlePadPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    unlockScannerAudio();
-    const canvas = drawingCanvasRef.current;
-    if (!canvas) return;
-    try {
-      canvas.setPointerCapture(e.pointerId);
-    } catch {}
-
-    // Cancel any pending auto-submit or in-flight OCR so user can finish multi-stroke letters (A, AB)
-    if (padAutoTimerRef.current) {
-      clearTimeout(padAutoTimerRef.current);
-      padAutoTimerRef.current = null;
-    }
-    padRequestEpochRef.current += 1;
-    setPadCountdownActive(false);
-    setIsPadRecognizing(false);
-
-    const pt = getDrawingPadCoords(e);
-    if (!pt) return;
-
-    isDrawingPointerDownRef.current = true;
-    lastDrawPointRef.current = pt;
-    padHasInkRef.current = true;
-    setPadHasInk(true);
-
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 5.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    setPadStatusBadge('✍️ লিখছেন... (লেখা শেষ করে হাত তুললেই অটো-সেল হবে)');
-  }
-
-  function handlePadPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!isDrawingPointerDownRef.current) return;
-    const canvas = drawingCanvasRef.current;
-    if (!canvas) return;
-    const pt = getDrawingPadCoords(e);
-    if (!pt) return;
-
-    const ctx = canvas.getContext('2d');
-    const prev = lastDrawPointRef.current || pt;
-    if (ctx) {
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 11;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(prev.x, prev.y);
-      ctx.lineTo(pt.x, pt.y);
-      ctx.stroke();
-    }
-    lastDrawPointRef.current = pt;
-  }
-
-  function schedulePadAutoRecognize() {
-    if (!padHasInkRef.current) return;
-    if (padAutoTimerRef.current) {
-      clearTimeout(padAutoTimerRef.current);
-      padAutoTimerRef.current = null;
-    }
-    setPadCountdownActive(true);
-    setPadStatusBadge('⚡ লেখা শনাক্ত ও অটো-সেল হচ্ছে...');
-    const scheduledEpoch = ++padRequestEpochRef.current;
-
-    // 0ms SPECULATIVE PRE-FLIGHT RECOGNITION:
-    // Start the server OCR request IMMEDIATELY when the user lifts their finger,
-    // and run the short grace timer (padAutoDelayMs) in parallel so if the user
-    // doesn't draw another stroke, the OCR response is already ready!
-    recognizeDrawingPadAndSell(scheduledEpoch, padAutoDelayMs);
-  }
-
-  function handlePadPointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!isDrawingPointerDownRef.current) return;
-    isDrawingPointerDownRef.current = false;
-    lastDrawPointRef.current = null;
-    try {
-      drawingCanvasRef.current?.releasePointerCapture(e.pointerId);
-    } catch {}
-    schedulePadAutoRecognize();
-  }
-
-  async function recognizeDrawingPadAndSell(epochOverride?: number, graceWaitMs = 0) {
-    const canvas = drawingCanvasRef.current;
-    if (!canvas || !padHasInkRef.current) return;
-
-    if (padAutoTimerRef.current) {
-      clearTimeout(padAutoTimerRef.current);
-      padAutoTimerRef.current = null;
-    }
-
-    const currentProducts = productsRef.current;
-    if (currentProducts.length === 0) {
-      setScanStatusText('⚠️ আপনার স্টকে এখনো কোনো প্রডাক্ট যোগ করা হয়নি।');
-      return;
-    }
-
-    const { cropDataUrl, hasInk } = extractDrawingPadCropDataUrl(canvas);
-    if (!hasInk || !cropDataUrl) {
-      clearDrawingPad(true);
-      return;
-    }
-
-    const myEpoch =
-      typeof epochOverride === 'number' ? epochOverride : ++padRequestEpochRef.current;
-    setIsPadRecognizing(true);
-    setPadStatusBadge('⚡ হাতে লেখা SKU কোড (A–Z / AA–GZ) ম্যাচ করা হচ্ছে...');
-    setScanStatusText('⚡ ড্রইং প্যাডের লেখা কোড প্রডাক্টের SKU-এর সাথে মেলানো হচ্ছে...');
-
-    try {
-      const fetchPromise = fetch('/api/ai/camera-match-product', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          frameDataUrl: cropDataUrl,
-          stickerCropDataUrl: '',
-          isDrawingPad: true,
-          products: buildCatalogPayload(currentProducts, false),
-        }),
-      });
-
-      const gracePromise =
-        graceWaitMs > 0
-          ? new Promise<void>((resolve) => {
-              padAutoTimerRef.current = setTimeout(() => {
-                padAutoTimerRef.current = null;
-                setPadCountdownActive(false);
-                resolve();
-              }, graceWaitMs);
-            })
-          : Promise.resolve();
-
-      const [response] = await Promise.all([fetchPromise, gracePromise]);
-
-      // If user touched the pad again while request/grace timer was in flight, ignore this intermediate result
-      if (myEpoch !== padRequestEpochRef.current || isDrawingPointerDownRef.current) {
-        return;
-      }
-
-      if (response.ok) {
-        const data = await response.json();
-        if (myEpoch !== padRequestEpochRef.current || isDrawingPointerDownRef.current) {
-          return;
-        }
-
-        const detectedSku = String(data.detectedSkuCode || '').trim().toUpperCase();
-        const allCandidateCodes: string[] = [
-          detectedSku,
-          ...(Array.isArray(data.allVisibleCodes)
-            ? data.allVisibleCodes.map((c: any) => String(c || '').trim().toUpperCase())
-            : []),
-        ].filter(Boolean);
-
-        if (detectedSku) {
-          setLastDetectedRawCode(detectedSku);
-        } else if (allCandidateCodes.length > 0) {
-          setLastDetectedRawCode(allCandidateCodes[0]);
-        }
-
-        const clientSkuHit =
-          allCandidateCodes.length > 0
-            ? matchProductBySkuClient(allCandidateCodes, currentProducts)
-            : null;
-
-        if (clientSkuHit) {
-          const verifiedProd = clientSkuHit.product;
-          const matchedSkuCode = clientSkuHit.matchedSku;
-          const finalQty = Math.max(0.1, Number(defaultQtyRef.current) || 1);
-
-          setPadStatusBadge(
-            `✅ "${matchedSkuCode}" ১০০% ম্যাচ → ${verifiedProd.name} (পরবর্তী কোড লিখুন)`
-          );
-
-          if (autoPostModeRef.current) {
-            await triggerSaleForProduct(verifiedProd, finalQty, 'barcode', matchedSkuCode);
-          } else {
-            playScannerSound('success');
-            setScanPulseKey((prev) => prev + 1);
-            setScanSuccessPulse(true);
-            setTimeout(() => setScanSuccessPulse(false), 1500);
-            setPendingProduct({
-              product: verifiedProd,
-              skuCode: matchedSkuCode,
-              quantity: finalQty,
-              confidence: 100,
-              matchMethod: 'barcode',
-            });
-            setScanStatusText(
-              `✅ ড্রইং প্যাডে "${matchedSkuCode}" ১০০% ম্যাচ হয়েছে: "${verifiedProd.name}"`
-            );
-          }
-
-          setTimeout(() => {
-            if (!isDrawingPointerDownRef.current) {
-              clearDrawingPad(false);
-            }
-          }, 260);
-          return;
-        }
-
-        playScannerSound('undo');
-        const noMatchMsg =
-          data.reasonBn ||
-          (detectedSku
-            ? `❌ ড্রইং প্যাডে "${detectedSku}" লেখা হয়েছে, কিন্তু স্টকে "${detectedSku}" কোডের কোনো প্রডাক্ট নেই!`
-            : '❌ লেখাটি স্পষ্ট বোঝা যায়নি — অনুগ্রহ করে বড় করে A–Z বা AA–GZ লিখুন');
-        setPadStatusBadge(noMatchMsg);
-        setScanStatusText(noMatchMsg);
-
-        setTimeout(() => {
-          if (!isDrawingPointerDownRef.current && myEpoch === padRequestEpochRef.current) {
-            clearDrawingPad(false);
-          }
-        }, 950);
-      }
-    } catch {
-      if (myEpoch === padRequestEpochRef.current) {
-        setPadStatusBadge('⚠️ আবার চেষ্টা করুন — স্পষ্ট করে A বা AB লিখুন');
-      }
-    } finally {
-      if (myEpoch === padRequestEpochRef.current) {
-        setPadCountdownActive(false);
-        setIsPadRecognizing(false);
-      }
-    }
-  }
 
   async function handleSaveInlineSku(product: Product) {
     const strictSku = toStrictAllowedSkuClient(editingSkuValue);
     if (!strictSku) {
       playScannerSound('undo');
       setScanStatusText(
-        `❌ "${editingSkuValue.trim()}" গ্রহণযোগ্য নয়! অনুগ্রহ করে শুধুমাত্র A থেকে Z অথবা AA থেকে GZ এর মধ্যকার কোড দিন।`
+        `❌ "${editingSkuValue.trim()}" গ্রহণযোগ্য নয়! অনুগ্রহ করে ১ থেকে শুরু করে যেকোনো SKU নাম্বার (1, 2, 3...) দিন।`
       );
       return;
     }
@@ -1511,59 +1355,54 @@ export default function CameraAutoSaleModal({
         justifyContent: 'center',
       }}
     >
-      {/* Shared Datalist for all 208 Valid SKU Codes (A..Z, AA..GZ) */}
-      <datalist id="allowed-sku-codes-datalist">
-        {ALLOWED_SKU_CODES.map((code) => (
-          <option key={code} value={code} />
-        ))}
-      </datalist>
-
       <div
         className={`cam-pos-modal ${
           scanSuccessPulse || flashSuccess ? 'cam-scan-success-glow' : ''
         }`}
         style={{
-          maxWidth: '540px',
+          maxWidth: '520px',
           width: '100%',
           maxHeight: 'calc(100dvh - 20px)',
           display: 'flex',
           flexDirection: 'column',
           padding: 0,
           overflow: 'hidden',
-          borderRadius: '20px',
+          borderRadius: '22px',
           border:
             scanSuccessPulse || flashSuccess
               ? '2px solid #22c55e'
-              : '1.5px solid rgba(20, 184, 166, 0.65)',
+              : '1.5px solid rgba(45, 212, 191, 0.55)',
           boxShadow:
             scanSuccessPulse || flashSuccess
-              ? '0 0 0 4px rgba(34, 197, 94, 0.55), 0 0 36px rgba(16, 185, 129, 0.8), 0 24px 60px rgba(0, 0, 0, 0.55)'
-              : '0 24px 60px rgba(0, 0, 0, 0.55)',
-          background: '#0f172a',
+              ? '0 0 0 4px rgba(34, 197, 94, 0.5), 0 0 36px rgba(16, 185, 129, 0.75), 0 24px 60px rgba(0, 0, 0, 0.6)'
+              : '0 24px 60px rgba(2, 6, 23, 0.75)',
+          background: '#0b1120',
           color: '#f8fafc',
           transition: 'border-color 0.2s ease, box-shadow 0.25s ease',
         }}
       >
-        {/* 1. DEDICATED TOP HEADER (Strictly Separate for Camera vs Drawing Pad, NO Mode Buttons in Header) */}
+        {/* 1. CLEAN, BALANCED TOP HEADER */}
         <div
           style={{
-            background: isDrawingFeature
-              ? 'linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%)'
+            background: isSpecialOfferFeature
+              ? 'linear-gradient(135deg, #be123c 0%, #d97706 100%)'
+              : isDrawingFeature
+              ? 'linear-gradient(135deg, #0f766e 0%, #0284c7 100%)'
               : 'linear-gradient(135deg, #0d9488 0%, #0369a1 100%)',
-            padding: '11px 13px',
+            padding: '12px 14px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: '8px',
+            gap: '10px',
             flexShrink: 0,
-            borderBottom: '1px solid rgba(255, 255, 255, 0.14)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.16)',
           }}
         >
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '9px',
+              gap: '10px',
               minWidth: 0,
               flex: 1,
             }}
@@ -1572,17 +1411,20 @@ export default function CameraAutoSaleModal({
               style={{
                 width: '36px',
                 height: '36px',
-                borderRadius: '10px',
+                borderRadius: '11px',
                 background: 'rgba(255, 255, 255, 0.2)',
-                border: '1px solid rgba(255, 255, 255, 0.28)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
               }}
             >
-              {isDrawingFeature ? (
-                <PenTool size={18} color="#ffffff" />
+              {isSpecialOfferFeature ? (
+                <Tag size={18} color="#ffffff" />
+              ) : isDrawingFeature ? (
+                <Zap size={18} color="#ffffff" />
               ) : (
                 <Camera size={18} color="#ffffff" />
               )}
@@ -1591,29 +1433,37 @@ export default function CameraAutoSaleModal({
               <h3
                 style={{
                   margin: 0,
-                  fontSize: '13.5px',
-                  fontWeight: 800,
+                  fontSize: '14.5px',
+                  fontWeight: 900,
                   color: '#ffffff',
-                  lineHeight: 1.25,
-                  wordBreak: 'break-word',
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
               >
-                {isDrawingFeature
-                  ? '✍️ ড্রইং প্যাড অটো-সেল (A–Z / AA–GZ)'
-                  : '📷 লাইভ ক্যামেরা SKU স্ক্যানার (A–Z / AA–GZ)'}
+                {isSpecialOfferFeature
+                  ? '🎁 বিশেষ অফার অটো-সেল'
+                  : isDrawingFeature
+                  ? '⚡ কুইক SKU অটো-সেল'
+                  : '📷 ক্যামেরা ও SKU অটো-সেল'}
               </h3>
               <p
                 style={{
                   margin: '2px 0 0',
-                  fontSize: '10.5px',
+                  fontSize: '11px',
                   color: '#e0f2fe',
-                  lineHeight: 1.3,
-                  wordBreak: 'break-word',
+                  lineHeight: 1.25,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
               >
-                {isDrawingFeature
-                  ? 'প্যাডে A, B, AB, GZ লিখলেই সাথে সাথে অটো-সেল'
-                  : 'প্রডাক্টের গায়ের SKU কোড ধরলেই ১ সেকেন্ডে অটো-সেল'}
+                {isSpecialOfferFeature
+                  ? 'বিশেষ ছাড় বা অফার মূল্যে SKU নাম্বারে তাৎক্ষণিক সেল'
+                  : isDrawingFeature
+                  ? 'SKU নাম্বার (1, 2, 3...) দিলেই তাৎক্ষণিক অটো-সেল'
+                  : 'SKU নাম্বার (1, 2, 3...) স্ক্যান বা টাইপ করে অটো-সেল'}
               </p>
             </div>
           </div>
@@ -1636,11 +1486,11 @@ export default function CameraAutoSaleModal({
                   ? '#10b981'
                   : soundConfig.customAudioDataUrl
                   ? 'rgba(16, 185, 129, 0.35)'
-                  : 'rgba(255, 255, 255, 0.22)',
+                  : 'rgba(255, 255, 255, 0.2)',
                 border: '1px solid rgba(255, 255, 255, 0.28)',
                 color: '#ffffff',
-                height: '35px',
-                minHeight: '35px',
+                height: '34px',
+                minHeight: '34px',
                 padding: '0 9px',
                 borderRadius: '10px',
                 fontSize: '11.5px',
@@ -1653,7 +1503,7 @@ export default function CameraAutoSaleModal({
                 flexShrink: 0,
               }}
             >
-              <Music size={15} />
+              <Music size={14} />
               <span>সাউন্ড</span>
             </button>
 
@@ -1669,13 +1519,13 @@ export default function CameraAutoSaleModal({
               }
               style={{
                 background: soundConfig.enabled
-                  ? 'rgba(255, 255, 255, 0.24)'
-                  : 'rgba(15, 23, 42, 0.35)',
-                border: '1px solid rgba(255, 255, 255, 0.24)',
+                  ? 'rgba(255, 255, 255, 0.22)'
+                  : 'rgba(15, 23, 42, 0.38)',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
                 color: '#ffffff',
-                width: '35px',
-                height: '35px',
-                minHeight: '35px',
+                width: '34px',
+                height: '34px',
+                minHeight: '34px',
                 padding: 0,
                 borderRadius: '10px',
                 cursor: 'pointer',
@@ -1685,7 +1535,7 @@ export default function CameraAutoSaleModal({
                 flexShrink: 0,
               }}
             >
-              {soundConfig.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
+              {soundConfig.enabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
             </button>
 
             {!isDrawingFeature && (
@@ -1696,12 +1546,12 @@ export default function CameraAutoSaleModal({
                 }
                 title="সামনের / পেছনের ক্যামেরা পরিবর্তন করুন"
                 style={{
-                  background: 'rgba(255, 255, 255, 0.22)',
-                  border: '1px solid rgba(255, 255, 255, 0.24)',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: '1px solid rgba(255, 255, 255, 0.25)',
                   color: '#ffffff',
-                  width: '35px',
-                  height: '35px',
-                  minHeight: '35px',
+                  width: '34px',
+                  height: '34px',
+                  minHeight: '34px',
                   padding: 0,
                   borderRadius: '10px',
                   cursor: 'pointer',
@@ -1711,7 +1561,7 @@ export default function CameraAutoSaleModal({
                   flexShrink: 0,
                 }}
               >
-                <RefreshCw size={16} />
+                <RefreshCw size={15} />
               </button>
             )}
 
@@ -1720,12 +1570,12 @@ export default function CameraAutoSaleModal({
               onClick={onClose}
               title="বন্ধ করুন"
               style={{
-                background: 'rgba(15, 23, 42, 0.42)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(15, 23, 42, 0.45)',
+                border: '1px solid rgba(255, 255, 255, 0.22)',
                 color: '#ffffff',
-                width: '35px',
-                height: '35px',
-                minHeight: '35px',
+                width: '34px',
+                height: '34px',
+                minHeight: '34px',
                 padding: 0,
                 borderRadius: '10px',
                 cursor: 'pointer',
@@ -1735,7 +1585,7 @@ export default function CameraAutoSaleModal({
                 flexShrink: 0,
               }}
             >
-              <X size={18} />
+              <X size={17} />
             </button>
           </div>
         </div>
@@ -1767,61 +1617,78 @@ export default function CameraAutoSaleModal({
             </div>
           )}
 
-          {/* 2. QUANTITY & AUTO-CONFIRM CONTROL PANEL (Clean, no mode switcher tabs) */}
+          {/* 2. WELL-ALIGNED 2-ROW SELLER, AUTO-CONFIRM & QUANTITY CONTROL BAR */}
           <div
             style={{
-              padding: '9px 14px',
-              background: '#1e293b',
-              borderBottom: '1px solid #334155',
+              padding: '10px 14px',
+              background: '#152033',
+              borderBottom: '1px solid #1e293b',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
+              flexDirection: 'column',
               gap: '8px',
-              flexWrap: 'wrap',
               flexShrink: 0,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Row 1: Auto-Confirm Toggle + Locked Seller Badge */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                flexWrap: 'wrap',
+              }}
+            >
               <button
                 type="button"
                 onClick={() => setAutoPostMode((prev) => !prev)}
                 style={{
-                  background: autoPostMode ? 'rgba(16, 185, 129, 0.2)' : '#0f172a',
+                  background: autoPostMode ? 'rgba(16, 185, 129, 0.18)' : '#0f172a',
                   color: autoPostMode ? '#34d399' : '#cbd5e1',
                   border: `1.5px solid ${autoPostMode ? '#10b981' : '#475569'}`,
-                  borderRadius: '8px',
-                  height: '31px',
-                  minHeight: '31px',
-                  padding: '0 9px',
+                  borderRadius: '9px',
+                  height: '32px',
+                  minHeight: '32px',
+                  padding: '0 10px',
                   fontSize: '11.5px',
                   fontWeight: 800,
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '5px',
                 }}
               >
-                <CheckCircle2 size={12} />
+                <CheckCircle2 size={13} />
                 <span>{autoPostMode ? 'অটো সেল কনফার্ম: ON' : 'ম্যানুয়াল কনফার্ম'}</span>
               </button>
 
-              {/* LOCKED LOGGED-IN SELLER BADGE (No buttons - strict account isolation) */}
               <div
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '5px',
-                  background: selectedSeller === 'Limon' ? 'rgba(124, 58, 237, 0.2)' : 'rgba(2, 132, 199, 0.2)',
-                  padding: '3px 10px',
-                  borderRadius: '8px',
-                  border: selectedSeller === 'Limon' ? '1.5px solid #a855f7' : '1.5px solid #38bdf8',
+                  background:
+                    selectedSeller === 'Limon'
+                      ? 'rgba(124, 58, 237, 0.2)'
+                      : 'rgba(2, 132, 199, 0.2)',
+                  height: '32px',
+                  padding: '0 10px',
+                  borderRadius: '9px',
+                  border:
+                    selectedSeller === 'Limon'
+                      ? '1.5px solid #a855f7'
+                      : '1.5px solid #38bdf8',
                 }}
-                title={`লগইন অ্যাকাউন্ট: ${selectedSeller === 'Limon' ? 'লিমন (Limon)' : 'রাকিব (Rakib)'} — শুধুমাত্র আপনার নামেই সেল এন্ট্রি হবে`}
+                title={`লগইন অ্যাকাউন্ট: ${
+                  selectedSeller === 'Limon' ? 'লিমন (Limon)' : 'রাকিব (Rakib)'
+                }`}
               >
-                <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 700 }}>বিক্রেতা:</span>
+                <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 700 }}>
+                  বিক্রেতা:
+                </span>
                 <span
                   style={{
-                    fontSize: '11px',
+                    fontSize: '11.5px',
                     fontWeight: 800,
                     color: selectedSeller === 'Limon' ? '#e9d5ff' : '#bae6fd',
                     display: 'inline-flex',
@@ -1835,121 +1702,136 @@ export default function CameraAutoSaleModal({
               </div>
             </div>
 
+            {/* Row 2: Full-Width Balanced Quantity Selector */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px',
-                flex: 1,
-                justifyContent: 'flex-end',
+                justifyContent: 'space-between',
+                gap: '8px',
+                background: '#0b1120',
+                border: '1px solid #1e293b',
+                borderRadius: '10px',
+                padding: '5px 10px',
               }}
             >
               <span
                 style={{
                   fontSize: '11.5px',
-                  color: '#cbd5e1',
-                  fontWeight: 700,
+                  color: '#94a3b8',
+                  fontWeight: 800,
                   whiteSpace: 'nowrap',
-                  marginRight: '2px',
                 }}
               >
-                পরিমাণ:
+                📦 বিক্রয়ের পরিমাণ:
               </span>
-              {['1', '2', '5', '10'].map((q) => {
-                const active = defaultQty === q;
-                return (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => setDefaultQty(q)}
-                    style={{
-                      background: active ? '#0d9488' : '#0f172a',
-                      color: active ? '#ffffff' : '#cbd5e1',
-                      border: `1.5px solid ${active ? '#2dd4bf' : '#475569'}`,
-                      borderRadius: '8px',
-                      height: '30px',
-                      minHeight: '30px',
-                      minWidth: '30px',
-                      padding: '0 8px',
-                      fontSize: '11.5px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    {toBengaliNumerals(q)}
-                  </button>
-                );
-              })}
-              <input
-                type="number"
-                step="0.1"
-                min="0.1"
-                value={defaultQty}
-                onChange={(e) => setDefaultQty(e.target.value)}
-                aria-label="কাস্টম পরিমাণ"
+              <div
                 style={{
-                  width: '52px',
-                  height: '30px',
-                  minHeight: '30px',
-                  padding: '0 5px',
-                  borderRadius: '8px',
-                  border: '1.5px solid #475569',
-                  background: '#0f172a',
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 800,
-                  textAlign: 'center',
-                  outline: 'none',
-                  boxSizing: 'border-box',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
                 }}
-              />
+              >
+                {['1', '2', '5', '10'].map((q) => {
+                  const active = defaultQty === q;
+                  return (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => setDefaultQty(q)}
+                      style={{
+                        background: active
+                          ? 'linear-gradient(135deg, #0d9488, #059669)'
+                          : '#152033',
+                        color: active ? '#ffffff' : '#cbd5e1',
+                        border: `1.5px solid ${active ? '#2dd4bf' : '#334155'}`,
+                        borderRadius: '8px',
+                        height: '29px',
+                        minHeight: '29px',
+                        minWidth: '32px',
+                        padding: '0 8px',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {toBengaliNumerals(q)}
+                    </button>
+                  );
+                })}
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9.]*"
+                  value={defaultQty}
+                  onChange={(e) => setDefaultQty(bnToEnSkuDigits(e.target.value))}
+                  aria-label="কাস্টম পরিমাণ"
+                  style={{
+                    width: '54px',
+                    height: '29px',
+                    minHeight: '29px',
+                    padding: '0 6px',
+                    borderRadius: '8px',
+                    border: '1.5px solid #475569',
+                    background: '#152033',
+                    color: '#ffffff',
+                    fontSize: '12.5px',
+                    fontWeight: 800,
+                    textAlign: 'center',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          {/* Flash Success Banner when in non-camera view */}
+          {/* Flash Success Banner when in Quick SKU Auto-Sale view */}
           {isDrawingFeature && flashSuccess && (
             <div
               key={`pad-verify-${scanPulseKey}`}
               style={{
-                margin: "10px 14px 2px",
-                background: "linear-gradient(135deg, rgba(6, 78, 59, 0.96), rgba(5, 150, 105, 0.92))",
-                border: "2px solid #4ade80",
-                borderRadius: "12px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "10px 12px",
-                textAlign: "center",
-                gap: "4px",
+                margin: '10px 14px 2px',
+                background:
+                  'linear-gradient(135deg, rgba(6, 78, 59, 0.96), rgba(5, 150, 105, 0.92))',
+                border: '2px solid #4ade80',
+                borderRadius: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '10px 12px',
+                textAlign: 'center',
+                gap: '4px',
                 flexShrink: 0,
+                boxShadow: '0 6px 20px rgba(16, 185, 129, 0.3)',
               }}
             >
               <div
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  background: "#16a34a",
-                  border: "1.5px solid #86efac",
-                  color: "#ffffff",
-                  padding: "2px 10px",
-                  borderRadius: "999px",
-                  fontSize: "11.5px",
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: '#16a34a',
+                  border: '1.5px solid #86efac',
+                  color: '#ffffff',
+                  padding: '2px 10px',
+                  borderRadius: '999px',
+                  fontSize: '11.5px',
                   fontWeight: 900,
                 }}
               >
                 <CheckCircle2 size={14} />
-                <span>✨ সফল সেল • SKU: {flashSuccess.skuCode}</span>
+                <span>✨ সফল অটো-সেল • SKU #{flashSuccess.skuCode}</span>
               </div>
-              <div style={{ fontSize: "14px", fontWeight: 900, color: "#ffffff" }}>
-                {flashSuccess.productName} ({toBengaliNumerals(flashSuccess.quantity)}{" "}
+              <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#ffffff' }}>
+                {flashSuccess.productName} ({toBengaliNumerals(flashSuccess.quantity)}{' '}
                 {flashSuccess.unit})
               </div>
-              <div style={{ fontSize: "11.5px", fontWeight: 800, color: "#a7f3d0" }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: '#a7f3d0' }}>
                 বিক্রি: {money(flashSuccess.totalAmount)} | লাভ: +{money(flashSuccess.profit)}
               </div>
             </div>
@@ -2396,170 +2278,328 @@ export default function CameraAutoSaleModal({
               </div>
             )}
 
-            {/* Direct Instant SKU Code Entry / Selector (A..Z, AA..GZ) */}
+            {/* SPECIAL OFFER PRICING & DISCOUNT PANEL (Shown when featureMode === 'special_offer') */}
+            {isSpecialOfferFeature && (
+              <div
+                style={{
+                  background: 'linear-gradient(145deg, #2e1065 0%, #4c0519 100%)',
+                  border: '1.5px solid rgba(251, 191, 36, 0.55)',
+                  borderRadius: '14px',
+                  padding: '11px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  boxShadow: '0 6px 18px rgba(190, 18, 60, 0.25)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '6px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span style={{ fontSize: '12px', fontWeight: 900, color: '#fde047' }}>
+                    🎁 বিশেষ অফারের ধরন নির্বাচন করুন:
+                  </span>
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'flat_discount', label: '৳ টাকা ছাড়' },
+                      { id: 'percent_discount', label: '% শতকরা ছাড়' },
+                      { id: 'fixed_price', label: 'ফিক্সড অফার দাম' },
+                      { id: 'at_cost', label: 'কেনা দামে সেল' },
+                    ].map((m) => {
+                      const active = offerMode === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            setOfferMode(m.id as any);
+                            if (m.id === 'flat_discount') setOfferValueInput('5');
+                            if (m.id === 'percent_discount') setOfferValueInput('10');
+                            if (m.id === 'fixed_price') setOfferValueInput('30');
+                          }}
+                          style={{
+                            background: active ? '#f59e0b' : 'rgba(15, 23, 42, 0.65)',
+                            color: active ? '#0f172a' : '#fde68a',
+                            border: `1px solid ${active ? '#fde047' : 'rgba(251, 191, 36, 0.35)'}`,
+                            borderRadius: '7px',
+                            height: '26px',
+                            minHeight: '26px',
+                            padding: '0 8px',
+                            fontSize: '11px',
+                            fontWeight: 900,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {offerMode !== 'at_cost' ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '6px',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', flex: 1 }}>
+                      {(offerMode === 'flat_discount'
+                        ? [
+                            { v: '2', l: '৳২ ছাড়' },
+                            { v: '5', l: '৳৫ ছাড়' },
+                            { v: '10', l: '৳১০ ছাড়' },
+                            { v: '20', l: '৳২০ ছাড়' },
+                            { v: '50', l: '৳৫০ ছাড়' },
+                          ]
+                        : offerMode === 'percent_discount'
+                        ? [
+                            { v: '5', l: '৫% ছাড়' },
+                            { v: '10', l: '১০% ছাড়' },
+                            { v: '15', l: '১৫% ছাড়' },
+                            { v: '20', l: '২০% ছাড়' },
+                            { v: '25', l: '২৫% ছাড়' },
+                          ]
+                        : [
+                            { v: '10', l: '৳১০ দাম' },
+                            { v: '20', l: '৳২০ দাম' },
+                            { v: '30', l: '৳৩০ দাম' },
+                            { v: '50', l: '৳৫০ দাম' },
+                            { v: '100', l: '৳১০০ দাম' },
+                          ]
+                      ).map((chip) => {
+                        const active = offerValueInput === chip.v;
+                        return (
+                          <button
+                            key={chip.v}
+                            type="button"
+                            onClick={() => setOfferValueInput(chip.v)}
+                            style={{
+                              background: active
+                                ? 'linear-gradient(135deg, #10b981, #059669)'
+                                : 'rgba(15, 23, 42, 0.7)',
+                              color: '#ffffff',
+                              border: `1px solid ${active ? '#6ee7b7' : 'rgba(255,255,255,0.2)'}`,
+                              borderRadius: '7px',
+                              height: '27px',
+                              minHeight: '27px',
+                              padding: '0 8px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {chip.l}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', color: '#fde68a', fontWeight: 800 }}>
+                        {offerMode === 'flat_discount'
+                          ? 'ছাড় (৳):'
+                          : offerMode === 'percent_discount'
+                          ? 'ছাড় (%):'
+                          : 'অফার দাম (৳):'}
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        pattern="[0-9.]*"
+                        value={offerValueInput}
+                        onChange={(e) => setOfferValueInput(bnToEnSkuDigits(e.target.value))}
+                        style={{
+                          width: '62px',
+                          height: '28px',
+                          minHeight: '28px',
+                          padding: '0 6px',
+                          borderRadius: '7px',
+                          border: '1.5px solid #fbbf24',
+                          background: '#0f172a',
+                          color: '#fde047',
+                          fontSize: '13px',
+                          fontWeight: 900,
+                          textAlign: 'center',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '11.5px', color: '#fde68a', fontWeight: 700 }}>
+                    🤝 কেনা দামে সেল সক্রিয়: প্রডাক্টের গড় ক্রয়মূল্যে (০ টাকা লাভে) সরাসরি অফার সেল হবে।
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Direct Instant SKU Number Entry (Opens Mobile Numeric Keyboard on Tap) */}
             {(() => {
               const livePreviewHit = manualSkuInput.trim()
                 ? matchProductBySkuClient(manualSkuInput.trim(), products)
                 : null;
+              const previewQty = Math.max(0.1, Number(defaultQty) || 1);
+              const previewOffer = livePreviewHit
+                ? computeOfferPricing(livePreviewHit.product)
+                : null;
               return (
                 <div
                   style={{
-                    background: "linear-gradient(145deg, #0f172a 0%, #1e293b 100%)",
+                    background: 'linear-gradient(145deg, #0f172a 0%, #1e293b 100%)',
                     border: livePreviewHit
-                      ? "2px solid #10b981"
-                      : "1.5px solid rgba(45, 212, 191, 0.45)",
-                    borderRadius: "16px",
-                    padding: "12px 13px",
+                      ? '2px solid #10b981'
+                      : isSpecialOfferFeature
+                      ? '1.5px solid rgba(251, 191, 36, 0.55)'
+                      : '1.5px solid rgba(45, 212, 191, 0.5)',
+                    borderRadius: '16px',
+                    padding: '14px',
                     boxShadow: livePreviewHit
-                      ? "0 0 22px rgba(16, 185, 129, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08)"
-                      : "0 8px 22px rgba(2, 6, 23, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "9px",
-                    transition: "all 0.2s ease",
+                      ? '0 0 24px rgba(16, 185, 129, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08)'
+                      : '0 8px 24px rgba(2, 6, 23, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    transition: 'all 0.2s ease',
                   }}
                 >
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "8px",
-                      flexWrap: "wrap",
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      flexWrap: 'wrap',
                     }}
                   >
                     <div
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        fontSize: "12px",
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12.5px',
                         fontWeight: 900,
-                        color: "#5eead4",
+                        color: isSpecialOfferFeature ? '#fde047' : '#5eead4',
                       }}
                     >
-                      <Tag size={14} color="#2dd4bf" />
-                      <span>সরাসরি প্রডাক্টের SKU কোড লিখুন (A–Z / AA–GZ)</span>
+                      <Tag size={14} color={isSpecialOfferFeature ? '#fbbf24' : '#2dd4bf'} />
+                      <span>
+                        {isSpecialOfferFeature
+                          ? 'অফারে বিক্রির জন্য SKU নাম্বার লিখুন (1, 2, 3...)'
+                          : 'প্রডাক্টের SKU নাম্বার লিখুন (1, 2, 3...)'}
+                      </span>
                     </div>
 
-                    {livePreviewHit ? (
-                      <span
-                        style={{
-                          background: "rgba(16, 185, 129, 0.2)",
-                          border: "1px solid #34d399",
-                          color: "#6ee7b7",
-                          padding: "2px 9px",
-                          borderRadius: "999px",
-                          fontSize: "11.5px",
-                          fontWeight: 900,
-                        }}
-                      >
-                        ✅ {livePreviewHit.matchedSku}: {livePreviewHit.product.name} (
-                        {money(livePreviewHit.product.sellingPrice)})
-                      </span>
-                    ) : manualSkuInput.trim() ? (
-                      <span
-                        style={{
-                          background: "rgba(239, 68, 68, 0.18)",
-                          border: "1px solid rgba(248, 113, 113, 0.5)",
-                          color: "#fca5a5",
-                          padding: "2px 9px",
-                          borderRadius: "999px",
-                          fontSize: "11px",
-                          fontWeight: 800,
-                        }}
-                      >
-                        ❌ এই কোডে প্রডাক্ট নেই
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          color: "#94a3b8",
-                        }}
-                      >
-                        যেমন: A, B, D, AB, GZ
-                      </span>
-                    )}
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        color: '#38bdf8',
+                        background: 'rgba(56, 189, 248, 0.12)',
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                      }}
+                    >
+                      🔢 নাম্বার কিবোর্ড
+                    </span>
                   </div>
 
                   <form
                     onSubmit={handleManualSkuSubmit}
                     style={{
-                      display: "flex",
-                      alignItems: "stretch",
-                      gap: "8px",
-                      width: "100%",
+                      display: 'flex',
+                      alignItems: 'stretch',
+                      gap: '8px',
+                      width: '100%',
                     }}
                   >
                     <div
                       style={{
-                        position: "relative",
+                        position: 'relative',
                         flex: 1,
                         minWidth: 0,
-                        display: "flex",
-                        alignItems: "center",
+                        display: 'flex',
+                        alignItems: 'center',
                       }}
                     >
                       <span
                         style={{
-                          position: "absolute",
-                          left: "10px",
-                          pointerEvents: "none",
-                          fontSize: "15px",
+                          position: 'absolute',
+                          left: '12px',
+                          pointerEvents: 'none',
+                          fontSize: '15px',
                           lineHeight: 1,
                         }}
                       >
-                        🏷️
+                        {isSpecialOfferFeature ? '🎁' : '🏷️'}
                       </span>
                       <input
+                        ref={skuInputRef}
                         type="text"
-                        list="allowed-sku-codes-datalist"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        enterKeyHint="done"
                         value={manualSkuInput}
-                        onChange={(e) => setManualSkuInput(e.target.value.toUpperCase())}
-                        placeholder="SKU কোড (A, B, AB)"
+                        onChange={(e) =>
+                          setManualSkuInput(bnToEnSkuDigits(e.target.value).toUpperCase())
+                        }
+                        placeholder="SKU নাম্বার চাপুন (1, 2, 3...)"
                         autoComplete="off"
                         style={{
-                          width: "100%",
-                          height: "48px",
-                          minHeight: "48px",
-                          padding: manualSkuInput ? "0 34px 0 32px" : "0 10px 0 32px",
-                          borderRadius: "12px",
+                          width: '100%',
+                          height: '50px',
+                          minHeight: '50px',
+                          padding: manualSkuInput ? '0 36px 0 36px' : '0 12px 0 36px',
+                          borderRadius: '12px',
                           border: livePreviewHit
-                            ? "2px solid #10b981"
-                            : "2px solid #0d9488",
-                          background: "#020617",
-                          color: "#ffffff",
-                          fontSize: manualSkuInput ? "17px" : "13px",
+                            ? '2px solid #10b981'
+                            : isSpecialOfferFeature
+                            ? '2px solid #f59e0b'
+                            : '2px solid #0d9488',
+                          background: '#020617',
+                          color: '#ffffff',
+                          fontSize: manualSkuInput ? '18px' : '13.5px',
                           fontWeight: 800,
-                          letterSpacing: manualSkuInput ? "1.2px" : "0px",
-                          outline: "none",
+                          letterSpacing: manualSkuInput ? '1px' : '0px',
+                          outline: 'none',
                           boxShadow:
-                            "inset 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 3px rgba(13, 148, 136, 0.15)",
-                          boxSizing: "border-box",
+                            'inset 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(13, 148, 136, 0.15)',
+                          boxSizing: 'border-box',
                         }}
                       />
                       {manualSkuInput && (
                         <button
                           type="button"
-                          onClick={() => setManualSkuInput("")}
+                          onClick={() => {
+                            setManualSkuInput('');
+                            skuInputRef.current?.focus();
+                          }}
                           title="মুছে ফেলুন"
                           style={{
-                            position: "absolute",
-                            right: "7px",
-                            width: "24px",
-                            height: "24px",
-                            minHeight: "24px",
-                            borderRadius: "50%",
-                            border: "1px solid #475569",
-                            background: "#1e293b",
-                            color: "#cbd5e1",
+                            position: 'absolute',
+                            right: '8px',
+                            width: '26px',
+                            height: '26px',
+                            minHeight: '26px',
+                            borderRadius: '50%',
+                            border: '1px solid #475569',
+                            background: '#1e293b',
+                            color: '#cbd5e1',
                             padding: 0,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                           }}
                         >
                           <X size={13} />
@@ -2571,36 +2611,226 @@ export default function CameraAutoSaleModal({
                       type="submit"
                       disabled={!manualSkuInput.trim() || isPostingSale}
                       style={{
-                        height: "48px",
-                        minHeight: "48px",
-                        padding: "0 14px",
-                        borderRadius: "12px",
+                        height: '50px',
+                        minHeight: '50px',
+                        padding: '0 16px',
+                        borderRadius: '12px',
                         background: manualSkuInput.trim()
-                          ? "linear-gradient(135deg, #10b981 0%, #0d9488 100%)"
-                          : "#1e293b",
-                        color: "#ffffff",
+                          ? isSpecialOfferFeature
+                            ? 'linear-gradient(135deg, #e11d48 0%, #d97706 100%)'
+                            : 'linear-gradient(135deg, #10b981 0%, #0d9488 100%)'
+                          : '#1e293b',
+                        color: '#ffffff',
                         border: manualSkuInput.trim()
-                          ? "1.5px solid #34d399"
-                          : "1.5px solid #334155",
-                        fontSize: "13.5px",
+                          ? isSpecialOfferFeature
+                            ? '1.5px solid #fde047'
+                            : '1.5px solid #34d399'
+                          : '1.5px solid #334155',
+                        fontSize: '13.5px',
                         fontWeight: 900,
-                        cursor: manualSkuInput.trim() ? "pointer" : "not-allowed",
-                        whiteSpace: "nowrap",
+                        cursor: manualSkuInput.trim() ? 'pointer' : 'not-allowed',
+                        whiteSpace: 'nowrap',
                         flexShrink: 0,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "5px",
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '5px',
                         boxShadow: manualSkuInput.trim()
-                          ? "0 6px 18px rgba(16, 185, 129, 0.38)"
-                          : "none",
-                        transition: "all 0.2s ease",
+                          ? '0 6px 18px rgba(16, 185, 129, 0.38)'
+                          : 'none',
+                        transition: 'all 0.2s ease',
                       }}
                     >
                       <Zap size={15} />
-                      <span>SKU সেল</span>
+                      <span>{isSpecialOfferFeature ? 'অফার সেল' : 'অটো সেল'}</span>
                     </button>
                   </form>
+
+                  {/* Live Matched Product Preview Card when typing a SKU number */}
+                  {livePreviewHit && previewOffer ? (
+                    <div
+                      style={{
+                        background: 'rgba(6, 78, 59, 0.55)',
+                        border: '1.5px solid #10b981',
+                        borderRadius: '12px',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                        {livePreviewHit.product.imageUrl ? (
+                          <img
+                            src={livePreviewHit.product.imageUrl}
+                            alt={livePreviewHit.product.name}
+                            style={{
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '9px',
+                              objectFit: 'cover',
+                              border: '1.5px solid #34d399',
+                              flexShrink: 0,
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '9px',
+                              background: '#065f46',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Package size={18} color="#6ee7b7" />
+                          </div>
+                        )}
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <strong style={{ fontSize: '13.5px', color: '#ffffff' }}>
+                              {livePreviewHit.product.name}
+                            </strong>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 900,
+                                background: '#10b981',
+                                color: '#ffffff',
+                                padding: '1px 7px',
+                                borderRadius: '999px',
+                              }}
+                            >
+                              SKU #{livePreviewHit.matchedSku}
+                            </span>
+                            {isSpecialOfferFeature && previewOffer.offerLabelBn && (
+                              <span
+                                style={{
+                                  fontSize: '10.5px',
+                                  fontWeight: 900,
+                                  background: '#f59e0b',
+                                  color: '#0f172a',
+                                  padding: '1px 7px',
+                                  borderRadius: '999px',
+                                }}
+                              >
+                                🎁 {previewOffer.offerLabelBn}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: '#a7f3d0', marginTop: '2px' }}>
+                            {isSpecialOfferFeature &&
+                            previewOffer.effectiveUnitPrice !== previewOffer.regularPrice ? (
+                              <>
+                                রেগুলার: <s style={{ color: '#fca5a5' }}>{money(previewOffer.regularPrice)}</s> → অফার দাম:{' '}
+                                <b style={{ color: '#fde047' }}>{money(previewOffer.effectiveUnitPrice)}</b> ×{' '}
+                                {toBengaliNumerals(previewQty)} ={' '}
+                                <b style={{ color: '#ffffff' }}>
+                                  {money(previewQty * previewOffer.effectiveUnitPrice)}
+                                </b>
+                              </>
+                            ) : (
+                              <>
+                                দাম: {money(previewOffer.effectiveUnitPrice)} × {toBengaliNumerals(previewQty)}{' '}
+                                {livePreviewHit.product.unit || 'পিস'} ={' '}
+                                <b style={{ color: '#ffffff' }}>
+                                  {money(previewQty * previewOffer.effectiveUnitPrice)}
+                                </b>
+                              </>
+                            )}{' '}
+                            • স্টক: {toBengaliNumerals(livePreviewHit.product.currentStock)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : manualSkuInput.trim() ? (
+                    <div
+                      style={{
+                        background: 'rgba(127, 29, 29, 0.35)',
+                        border: '1px solid rgba(248, 113, 113, 0.5)',
+                        color: '#fca5a5',
+                        padding: '7px 11px',
+                        borderRadius: '10px',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      ❌ "{manualSkuInput.trim()}" নাম্বারে আপনার স্টকে কোনো প্রডাক্ট পাওয়া যায়নি
+                    </div>
+                  ) : null}
+
+                  {/* Quick 1-Tap SKU Number Buttons for ultra-fast touch sale */}
+                  {products.length > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        overflowX: 'auto',
+                        paddingTop: '2px',
+                        paddingBottom: '2px',
+                        WebkitOverflowScrolling: 'touch',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          color: '#94a3b8',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
+                        }}
+                      >
+                        ⚡ ১-ট্যাপ নাম্বার:
+                      </span>
+                      {products.slice(0, 12).map((p, idx) => {
+                        const code = getEffectiveProductSku(p, idx);
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={isPostingSale}
+                            onClick={() => {
+                              const qty = Math.max(0.1, Number(defaultQty) || 1);
+                              if (autoPostMode) {
+                                triggerSaleForProduct(p, qty, 'quick_tap', code);
+                              } else {
+                                setManualSkuInput(code);
+                              }
+                            }}
+                            title={`${p.name} (${money(p.sellingPrice)})`}
+                            style={{
+                              background: '#0f172a',
+                              color: '#fef08a',
+                              border: '1px solid rgba(250, 204, 21, 0.4)',
+                              borderRadius: '8px',
+                              height: '30px',
+                              minHeight: '30px',
+                              padding: '0 10px',
+                              fontSize: '12px',
+                              fontWeight: 900,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <span>#{code}</span>
+                            <span style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: 700 }}>
+                              {p.name.slice(0, 8)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -2610,7 +2840,7 @@ export default function CameraAutoSaleModal({
           <div
             style={{
               padding: '8px 14px',
-              background: '#0f172a',
+              background: '#0b1120',
               borderBottom: '1px solid #1e293b',
               display: 'flex',
               alignItems: 'center',
@@ -2826,7 +3056,7 @@ export default function CameraAutoSaleModal({
                   lineHeight: 1.3,
                 }}
               >
-                🏷️ প্রডাক্টের সক্রিয় SKU কোড (✏️ চাপ দিয়ে A–Z / AA–GZ সেট করুন):
+                🏷️ প্রডাক্টের সক্রিয় SKU নাম্বার (1 থেকে ক্রমানুসারে • ✏️ চাপ দিয়ে পরিবর্তন করুন):
               </span>
               <span
                 style={{
@@ -2856,7 +3086,7 @@ export default function CameraAutoSaleModal({
                   textAlign: 'center',
                 }}
               >
-                স্টকে কোনো পণ্য নেই। আগে স্টক/পণ্য ট্যাবে প্রডাক্ট ও SKU কোড যোগ করুন।
+                স্টকে কোনো পণ্য নেই। আগে স্টক/পণ্য ট্যাবে প্রডাক্ট যোগ করুন (অটোমেটিক 1 থেকে SKU যুক্ত হবে)।
               </div>
             ) : (
               <div
@@ -2890,22 +3120,24 @@ export default function CameraAutoSaleModal({
                         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
                       }}
                     >
-                      {/* Top Row: SKU Badge + Edit SKU Selector (A-Z / AA-GZ) */}
+                      {/* Top Row: SKU Badge + Edit SKU Input (1, 2, 3...) */}
                       {isEditingThis ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <select
-                            value={
-                              ALLOWED_SKU_SET.has(editingSkuValue.trim().toUpperCase())
-                                ? editingSkuValue.trim().toUpperCase()
-                                : skuCode
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={editingSkuValue}
+                            onChange={(e) =>
+                              setEditingSkuValue(bnToEnSkuDigits(e.target.value).toUpperCase())
                             }
-                            onChange={(e) => setEditingSkuValue(e.target.value)}
+                            placeholder="যেমন: 1, 2, 3"
                             style={{
                               width: '100%',
                               height: '26px',
                               minHeight: '26px',
-                              padding: '0 4px',
-                              fontSize: '11.5px',
+                              padding: '0 6px',
+                              fontSize: '12px',
                               fontWeight: 800,
                               color: '#fef08a',
                               background: '#1e293b',
@@ -2913,13 +3145,7 @@ export default function CameraAutoSaleModal({
                               borderRadius: '6px',
                               outline: 'none',
                             }}
-                          >
-                            {ALLOWED_SKU_CODES.map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ))}
-                          </select>
+                          />
                           <button
                             type="button"
                             disabled={savingSkuId === p.id}
@@ -3139,7 +3365,7 @@ export default function CameraAutoSaleModal({
               }}
             >
               <span>
-                📋 এই সেশনে {isDrawingFeature ? 'ড্রইং প্যাড' : 'ক্যামেরা SKU'} সেল (
+                📋 এই সেশনে {isDrawingFeature ? 'কুইক SKU' : 'ক্যামেরা SKU'} সেল (
                 {toBengaliNumerals(saleLogs.length)}টি):
               </span>
               {saleLogs.length > 0 && (
@@ -3172,8 +3398,8 @@ export default function CameraAutoSaleModal({
                 }}
               >
                 {isDrawingFeature
-                  ? 'এখনো কোনো ড্রইং সেল হয়নি। উপরের সাদা প্যাডে আঙুল বা মাউস দিয়ে A–Z অথবা AA–GZ লিখুন।'
-                  : 'এখনো কোনো প্রডাক্ট স্ক্যান করা হয়নি। প্রডাক্টের গায়ের SKU কোড (A-Z / AA-GZ) ক্যামেরার সামনে ধরুন।'}
+                  ? 'এখনো কোনো সেল হয়নি। উপরের বক্সে প্রডাক্টের SKU নাম্বার (1, 2, 3...) লিখুন বা নিচের প্রডাক্ট কার্ডে ট্যাপ করুন।'
+                  : 'এখনো কোনো প্রডাক্ট স্ক্যান করা হয়নি। প্রডাক্টের গায়ের SKU নাম্বার (1, 2, 3...) ক্যামেরার সামনে ধরুন।'}
               </div>
             ) : (
               <div style={{ display: 'grid', gap: '6px' }}>

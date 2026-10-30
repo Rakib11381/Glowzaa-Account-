@@ -26,6 +26,7 @@ import type {
   ApprovalRequest,
   EmailTriggerConfig,
   EmailNotificationLog,
+  AiChatSession,
 } from './types';
 import { formatBengaliDateTime, calculateCashBalance } from './accounting';
 
@@ -2033,4 +2034,156 @@ export async function triggerBackendEmailSummary(params: {
   }
 
   return null;
+}
+
+// ============================================================================
+// AI BUSINESS ASSISTANT CONVERSATION HISTORY & AUDIT LOGGING
+// ============================================================================
+const AI_CHAT_CACHE_PREFIX = 'glowzaa_ai_chats_v1_';
+
+export function getCachedAiChatSessions(ownerId: string): AiChatSession[] {
+  const safeOwner = (ownerId || 'Rakib').trim();
+  return readCache<AiChatSession>(`${AI_CHAT_CACHE_PREFIX}${safeOwner}`);
+}
+
+function writeCachedAiChatSessions(ownerId: string, sessions: AiChatSession[]) {
+  const safeOwner = (ownerId || 'Rakib').trim();
+  writeCache(`${AI_CHAT_CACHE_PREFIX}${safeOwner}`, sessions.slice(0, 40));
+}
+
+export function watchAiChatSessions(
+  ownerId: string,
+  cb: (sessions: AiChatSession[]) => void,
+  onError?: (e: Error) => void
+): Unsubscribe {
+  const safeOwner = (ownerId || 'Rakib').trim();
+  const cached = getCachedAiChatSessions(safeOwner);
+  if (cached.length > 0) {
+    cb(cached);
+  }
+
+  if (!db) {
+    cb(cached);
+    return () => {};
+  }
+
+  const q = query(collection(db, 'aiChatSessions'), where('ownerId', '==', safeOwner));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const rows = snap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<AiChatSession, 'id'>) }))
+        .filter((s) => s.ownerId === safeOwner)
+        .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+      writeCachedAiChatSessions(safeOwner, rows);
+      cb(rows);
+    },
+    (err) => {
+      if (onError) onError(err as Error);
+      cb(getCachedAiChatSessions(safeOwner));
+    }
+  );
+}
+
+export async function saveAiChatSession(session: AiChatSession): Promise<void> {
+  const safeOwner = (session.ownerId || 'Rakib').trim();
+  const existing = getCachedAiChatSessions(safeOwner);
+  const updated = [session, ...existing.filter((s) => s.id !== session.id)].sort((a, b) =>
+    (b.updatedAt || '').localeCompare(a.updatedAt || '')
+  );
+  writeCachedAiChatSessions(safeOwner, updated);
+
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'aiChatSessions', session.id),
+        cleanObject({
+          ...session,
+          ownerId: safeOwner,
+          updatedAt: session.updatedAt || new Date().toISOString(),
+        }),
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('Could not sync AI chat session to Firestore (saved locally):', e);
+    }
+  }
+}
+
+export async function renameAiChatSession(
+  sessionId: string,
+  ownerId: string,
+  newTitle: string
+): Promise<void> {
+  const safeOwner = (ownerId || 'Rakib').trim();
+  const cleanTitle = (newTitle || '').trim() || 'ব্যবসার হিসাব আলোচনা';
+  const nowIso = new Date().toISOString();
+
+  const existing = getCachedAiChatSessions(safeOwner).map((s) =>
+    s.id === sessionId && s.ownerId === safeOwner
+      ? { ...s, title: cleanTitle, updatedAt: nowIso }
+      : s
+  );
+  writeCachedAiChatSessions(safeOwner, existing);
+
+  if (db) {
+    try {
+      const ref = doc(db, 'aiChatSessions', sessionId);
+      const snap = await getDoc(ref);
+      if (snap.exists() && snap.data()?.ownerId === safeOwner) {
+        await updateDoc(ref, {
+          title: cleanTitle,
+          updatedAt: nowIso,
+        });
+      }
+    } catch (e) {
+      console.warn('Could not rename AI chat session in Firestore:', e);
+    }
+  }
+}
+
+export async function deleteAiChatSession(sessionId: string, ownerId: string): Promise<void> {
+  const safeOwner = (ownerId || 'Rakib').trim();
+  const filtered = getCachedAiChatSessions(safeOwner).filter(
+    (s) => !(s.id === sessionId && s.ownerId === safeOwner)
+  );
+  writeCachedAiChatSessions(safeOwner, filtered);
+
+  if (db) {
+    try {
+      const ref = doc(db, 'aiChatSessions', sessionId);
+      const snap = await getDoc(ref);
+      if (!snap.exists() || snap.data()?.ownerId === safeOwner) {
+        await deleteDoc(ref);
+      }
+    } catch (e) {
+      console.warn('Could not delete AI chat session from Firestore:', e);
+    }
+  }
+}
+
+export async function recordAiAssistantAuditLog(params: {
+  actor: string;
+  actorName: string;
+  question: string;
+  toolUsed: string;
+  dateRangeBn: string;
+}): Promise<void> {
+  if (!db) return;
+  try {
+    await addDoc(
+      collection(db, 'auditLogs'),
+      cleanObject({
+        action: 'ai_assistant_query',
+        recordId: `ai_q_${Date.now()}`,
+        actor: params.actorName || params.actor,
+        actorEmail: `${(params.actor || 'admin').toLowerCase()}@glowzaa.shop`,
+        formattedTime: formatBengaliDateTime(new Date()),
+        reason: `🤖 AI Business Assistant প্রশ্ন: "${params.question.slice(0, 120)}" (টুল: ${params.toolUsed} | সময়সীমা: ${params.dateRangeBn})`,
+        createdAt: serverTimestamp(),
+      })
+    );
+  } catch {
+    // Non-blocking audit log write
+  }
 }

@@ -2,7 +2,16 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
-import { GoogleGenAI, MediaResolution, ThinkingLevel, Type } from '@google/genai';
+import { GoogleGenAI, MediaResolution, ThinkingLevel, Type, type FunctionDeclaration } from '@google/genai';
+import {
+  executeBusinessAssistantQuery,
+  verifyAssistantAuth,
+  enforcePartnerAccessControl,
+  getDhakaTodayStr,
+  isValidIsoDate,
+  type AssistantAuthContext,
+  type BusinessDataset,
+} from './src/aiAssistantEngine';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -392,19 +401,8 @@ function detectCategoryPreset(name: string): string {
   return 'box';
 }
 
-function generateSmartSku(name: string, index = 1): string {
-  const n = name.toLowerCase();
-  const suffix = String(index).padStart(2, '0');
-  if (n.includes('কাকড়া') || n.includes('কাঁকড়া') || n.includes('crab')) return `CRAB-${suffix}`;
-  if (n.includes('চিংড়ি') || n.includes('গলদা') || n.includes('বাগদা') || n.includes('shrimp')) return `SHRIMP-${suffix}`;
-  if (n.includes('ইলিশ')) return `HILSA-${suffix}`;
-  if (n.includes('রুই')) return `RUI-${suffix}`;
-  if (n.includes('কাতলা')) return `KATLA-${suffix}`;
-  if (n.includes('মাছ') || n.includes('fish')) return `FISH-${suffix}`;
-  if (n.includes('মাংস') || n.includes('মুরগি') || n.includes('গরু')) return `MEAT-${suffix}`;
-  if (n.includes('ডিম')) return `EGG-${suffix}`;
-  const ascii = n.replace(/[^a-z0-9]/g, '').toUpperCase().slice(0, 4);
-  return `${ascii || 'PRD'}-${suffix}`;
+function generateSmartSku(_name: string, index = 1): string {
+  return String(Math.max(1, Math.round(index)));
 }
 
 function smartFallbackParse(promptText: string, mode: 'single' | 'batch_avg') {
@@ -618,7 +616,7 @@ ${historyContext}
 
 Rules:
 1. Product names ('name') MUST be in clean Bengali (e.g., "সামুদ্রিক কাকড়া", "গলদা চিংড়ি", "ইলিশ মাছ").
-2. 'sku' should be a clean uppercase code like CRAB-01, SHRIMP-02, FISH-03.
+2. 'sku' should be a sequential number string starting from 1 (e.g., "1", "2", "3", continuing from existingProducts).
 3. 'unit' should be in Bengali: "কেজি", "পিস", "বক্স", "লিটার", or "হালি".
 4. If the user provides total purchase cost for a quantity (e.g., "২০ কেজি কাকড়া ৬০০০ টাকা"), calculate per-unit 'averageCost' = 6000 / 20 = 300.
 5. If 'sellingPrice' is not explicitly mentioned, suggest a realistic selling price with ~20-30% profit margin over averageCost.
@@ -696,7 +694,7 @@ ${historyContext}
 
 Rules:
 1. 'name' MUST be in clear Bengali (e.g., "সামুদ্রিক কাকড়া", "গলদা চিংড়ি", "দেশি মুরগি").
-2. 'sku' MUST be a short uppercase code (e.g., "CRAB-01", "SHRIMP-01", "FISH-01").
+2. 'sku' MUST be a sequential numeric string starting from 1 (e.g., "1", "2", "3", continuing after the highest numeric sku in existingProducts).
 3. 'unit' MUST be in Bengali (e.g., "কেজি", "পিস", "বক্স", "হালি"). Default to "কেজি" for seafood/meat/vegetables, or "পিস" for countable items.
 4. 'currentStock': Extract stock quantity. If not mentioned, set 0.
 5. 'averageCost': Per-unit purchase cost in BDT (৳). IMPORTANT: If the user gives a total price for a lot (e.g., "৫০ কেজি কাকড়া ১৫০০০ টাকা"), divide total cost by quantity (15000 / 50 = 300) to get per-unit averageCost!
@@ -1858,6 +1856,14 @@ INSTRUCTIONS FOR CALCULATION:
 
   function toStrictAllowedSku(val: string): string {
     const cleaned = stripSkuPrefixes(val).replace(/[\s\-_.:#/\\,;|()[\]{}"'`~]+/g, '');
+    if (!cleaned) return '';
+    // Support sequential numeric SKUs starting from 1 (1, 2, 3, ..., 999999)
+    if (/^\d{1,6}$/.test(cleaned)) {
+      const n = parseInt(cleaned, 10);
+      if (Number.isFinite(n) && n >= 1) {
+        return String(n);
+      }
+    }
     return ALLOWED_SKU_SET.has(cleaned) ? cleaned : '';
   }
 
@@ -1865,7 +1871,7 @@ INSTRUCTIONS FOR CALCULATION:
     const raw = String(p?.sku || p?.effectiveSku || '').trim();
     const strict = toStrictAllowedSku(raw);
     if (strict) return strict;
-    return ALLOWED_SKU_CODES[idx % ALLOWED_SKU_CODES.length] || 'A';
+    return String(idx + 1);
   }
 
   function normalizeConfidenceScore(raw: any): number {
@@ -2092,15 +2098,26 @@ INSTRUCTIONS FOR CALCULATION:
       return {
         product: p,
         effectiveSku,
+        serialSku: String(idx + 1),
       };
     });
 
-    // 100% STRICT EXACT MATCH ONLY:
-    // Candidate must be in ALLOWED_SKU_SET (A..Z, AA..GZ) AND 100% equal to item.effectiveSku.
+    // Pass 1: 100% STRICT EXACT MATCH against item.effectiveSku (1, 2, 3... or A-Z)
     for (const code of validCandidates) {
       for (const item of catalogWithSku) {
         if (code === item.effectiveSku) {
           return { product: item.product, matchedSku: item.effectiveSku };
+        }
+      }
+    }
+
+    // Pass 2: Fallback 1-based serial number match (1, 2, 3...) if existing products still had legacy letter SKUs
+    for (const code of validCandidates) {
+      if (/^\d+$/.test(code)) {
+        for (const item of catalogWithSku) {
+          if (code === item.serialSku) {
+            return { product: item.product, matchedSku: item.serialSku };
+          }
         }
       }
     }
@@ -2171,7 +2188,7 @@ INSTRUCTIONS FOR CALCULATION:
           allVisibleCodes: [],
           quantity: 1,
           confidence: 0,
-          reasonBn: `❌ "${String(scannedCodeText).trim()}" অনুমোদিত SKU কোড (A-Z, AA-GZ)-এর বাহিরে!`,
+          reasonBn: `❌ "${String(scannedCodeText).trim()}" সঠিক SKU নাম্বার (1, 2, 3...) বা কোড নয়!`,
         });
       }
       const directHit = matchProductBySkuFromTexts([strictScanned], catalog);
@@ -2186,15 +2203,15 @@ INSTRUCTIONS FOR CALCULATION:
           matchType: 'sku_code',
           quantity: 1,
           confidence: 100,
-          reasonBn: `✅ SKU কোড "${directHit.matchedSku}" ১০০% ম্যাচ হয়েছে: "${directHit.product.name}"`,
+          reasonBn: `✅ SKU নাম্বার "${directHit.matchedSku}" ১০০% ম্যাচ হয়েছে: "${directHit.product.name}"`,
         });
       }
     }
 
     const noMatchResponse = (
       reason = isDrawingPad
-        ? '✍️ ড্রইং প্যাডে স্পষ্টভাবে A–Z অথবা AA–GZ কোড লিখুন'
-        : '🎯 প্রডাক্টের গায়ের SKU কোড (A-Z / AA-GZ) ক্যামেরার বক্সের ভেতরে স্পষ্টভাবে ধরুন',
+        ? '✍️ ড্রইং প্যাডে স্পষ্টভাবে পণ্যের SKU নাম্বার (যেমন: 1, 2, 3...) লিখুন'
+        : '🎯 প্রডাক্টের গায়ের SKU নাম্বার (1, 2, 3...) ক্যামেরার বক্সের ভেতরে স্পষ্টভাবে ধরুন',
       detectedSkuCode = '',
       allVisibleCodes: string[] = []
     ) => ({
@@ -2261,8 +2278,8 @@ INSTRUCTIONS FOR CALCULATION:
 
       ocrParts.push({
         text: isDrawingPad
-          ? `Handwriting OCR on white drawing pad: Read the 1-letter (A-Z) or 2-letter (AA-GZ) SKU code drawn in dark ink (convert lowercase to uppercase, join 2 letters without space like AB). Output ONLY the uppercase code, or - if unreadable.`
-          : `OCR: Output ONLY the exact 1-letter (A-Z) or 2-letter (AA-GZ) uppercase SKU code written or printed on the sticker/label, or - if none. Never guess A. Ignore STAINLESS STEEL/QUARTZ.`,
+          ? `Handwriting OCR on white drawing pad: Read the product SKU number (1, 2, 3, 4, 5, 10, 12, etc. — convert Bengali digits ১-৯ to English 1-9) or uppercase letter code (A-Z, AA-GZ) drawn in dark ink. Output ONLY the exact number or code without spaces, or - if unreadable.`
+          : `OCR: Output ONLY the exact product SKU number (1, 2, 3, 4, 5, 10, 12, etc. — convert Bengali digits ১-৯ to English 1-9) or uppercase SKU code (A-Z, AA-GZ) written or printed on the sticker/label, or - if none. Never guess. Ignore brand words.`,
       });
 
       const validDetectedCodes = await generateFastSkuOcrCascade(
@@ -2288,15 +2305,15 @@ INSTRUCTIONS FOR CALCULATION:
             quantity: 1,
             confidence: 100,
             reasonBn: isDrawingPad
-              ? `✅ ড্রইং প্যাডে "${verifiedSkuHit.matchedSku}" ১০০% ম্যাচ: "${verifiedSkuHit.product.name}"`
-              : `✅ SKU কোড "${verifiedSkuHit.matchedSku}" ১০০% ম্যাচ: "${verifiedSkuHit.product.name}"`,
+              ? `✅ ড্রইং প্যাডে SKU "${verifiedSkuHit.matchedSku}" ১০০% ম্যাচ: "${verifiedSkuHit.product.name}"`
+              : `✅ SKU নাম্বার "${verifiedSkuHit.matchedSku}" ১০০% ম্যাচ: "${verifiedSkuHit.product.name}"`,
           });
         }
 
         const seenValidCode = validDetectedCodes[0];
         return res.json(
           noMatchResponse(
-            `❌ ${isDrawingPad ? 'ড্রইং প্যাডে' : 'ক্যামেরায়'} SKU কোড "${seenValidCode}" শনাক্ত হয়েছে, কিন্তু আপনার স্টকে "${seenValidCode}" কোডের কোনো প্রডাক্ট নেই (স্টকে আছে: ${catalogSkuList
+            `❌ ${isDrawingPad ? 'ড্রইং প্যাডে' : 'ক্যামেরায়'} SKU "${seenValidCode}" শনাক্ত হয়েছে, কিন্তু আপনার স্টকে "${seenValidCode}" নাম্বারের কোনো প্রডাক্ট নেই (স্টকে আছে: ${catalogSkuList
               .slice(0, 6)
               .map((c) => c.sku)
               .join(', ')})`,
@@ -2309,7 +2326,7 @@ INSTRUCTIONS FOR CALCULATION:
       if (rawPrimary) {
         return res.json(
           noMatchResponse(
-            `❌ "${rawPrimary}" দেখা গেছে, যা অনুমোদিত SKU কোড (A-Z, AA-GZ)-এর ভেতরে নয়`,
+            `❌ "${rawPrimary}" দেখা গেছে, যা অনুমোদিত SKU নাম্বার (1, 2, 3...)-এর ভেতরে নয়`,
             rawPrimary,
             []
           )
@@ -2319,18 +2336,462 @@ INSTRUCTIONS FOR CALCULATION:
       return res.json(
         noMatchResponse(
           isDrawingPad
-            ? '✍️ ড্রইং প্যাডে বড় ও স্পষ্ট অক্ষরে A–Z বা AA–GZ লিখুন'
-            : '🎯 প্রডাক্টের গায়ের SKU কোড (A-Z বা AA-GZ) ক্যামেরার বক্সের ভেতরে স্পষ্টভাবে ধরুন'
+            ? '✍️ ড্রইং প্যাডে বড় ও স্পষ্ট করে SKU নাম্বার (যেমন: 1, 2, 3...) লিখুন'
+            : '🎯 প্রডাক্টের গায়ের SKU নাম্বার (যেমন: 1, 2, 3...) ক্যামেরার বক্সের ভেতরে স্পষ্টভাবে ধরুন'
         )
       );
     } catch {
       return res.json(
         noMatchResponse(
           isDrawingPad
-            ? '✍️ ড্রইং প্যাডে আবার লিখুন (A–Z বা AA–GZ)...'
-            : '🎯 প্রডাক্টের গায়ের SKU কোড (A-Z বা AA-GZ) ক্যামেরার সামনে ধরুন...'
+            ? '✍️ ড্রইং প্যাডে আবার লিখুন (যেমন: 1, 2, 3...)...'
+            : '🎯 প্রডাক্টের গায়ের SKU নাম্বার (যেমন: 1, 2, 3...) ক্যামেরার সামনে ধরুন...'
         )
       );
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GLOWZAA SHOP AI BUSINESS ASSISTANT SERVER-SIDE API
+  // - Strict Authentication & Partner-Level Access Control
+  // - Per-User Rate Limiting & Server Audit Logging
+  // - Gemini Function Calling with 8 Approved Read-Only Business Query Tools
+  // - 100% Deterministic Backend Financial Calculations (Zero Hallucinations)
+  // ---------------------------------------------------------------------------
+  interface AiAssistantAuditRecord {
+    id: string;
+    timestamp: string;
+    timestampFormattedBn: string;
+    actorUid: string;
+    actorName: string;
+    role: string;
+    question: string;
+    toolUsed: string;
+    status: 'success' | 'unauthorized' | 'forbidden' | 'rate_limited' | 'invalid_input' | 'error';
+    noteBn: string;
+  }
+
+  const aiAssistantAuditLogs: AiAssistantAuditRecord[] = [];
+  const aiRateLimitWindowMap = new Map<string, number[]>();
+  const AI_RATE_LIMIT_MAX_PER_MIN = 30;
+
+  function logAiAssistantAudit(record: Omit<AiAssistantAuditRecord, 'id' | 'timestamp' | 'timestampFormattedBn'>) {
+    const now = new Date();
+    aiAssistantAuditLogs.unshift({
+      id: `ai_audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: now.toISOString(),
+      timestampFormattedBn: formatDhakaTimeBn(now),
+      ...record,
+    });
+    if (aiAssistantAuditLogs.length > 100) {
+      aiAssistantAuditLogs.length = 100;
+    }
+  }
+
+  function checkAiRateLimit(actorKey: string): boolean {
+    const now = Date.now();
+    const windowStart = now - 60_000;
+    const prev = (aiRateLimitWindowMap.get(actorKey) || []).filter((t) => t > windowStart);
+    if (prev.length >= AI_RATE_LIMIT_MAX_PER_MIN) {
+      aiRateLimitWindowMap.set(actorKey, prev);
+      return false;
+    }
+    prev.push(now);
+    aiRateLimitWindowMap.set(actorKey, prev);
+    return true;
+  }
+
+  const AI_ASSISTANT_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
+    {
+      name: 'getInvestmentSummary',
+      description:
+        'Returns total investment amount, partner-wise investment breakdown (Rakib, Limon), investment count, latest investment date & amount, date-filtered investment records, and ownership percentage based on invested capital.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          startDate: {
+            type: Type.STRING,
+            description: 'Optional start date in YYYY-MM-DD format (Asia/Dhaka). Omit if querying all-time up to endDate.',
+          },
+          endDate: {
+            type: Type.STRING,
+            description: 'Optional end date in YYYY-MM-DD format (Asia/Dhaka).',
+          },
+        },
+      },
+    },
+    {
+      name: 'getExpenseSummary',
+      description:
+        'Returns total expense amount, category-wise expense breakdown, highest expense category, average daily expense, largest single expense transaction, and filtered expense list.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          startDate: {
+            type: Type.STRING,
+            description: 'Optional start date in YYYY-MM-DD format.',
+          },
+          endDate: {
+            type: Type.STRING,
+            description: 'Optional end date in YYYY-MM-DD format.',
+          },
+        },
+      },
+    },
+    {
+      name: 'getProfitAndLoss',
+      description:
+        'Returns total sales/revenue, total purchase/stock cost, COGS, gross profit, operating expenses, net profit/loss, profit margin percentage, and partner-wise profit share.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          startDate: {
+            type: Type.STRING,
+            description: 'Optional start date in YYYY-MM-DD format.',
+          },
+          endDate: {
+            type: Type.STRING,
+            description: 'Optional end date in YYYY-MM-DD format.',
+          },
+        },
+      },
+    },
+    {
+      name: 'getCurrentFinancialPosition',
+      description:
+        'Returns current business financial position: total capital/investment, total sales revenue, total expenses, total withdrawals, total partner loans, current real cash/account balance, inventory value, and net business worth.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {},
+      },
+    },
+    {
+      name: 'getWithdrawals',
+      description:
+        'Returns total withdrawals, partner-wise withdrawals, withdrawal history, pending withdrawal requests, and remaining withdrawable profit limit.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          startDate: {
+            type: Type.STRING,
+            description: 'Optional start date in YYYY-MM-DD format.',
+          },
+          endDate: {
+            type: Type.STRING,
+            description: 'Optional end date in YYYY-MM-DD format.',
+          },
+          partnerId: {
+            type: Type.STRING,
+            description: 'Optional partner identifier or name ("Rakib" or "Limon").',
+          },
+        },
+      },
+    },
+    {
+      name: 'getPartnerSummary',
+      description:
+        'Returns partner name, total investment, ownership share percentage, total profit share, total withdrawals, total loans/advances, and net payable/receivable position.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          partnerId: {
+            type: Type.STRING,
+            description: 'Optional partner name or ID ("Rakib" or "Limon"). Leave empty for all partners.',
+          },
+        },
+      },
+    },
+    {
+      name: 'getTransactionHistory',
+      description:
+        'Returns filtered transaction records supporting date range, type (investment, sale, purchase, expense, withdrawal, loan, pending_approval), category, partner, min/max amount, status (posted, draft, void, pending), keyword, and limit.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          startDate: { type: Type.STRING, description: 'Optional start date YYYY-MM-DD' },
+          endDate: { type: Type.STRING, description: 'Optional end date YYYY-MM-DD' },
+          type: {
+            type: Type.STRING,
+            description: 'Optional type: investment, sale, purchase, expense, withdrawal, loan, other, or pending_approval',
+          },
+          category: { type: Type.STRING, description: 'Optional category filter' },
+          partner: { type: Type.STRING, description: 'Optional partner filter (Rakib or Limon)' },
+          minAmount: { type: Type.NUMBER, description: 'Optional minimum amount in BDT' },
+          maxAmount: { type: Type.NUMBER, description: 'Optional maximum amount in BDT' },
+          status: {
+            type: Type.STRING,
+            description: 'Optional status: posted, draft, void, or pending',
+          },
+          keyword: { type: Type.STRING, description: 'Optional search keyword' },
+          limit: { type: Type.NUMBER, description: 'Maximum number of transactions to return (e.g., 10)' },
+        },
+      },
+    },
+    {
+      name: 'compareFinancialPeriods',
+      description:
+        'Compares two financial date ranges (e.g. last month vs this month) for investments, sales, purchases, expenses, net profit, withdrawals, and net balance change.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          periodAStartDate: { type: Type.STRING, description: 'Period A start date YYYY-MM-DD (e.g. last month start)' },
+          periodAEndDate: { type: Type.STRING, description: 'Period A end date YYYY-MM-DD (e.g. last month end)' },
+          periodALabel: { type: Type.STRING, description: 'Bengali label for Period A (e.g. গত মাস)' },
+          periodBStartDate: { type: Type.STRING, description: 'Period B start date YYYY-MM-DD (e.g. this month start)' },
+          periodBEndDate: { type: Type.STRING, description: 'Period B end date YYYY-MM-DD (e.g. this month end)' },
+          periodBLabel: { type: Type.STRING, description: 'Bengali label for Period B (e.g. এই মাস)' },
+        },
+      },
+    },
+  ];
+
+  app.get('/api/ai-assistant/audit-logs', (req, res) => {
+    const actorUid = String(req.headers['x-actor-uid'] || req.query.actorUid || '').trim();
+    if (!actorUid) {
+      return res.status(401).json({
+        ok: false,
+        error: 'অনুমোদিত লগইন ছাড়া অডিট লগ দেখা যাবে না।',
+      });
+    }
+    return res.json({
+      ok: true,
+      logs: aiAssistantAuditLogs,
+    });
+  });
+
+  app.post('/api/ai-assistant/ask', async (req, res) => {
+    const body = req.body || {};
+    const rawQuestion = String(body.question || '').trim();
+    const rawAuth = body.authContext as AssistantAuthContext | undefined;
+
+    // 1. Verify Authentication
+    let authContext: AssistantAuthContext;
+    try {
+      authContext = verifyAssistantAuth(rawAuth);
+    } catch (authErr: any) {
+      logAiAssistantAudit({
+        actorUid: 'anonymous',
+        actorName: 'Unauthenticated',
+        role: 'none',
+        question: rawQuestion.slice(0, 120),
+        toolUsed: 'none',
+        status: 'unauthorized',
+        noteBn: 'অননুমোদিত অ্যাক্সেস চেষ্টা ব্লক করা হয়েছে (401 Unauthorized)',
+      });
+      return res.status(401).json({
+        ok: false,
+        error: 'এই তথ্যে প্রবেশের জন্য অনুমোদিত অ্যাকাউন্টে লগইন করা আবশ্যক।',
+      });
+    }
+
+    // 2. Enforce Per-User Rate Limiting
+    if (!checkAiRateLimit(authContext.actorUid)) {
+      logAiAssistantAudit({
+        actorUid: authContext.actorUid,
+        actorName: authContext.actorName,
+        role: authContext.role,
+        question: rawQuestion.slice(0, 120),
+        toolUsed: 'none',
+        status: 'rate_limited',
+        noteBn: 'অতিরিক্ত রিকোয়েস্ট রেট লিমিট অতিক্রম করেছে (429)',
+      });
+      return res.status(429).json({
+        ok: false,
+        error: 'আপনি খুব দ্রুত অনেকগুলো প্রশ্ন করেছেন। অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করে আবার চেষ্টা করুন।',
+      });
+    }
+
+    // 3. Validate Input Question
+    if (!rawQuestion) {
+      return res.status(400).json({
+        ok: false,
+        error: 'অনুগ্রহ করে আপনার ব্যবসার হিসাব সম্পর্কিত একটি প্রশ্ন লিখুন।',
+      });
+    }
+    if (rawQuestion.length > 600) {
+      logAiAssistantAudit({
+        actorUid: authContext.actorUid,
+        actorName: authContext.actorName,
+        role: authContext.role,
+        question: rawQuestion.slice(0, 120),
+        toolUsed: 'none',
+        status: 'invalid_input',
+        noteBn: 'প্রশ্নের দৈর্ঘ্য নির্ধারিত সীমার (৬০০ অক্ষর) বেশি',
+      });
+      return res.status(400).json({
+        ok: false,
+        error: 'প্রশ্নটি অনেক বড়। অনুগ্রহ করে ৬০০ অক্ষরের মধ্যে সংক্ষিপ্ত ও স্পষ্ট প্রশ্ন করুন।',
+      });
+    }
+
+    // 4. Prepare Verified Dataset Snapshot
+    const dataset: BusinessDataset = {
+      entries: Array.isArray(body.dataset?.entries) ? body.dataset.entries : [],
+      investors: Array.isArray(body.dataset?.investors) ? body.dataset.investors : [],
+      products: Array.isArray(body.dataset?.products) ? body.dataset.products : [],
+      distributions: Array.isArray(body.dataset?.distributions) ? body.dataset.distributions : [],
+      approvalRequests: Array.isArray(body.dataset?.approvalRequests) ? body.dataset.approvalRequests : [],
+      referenceDate: isValidIsoDate(body.dataset?.referenceDate)
+        ? body.dataset.referenceDate
+        : getDhakaTodayStr(),
+    };
+
+    try {
+      let forcedToolName: string | undefined;
+      let forcedToolArgs: Record<string, any> | undefined;
+      let aiModelUsed = 'deterministic-accounting-engine';
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (apiKey) {
+        try {
+          const ai = new GoogleGenAI({
+            apiKey,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+          });
+
+          const todayDhaka = dataset.referenceDate || getDhakaTodayStr();
+          const toolSelectionPrompt = `You are the Glowzaa Shop AI Business Assistant router.
+Current Date in Asia/Dhaka timezone: ${todayDhaka}.
+Authenticated User: ${authContext.actorName} (ID: ${authContext.actorUid}, Role: ${authContext.role}).
+Partners in Glowzaa Shop: Rakib (রাকিব) and Limon (লিমন).
+
+Select the single most accurate read-only financial tool to answer the user's question.
+Rules:
+- Convert any Bengali digits (০-৯) or natural date phrases ("আজ", "গতকাল", "এই মাসে", "গত মাসে", "১৫ অক্টোবর") into exact YYYY-MM-DD dates based on ${todayDhaka}.
+- If the user asks about "আজ পর্যন্ত" or "এখন পর্যন্ত" or all-time totals, omit startDate and set endDate to "${todayDhaka}".
+- If the user asks "কোন খাতে সবচেয়ে বেশি খরচ হয়েছে?" or about expenses, call getExpenseSummary.
+- If the user asks about investments or "রাকিব ও লিমন কত টাকা বিনিয়োগ করেছেন?", call getInvestmentSummary.
+- If the user asks about "আয় ও খরচ" or "লাভ" (profit/loss/sales), call getProfitAndLoss.
+- If the user asks about "বর্তমান ব্যালেন্স কত?" or overall financial position, call getCurrentFinancialPosition.
+- If the user asks about withdrawals or "আমার কত টাকা লাভ উত্তোলনযোগ্য?", call getWithdrawals (set partnerId to "${authContext.actorUid}" if they say "আমার").
+- If the user asks about "অনুমোদনের অপেক্ষায়" (pending approval), call getTransactionHistory with status="pending" and type="pending_approval".
+- If the user asks for recent N transactions (e.g. "সর্বশেষ ১০টি লেনদেন দেখাও"), call getTransactionHistory with limit=10.
+- If the user compares two periods (e.g. "গত মাসের তুলনায় এই মাসের লাভ কত বেড়েছে?"), call compareFinancialPeriods.
+
+User Question: "${rawQuestion}"`;
+
+          const toolCallResponse = await Promise.race([
+            generateStructuredAiContent(ai, {
+              contents: toolSelectionPrompt,
+              config: {
+                temperature: 0.0,
+                tools: [{ functionDeclarations: AI_ASSISTANT_FUNCTION_DECLARATIONS }],
+              },
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4500)),
+          ]);
+
+          if (toolCallResponse && Array.isArray(toolCallResponse.functionCalls) && toolCallResponse.functionCalls.length > 0) {
+            const fc = toolCallResponse.functionCalls[0];
+            if (fc && fc.name) {
+              forcedToolName = fc.name;
+              const rawArgs = (fc.args || {}) as Record<string, any>;
+              const sanitizedArgs: Record<string, any> = {};
+
+              if (isValidIsoDate(rawArgs.startDate)) sanitizedArgs.startDate = rawArgs.startDate;
+              if (isValidIsoDate(rawArgs.endDate)) sanitizedArgs.endDate = rawArgs.endDate;
+              if (typeof rawArgs.partnerId === 'string' && rawArgs.partnerId.trim()) {
+                sanitizedArgs.partnerId = rawArgs.partnerId.trim();
+              }
+              if (typeof rawArgs.partner === 'string' && rawArgs.partner.trim()) {
+                sanitizedArgs.partner = rawArgs.partner.trim();
+              }
+              if (typeof rawArgs.type === 'string' && rawArgs.type.trim()) {
+                sanitizedArgs.type = rawArgs.type.trim();
+              }
+              if (typeof rawArgs.status === 'string' && rawArgs.status.trim()) {
+                sanitizedArgs.status = rawArgs.status.trim();
+              }
+              if (typeof rawArgs.category === 'string' && rawArgs.category.trim()) {
+                sanitizedArgs.category = rawArgs.category.trim();
+              }
+              if (typeof rawArgs.keyword === 'string' && rawArgs.keyword.trim()) {
+                sanitizedArgs.keyword = rawArgs.keyword.trim();
+              }
+              if (typeof rawArgs.limit === 'number' && rawArgs.limit > 0) {
+                sanitizedArgs.limit = Math.min(100, Math.round(rawArgs.limit));
+              }
+              if (isValidIsoDate(rawArgs.periodAStartDate) && isValidIsoDate(rawArgs.periodAEndDate)) {
+                sanitizedArgs.periodA = {
+                  startDate: rawArgs.periodAStartDate,
+                  endDate: rawArgs.periodAEndDate,
+                  label: typeof rawArgs.periodALabel === 'string' ? rawArgs.periodALabel : undefined,
+                };
+              }
+              if (isValidIsoDate(rawArgs.periodBStartDate) && isValidIsoDate(rawArgs.periodBEndDate)) {
+                sanitizedArgs.periodB = {
+                  startDate: rawArgs.periodBStartDate,
+                  endDate: rawArgs.periodBEndDate,
+                  label: typeof rawArgs.periodBLabel === 'string' ? rawArgs.periodBLabel : undefined,
+                };
+              }
+
+              forcedToolArgs = sanitizedArgs;
+              aiModelUsed = 'gemini-3.8-flash + deterministic-ledger';
+            }
+          }
+        } catch (aiErr: any) {
+          console.warn('AI Business Assistant tool-router fallback to deterministic parser:', aiErr?.message || aiErr);
+        }
+      }
+
+      // Check partner-level access control if a partnerId is requested
+      if (forcedToolArgs?.partnerId || forcedToolArgs?.partner) {
+        enforcePartnerAccessControl(forcedToolArgs.partnerId || forcedToolArgs.partner, authContext);
+      }
+
+      // 5. Execute 100% Deterministic Query & Build Structured Evidence Response
+      const structuredResult = executeBusinessAssistantQuery({
+        question: rawQuestion,
+        dataset,
+        authContext,
+        forcedToolName,
+        forcedToolArgs,
+        aiModelUsed,
+      });
+
+      logAiAssistantAudit({
+        actorUid: authContext.actorUid,
+        actorName: authContext.actorName,
+        role: authContext.role,
+        question: rawQuestion.slice(0, 140),
+        toolUsed: structuredResult.toolUsed,
+        status: 'success',
+        noteBn: `সফলভাবে উত্তর প্রদান করা হয়েছে (${structuredResult.toolUsed} | ${structuredResult.dateRangeBn})`,
+      });
+
+      return res.json(structuredResult);
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (msg.startsWith('FORBIDDEN_PARTNER_ACCESS') || msg.startsWith('UNAUTHORIZED')) {
+        logAiAssistantAudit({
+          actorUid: authContext.actorUid,
+          actorName: authContext.actorName,
+          role: authContext.role,
+          question: rawQuestion.slice(0, 140),
+          toolUsed: 'restricted',
+          status: 'forbidden',
+          noteBn: msg,
+        });
+        return res.status(403).json({
+          ok: false,
+          error: msg.replace(/^(FORBIDDEN_PARTNER_ACCESS|UNAUTHORIZED):\s*/, ''),
+        });
+      }
+
+      logAiAssistantAudit({
+        actorUid: authContext.actorUid,
+        actorName: authContext.actorName,
+        role: authContext.role,
+        question: rawQuestion.slice(0, 140),
+        toolUsed: 'error',
+        status: 'error',
+        noteBn: msg || 'সার্ভার ত্রুটি',
+      });
+      return res.status(500).json({
+        ok: false,
+        error: 'আপনার প্রশ্নের হিসাব যাচাই করার সময় একটি কারিগরি ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।',
+      });
     }
   });
 

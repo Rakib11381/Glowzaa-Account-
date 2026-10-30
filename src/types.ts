@@ -22,6 +22,7 @@ export interface Product {
   currentStock: number;
   averageCost: number;
   sellingPrice: number;
+  reorderPoint?: number;
   imageUrl?: string;
   demo?: boolean;
   createdAt?: any;
@@ -91,6 +92,9 @@ export interface BusinessSettings {
   enableVoiceInput?: boolean;
   enableCameraScan?: boolean;
   enableDrawingPad?: boolean;
+  enableSpecialOfferAutoSale?: boolean;
+  enableAiAssistant?: boolean;
+  lowStockReorderPoint?: number;
   rakibEmail?: string;
   limonEmail?: string;
   highValueWithdrawalThreshold?: number;
@@ -206,4 +210,77 @@ export interface UserProfile {
   displayName?: string;
   investorId?: string;
   createdAt?: any;
+}
+
+export interface AiEvidenceTransaction {
+  id: string;
+  date: string;
+  type: RecordType;
+  typeLabelBn: string;
+  title: string;
+  amount: number;
+  status: EntryStatus;
+  partnerName?: string;
+  category?: string;
+  seller?: string;
+  profit?: number;
+  cogs?: number;
+  notes?: string;
+}
+
+export interface AiTableData {
+  titleBn: string;
+  headers: string[];
+  rows: (string | number)[][];
+  footer?: (string | number)[];
+}
+
+export interface AiIntegrityNotice {
+  level: 'info' | 'warning' | 'alert';
+  code: string;
+  messageBn: string;
+}
+
+export interface AiAssistantStructuredResponse {
+  ok: boolean;
+  question: string;
+  toolUsed: string;
+  toolsCalled: string[];
+  directAnswerBn: string;
+  dateRangeBn: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  calculationMethodBn: string;
+  recordsUsedSummaryBn: string;
+  tables: AiTableData[];
+  transactions: AiEvidenceTransaction[];
+  pendingApprovalsCount?: number;
+  integrityNotices: AiIntegrityNotice[];
+  filterPreset?: {
+    type?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  };
+  aiModelUsed?: string;
+  generatedAt: string;
+}
+
+export interface AiChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  createdAt: string;
+  createdAtFormatted: string;
+  evidence?: AiAssistantStructuredResponse;
+}
+
+export interface AiChatSession {
+  id: string;
+  ownerId: string; // 'Rakib' | 'Limon' | uid
+  ownerName: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: AiChatMessage[];
 }
