@@ -463,6 +463,10 @@ export default function CameraAutoSaleModal({
   const lastScanStartMsRef = useRef<number>(0);
   const isBarcodeCheckingRef = useRef<boolean>(false);
   const cooldownUntilRef = useRef<number>(0);
+  const lastSoldSkuRef = useRef<string>('');
+  const lastLocalCodeSeenMsRef = useRef<number>(0);
+  const cachedBarcodeDetectorRef = useRef<any>(null);
+  const cachedQrCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevMotionSigRef = useRef<number[]>([]);
   const lastNoMatchSigRef = useRef<{ sig: number[]; time: number; misses: number }>({
     sig: [],
@@ -500,6 +504,9 @@ export default function CameraAutoSaleModal({
   useEffect(() => {
     if (!isOpen) return;
     unlockScannerAudio();
+    cooldownUntilRef.current = 0;
+    lastSoldSkuRef.current = '';
+    lastNoMatchSigRef.current = { sig: [], time: 0, misses: 0 };
     fetch('/api/ai/camera-warmup', { method: 'POST' }).catch(() => {});
 
     const thumbMap = new Map<string, string>();
@@ -552,38 +559,49 @@ export default function CameraAutoSaleModal({
     const timer = setInterval(() => {
       const rem = Math.max(0, Math.ceil((cooldownUntilRef.current - Date.now()) / 1000));
       setCooldownSec(rem);
-    }, 100);
+    }, 80);
     return () => clearInterval(timer);
   }, [isOpen]);
 
-  // Helper to scan a video element locally via BarcodeDetector + jsQR (~20ms)
-  // Only returns codes that are in the strict A..Z / AA..GZ whitelist!
+  // Helper to scan a video element locally via cached BarcodeDetector + jsQR (<5ms)
   async function detectLocalCodesFromVideo(video: HTMLVideoElement): Promise<string[]> {
     const foundCodes: string[] = [];
 
-    // A. Native BarcodeDetector (Chrome/Edge/Android)
+    // A. Native BarcodeDetector (Chrome/Edge/Android) - cached instance
     if ('BarcodeDetector' in window) {
       try {
-        const detector = new (window as any).BarcodeDetector();
-        const barcodes = await detector.detect(video);
+        if (!cachedBarcodeDetectorRef.current) {
+          cachedBarcodeDetectorRef.current = new (window as any).BarcodeDetector();
+        }
+        const barcodes = await cachedBarcodeDetectorRef.current.detect(video);
         if (Array.isArray(barcodes)) {
           for (const bc of barcodes) {
-            const strictVal = toStrictAllowedSkuClient(String(bc?.rawValue || ''));
+            const rawVal = String(bc?.rawValue || '').trim();
+            const strictVal =
+              toStrictAllowedSkuClient(rawVal) ||
+              (() => {
+                const m = rawVal.match(/(?:sku|code|id|কোড|নাম্বার)\s*[:=#\-]\s*([A-Za-z0-9০-৯]+)/i);
+                return m && m[1] ? toStrictAllowedSkuClient(m[1]) : '';
+              })();
             if (strictVal) foundCodes.push(strictVal);
           }
         }
       } catch {}
     }
 
-    // B. Universal Cross-Browser jsQR Decoder
+    // B. Universal Cross-Browser jsQR Decoder - cached canvas
     try {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       if (vw > 0 && vh > 0) {
-        const qrCanvas = document.createElement('canvas');
-        const scanSize = 260;
-        qrCanvas.width = scanSize;
-        qrCanvas.height = scanSize;
+        const scanSize = 250;
+        if (!cachedQrCanvasRef.current) {
+          const c = document.createElement('canvas');
+          c.width = scanSize;
+          c.height = scanSize;
+          cachedQrCanvasRef.current = c;
+        }
+        const qrCanvas = cachedQrCanvasRef.current;
         const qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true });
         if (qrCtx) {
           const crop = Math.min(vw, vh) * 0.85;
@@ -592,10 +610,16 @@ export default function CameraAutoSaleModal({
           qrCtx.drawImage(video, sx, sy, crop, crop, 0, 0, scanSize, scanSize);
           const imgData = qrCtx.getImageData(0, 0, scanSize, scanSize);
           const qrResult = jsQR(imgData.data, scanSize, scanSize, {
-            inversionAttempts: 'attemptBoth',
+            inversionAttempts: 'dontInvert',
           });
           if (qrResult && qrResult.data) {
-            const strictQr = toStrictAllowedSkuClient(qrResult.data);
+            const rawQr = String(qrResult.data || '').trim();
+            const strictQr =
+              toStrictAllowedSkuClient(rawQr) ||
+              (() => {
+                const m = rawQr.match(/(?:sku|code|id|কোড|নাম্বার)\s*[:=#\-]\s*([A-Za-z0-9০-৯]+)/i);
+                return m && m[1] ? toStrictAllowedSkuClient(m[1]) : '';
+              })();
             if (strictQr) {
               foundCodes.push(strictQr);
             }
@@ -607,13 +631,12 @@ export default function CameraAutoSaleModal({
     return Array.from(new Set(foundCodes));
   }
 
-  // 4A. SUB-100ms UNIVERSAL LOCAL BARCODE / QR SKU DETECTOR LOOP
+  // 4A. ULTRA-FAST 45ms LOCAL BARCODE / QR SKU DETECTOR LOOP (Zero delay between consecutive items!)
   useEffect(() => {
     if (!isOpen || !cameraReady || !continuousAutoScan || inputTab === 'drawing') return;
 
     const fastLocalTimer = setInterval(async () => {
       if (!videoRef.current || isBarcodeCheckingRef.current) return;
-      if (Date.now() < cooldownUntilRef.current) return;
       if (pendingProduct) return;
 
       const video = videoRef.current;
@@ -622,28 +645,36 @@ export default function CameraAutoSaleModal({
       isBarcodeCheckingRef.current = true;
       try {
         const localCodes = await detectLocalCodesFromVideo(video);
+        const now = Date.now();
         if (localCodes.length > 0) {
+          lastLocalCodeSeenMsRef.current = now;
           setLastDetectedRawCode(localCodes[0]);
           const hit = matchProductBySkuClient(localCodes, productsRef.current);
-          if (hit && Date.now() >= cooldownUntilRef.current) {
-            const parsedQty = Math.max(0.1, Number(defaultQtyRef.current) || 1);
-            if (autoPostModeRef.current) {
-              await triggerSaleForProduct(hit.product, parsedQty, 'barcode', hit.matchedSku);
-            } else {
-              playScannerSound('success');
-              setScanPulseKey((prev) => prev + 1);
-              setScanSuccessPulse(true);
-              setTimeout(() => setScanSuccessPulse(false), 1500);
-              setPendingProduct({
-                product: hit.product,
-                skuCode: hit.matchedSku,
-                quantity: parsedQty,
-                confidence: 100,
-                matchMethod: 'barcode',
-              });
-              setScanStatusText(
-                `✅ SKU কোড "${hit.matchedSku}" ১০০% ম্যাচ হয়েছে: "${hit.product.name}"`
-              );
+          if (hit) {
+            // STRICT 1-SALE-PER-HOLD LOCK:
+            // Only trigger if this is a DIFFERENT SKU than the currently held SKU!
+            // Holding the camera on the same QR/SKU will NEVER sell a 2nd time while held!
+            if (lastSoldSkuRef.current !== hit.matchedSku) {
+              const parsedQty = Math.max(0.1, Number(defaultQtyRef.current) || 1);
+              if (autoPostModeRef.current) {
+                await triggerSaleForProduct(hit.product, parsedQty, 'barcode', hit.matchedSku);
+              } else {
+                lastSoldSkuRef.current = hit.matchedSku;
+                playScannerSound('success');
+                setScanPulseKey((prev) => prev + 1);
+                setScanSuccessPulse(true);
+                setTimeout(() => setScanSuccessPulse(false), 900);
+                setPendingProduct({
+                  product: hit.product,
+                  skuCode: hit.matchedSku,
+                  quantity: parsedQty,
+                  confidence: 100,
+                  matchMethod: 'barcode',
+                });
+                setScanStatusText(
+                  `✅ SKU কোড "${hit.matchedSku}" ১০০% ম্যাচ হয়েছে: "${hit.product.name}"`
+                );
+              }
             }
           }
         }
@@ -651,20 +682,19 @@ export default function CameraAutoSaleModal({
       } finally {
         isBarcodeCheckingRef.current = false;
       }
-    }, 110);
+    }, 45);
 
     return () => clearInterval(fastLocalTimer);
   }, [isOpen, cameraReady, continuousAutoScan, pendingProduct, inputTab]);
 
-  // 4B. SMART 150ms SINGLE-FLIGHT AI HANDWRITTEN & PRINTED SKU OCR LOOP (A..Z, AA..GZ)
+  // 4B. SMART 110ms AI HANDWRITTEN & PRINTED SKU OCR LOOP (Does not block when switching to next product)
   useEffect(() => {
     if (!isOpen || !cameraReady || !continuousAutoScan || inputTab === 'drawing') return;
     const interval = setInterval(() => {
       if (isScanningRef.current) return;
-      if (Date.now() < cooldownUntilRef.current) return;
       if (pendingProduct) return;
       captureAndRecognizeFrame(false);
-    }, 150);
+    }, 110);
     return () => clearInterval(interval);
   }, [isOpen, cameraReady, continuousAutoScan, pendingProduct, scanMode, inputTab]);
 
@@ -831,7 +861,6 @@ export default function CameraAutoSaleModal({
     matchMethod: 'ai_vision' | 'barcode' | 'visual_hash' | 'quick_tap',
     matchedSkuCode?: string
   ) {
-    if (isPostingSale) return;
     const cleanQty = qtyToSell > 0 ? qtyToSell : 1;
     const prodIndex = productsRef.current.findIndex((p) => p.id === product.id);
     const effectiveSku =
@@ -844,9 +873,13 @@ export default function CameraAutoSaleModal({
     const totalCost = Math.round(cleanQty * unitCost * 100) / 100;
     const profitAmount = Math.round((totalAmount - totalCost) * 100) / 100;
 
-    // 0.85s cooldown so back-to-back scans are super fast while preventing double-trigger
-    cooldownUntilRef.current = Date.now() + 850;
-    setCooldownSec(1);
+    // Lock this SKU for the current hold so holding the camera on it never sells a 2nd time!
+    // Switching to any different SKU has 0ms wait.
+    lastSoldSkuRef.current = effectiveSku;
+    lastLocalCodeSeenMsRef.current = Date.now();
+    cooldownUntilRef.current = 0;
+    lastNoMatchSigRef.current = { sig: [], time: 0, misses: 0 };
+    setCooldownSec(0);
 
     // 1. 0ms Instant Audio Feedback
     playScannerSound('success');
@@ -856,7 +889,7 @@ export default function CameraAutoSaleModal({
     setScanSuccessPulse(true);
     setTimeout(() => {
       setScanSuccessPulse(false);
-    }, 1100);
+    }, 650);
 
     setFlashSuccess({
       productName: product.name,
@@ -868,7 +901,7 @@ export default function CameraAutoSaleModal({
     });
     setTimeout(() => {
       setFlashSuccess((prev) => (prev?.productName === product.name ? null : prev));
-    }, 1150);
+    }, 700);
 
     // 3. 0ms Optimistic UI Sale Log & Status Update (no waiting for database round-trip!)
     const logId = `cam-sale-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -941,27 +974,31 @@ export default function CameraAutoSaleModal({
     const video = videoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
-    // Step 1: Instant <25ms Local BarcodeDetector + jsQR Check (strictly filtered to A..Z / AA..GZ)
+    // Step 1: Instant <5ms Local BarcodeDetector + jsQR Check
     const localCodes = await detectLocalCodesFromVideo(video);
     if (localCodes.length > 0) {
+      lastLocalCodeSeenMsRef.current = Date.now();
       setLastDetectedRawCode(localCodes[0]);
       const hit = matchProductBySkuClient(localCodes, currentProducts);
-      if (hit && Date.now() >= cooldownUntilRef.current) {
-        const parsedQty = Math.max(0.1, Number(defaultQtyRef.current) || 1);
-        if (autoPostModeRef.current) {
-          await triggerSaleForProduct(hit.product, parsedQty, 'barcode', hit.matchedSku);
-        } else {
-          playScannerSound('success');
-          setScanPulseKey((prev) => prev + 1);
-          setScanSuccessPulse(true);
-          setTimeout(() => setScanSuccessPulse(false), 1500);
-          setPendingProduct({
-            product: hit.product,
-            skuCode: hit.matchedSku,
-            quantity: parsedQty,
-            confidence: 100,
-            matchMethod: 'barcode',
-          });
+      if (hit) {
+        if (isManualTrigger || lastSoldSkuRef.current !== hit.matchedSku) {
+          const parsedQty = Math.max(0.1, Number(defaultQtyRef.current) || 1);
+          if (autoPostModeRef.current) {
+            await triggerSaleForProduct(hit.product, parsedQty, 'barcode', hit.matchedSku);
+          } else {
+            lastSoldSkuRef.current = hit.matchedSku;
+            playScannerSound('success');
+            setScanPulseKey((prev) => prev + 1);
+            setScanSuccessPulse(true);
+            setTimeout(() => setScanSuccessPulse(false), 900);
+            setPendingProduct({
+              product: hit.product,
+              skuCode: hit.matchedSku,
+              quantity: parsedQty,
+              confidence: 100,
+              matchMethod: 'barcode',
+            });
+          }
         }
         return;
       }
@@ -989,13 +1026,18 @@ export default function CameraAutoSaleModal({
       const motionDiff = computeSignatureDiff(signature, prevMotionSigRef.current);
       prevMotionSigRef.current = signature;
 
+      // Unlock same-SKU hold only when user physically moves camera away (motionDiff > 22 and no local code seen for >650ms)
+      if (lastSoldSkuRef.current && motionDiff > 22 && Date.now() - lastLocalCodeSeenMsRef.current > 650) {
+        lastSoldSkuRef.current = '';
+      }
+
       if (!isManualTrigger) {
         // Pitch dark or covered lens
         if (avgBrightness < 10 || pixelStdDev < 6) {
           return;
         }
-        // If hand is rapidly moving across the camera (severe motion blur), wait 220ms for it to settle
-        if (motionDiff > 30) {
+        // Only skip extreme camera shake (>48) so swapping to the 2nd item is recognized immediately
+        if (motionDiff > 48) {
           return;
         }
       }
@@ -1012,17 +1054,16 @@ export default function CameraAutoSaleModal({
     frameCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, targetSize, targetSize);
     const { compositeDataUrl, hasSticker } = buildCompositeOcrFrame(frameCanvas);
 
-    // Allow immediate back-to-back retries while camera autofocuses (first 3 attempts),
-    // and if held completely motionless, re-scan every 650ms so holding a product never stalls!
+    // Allow immediate back-to-back retries while camera autofocuses
     if (!isManualTrigger) {
       const diffFromLastMiss = computeSignatureDiff(currentSig, lastNoMatchSigRef.current.sig);
-      if (diffFromLastMiss >= 3.0) {
+      if (diffFromLastMiss >= 1.8) {
         lastNoMatchSigRef.current.misses = 0;
       } else {
-        const maxImmediateRetries = hasSticker ? 3 : 2;
+        const maxImmediateRetries = hasSticker ? 4 : 3;
         if (
           lastNoMatchSigRef.current.misses >= maxImmediateRetries &&
-          Date.now() - lastNoMatchSigRef.current.time < 650
+          Date.now() - lastNoMatchSigRef.current.time < 220
         ) {
           return;
         }
@@ -1066,36 +1107,38 @@ export default function CameraAutoSaleModal({
           setLastDetectedRawCode(allCandidateCodes[0]);
         }
 
-        // Strict deterministic client verification: ONLY codes in ALLOWED_SKU_SET (A..Z, AA..GZ)
-        // that 100% equal a product's effective SKU in currentProducts can match!
         const clientSkuHit =
           allCandidateCodes.length > 0
             ? matchProductBySkuClient(allCandidateCodes, currentProducts)
             : null;
 
-        if (clientSkuHit && Date.now() >= cooldownUntilRef.current) {
-          lastNoMatchSigRef.current = { sig: [], time: 0, misses: 0 };
-          const verifiedProd = clientSkuHit.product;
-          const matchedSkuCode = clientSkuHit.matchedSku;
-          const finalQty = Math.max(0.1, Number(defaultQtyRef.current) || 1);
+        if (clientSkuHit) {
+          lastLocalCodeSeenMsRef.current = Date.now();
+          if (isManualTrigger || lastSoldSkuRef.current !== clientSkuHit.matchedSku) {
+            lastNoMatchSigRef.current = { sig: [], time: 0, misses: 0 };
+            const verifiedProd = clientSkuHit.product;
+            const matchedSkuCode = clientSkuHit.matchedSku;
+            const finalQty = Math.max(0.1, Number(defaultQtyRef.current) || 1);
 
-          if (autoPostModeRef.current) {
-            await triggerSaleForProduct(verifiedProd, finalQty, 'barcode', matchedSkuCode);
-          } else {
-            playScannerSound('success');
-            setScanPulseKey((prev) => prev + 1);
-            setScanSuccessPulse(true);
-            setTimeout(() => setScanSuccessPulse(false), 1500);
-            setPendingProduct({
-              product: verifiedProd,
-              skuCode: matchedSkuCode,
-              quantity: finalQty,
-              confidence: 100,
-              matchMethod: 'barcode',
-            });
-            setScanStatusText(
-              `✅ SKU কোড "${matchedSkuCode}" ১০০% ম্যাচ হয়েছে: "${verifiedProd.name}"`
-            );
+            if (autoPostModeRef.current) {
+              await triggerSaleForProduct(verifiedProd, finalQty, 'barcode', matchedSkuCode);
+            } else {
+              lastSoldSkuRef.current = matchedSkuCode;
+              playScannerSound('success');
+              setScanPulseKey((prev) => prev + 1);
+              setScanSuccessPulse(true);
+              setTimeout(() => setScanSuccessPulse(false), 900);
+              setPendingProduct({
+                product: verifiedProd,
+                skuCode: matchedSkuCode,
+                quantity: finalQty,
+                confidence: 100,
+                matchMethod: 'barcode',
+              });
+              setScanStatusText(
+                `✅ SKU কোড "${matchedSkuCode}" ১০০% ম্যাচ হয়েছে: "${verifiedProd.name}"`
+              );
+            }
           }
           return;
         }

@@ -40,6 +40,7 @@ import {
   PlayCircle,
   Plus,
   Printer,
+  QrCode,
   RefreshCw,
   RotateCcw,
   Search,
@@ -123,6 +124,7 @@ import CameraAutoSaleModal, {
 import StockCatalogAndMarketAdvisorModal, {
   downloadFullStockCatalogWithPhotosPdf,
 } from './components/StockCatalogAndMarketAdvisorModal';
+import QrCodeAutoSaleModal from './components/QrCodeAutoSaleModal';
 import ScannerSoundSettingsCard from './components/ScannerSoundSettingsCard';
 import {
   money,
@@ -226,6 +228,7 @@ const blankSettings: BusinessSettings = {
   enableCameraScan: true,
   enableDrawingPad: true,
   enableSpecialOfferAutoSale: true,
+  enableQrCodeAutoSale: true,
   enableAiAssistant: true,
   lowStockReorderPoint: 15,
 };
@@ -389,6 +392,8 @@ export default function App() {
   const [showCameraSaleModal, setShowCameraSaleModal] = useState(false);
   const [showDrawingSaleModal, setShowDrawingSaleModal] = useState(false);
   const [showSpecialOfferSaleModal, setShowSpecialOfferSaleModal] = useState(false);
+  const [showQrCodeSaleModal, setShowQrCodeSaleModal] = useState(false);
+  const [qrModalInitialTab, setQrModalInitialTab] = useState<'scanner' | 'stickers'>('scanner');
   const [calcState, setCalcState] = useState<PersistedCalcState>(() => loadPersistedCalcState());
   const [showProfitModal, setShowProfitModal] = useState(false);
   const [viewRecordModal, setViewRecordModal] = useState<Entry | null>(null);
@@ -619,6 +624,7 @@ export default function App() {
                   enableCameraScan: merged.enableCameraScan !== false,
                   enableDrawingPad: merged.enableDrawingPad !== false,
                   enableSpecialOfferAutoSale: merged.enableSpecialOfferAutoSale !== false,
+                  enableQrCodeAutoSale: merged.enableQrCodeAutoSale !== false,
                   enableAiAssistant: merged.enableAiAssistant !== false,
                 })
               );
@@ -693,6 +699,7 @@ export default function App() {
               enableCameraScan: merged.enableCameraScan !== false,
               enableDrawingPad: merged.enableDrawingPad !== false,
               enableSpecialOfferAutoSale: merged.enableSpecialOfferAutoSale !== false,
+              enableQrCodeAutoSale: merged.enableQrCodeAutoSale !== false,
               enableAiAssistant: merged.enableAiAssistant !== false,
               lowStockReorderPoint: merged.lowStockReorderPoint ?? 15,
             }));
@@ -3199,6 +3206,49 @@ export default function App() {
     );
   }
 
+  async function handleToggleQrCodeAutoSale(enabled: boolean) {
+    const actorId = currentAdmin?.username || user?.uid || 'admin';
+    const updatedSettings: BusinessSettings = {
+      ...settings,
+      enableQrCodeAutoSale: enabled,
+      enableSpecialOfferAutoSale: settings.enableSpecialOfferAutoSale !== false,
+      enableDrawingPad: settings.enableDrawingPad !== false,
+      enableCameraScan: settings.enableCameraScan !== false,
+      showCalculator: settings.showCalculator !== false,
+      enableVoiceInput: settings.enableVoiceInput !== false,
+      showBrandPopup: settings.showBrandPopup !== false,
+      enableAiAssistant: settings.enableAiAssistant !== false,
+      updatedBy: actorId,
+    };
+    setSettings(updatedSettings);
+    try {
+      localStorage.setItem('glowzaa_business_settings', JSON.stringify(updatedSettings));
+    } catch {}
+    if (!enabled) {
+      setShowQrCodeSaleModal(false);
+    }
+    if (db) {
+      try {
+        await setDoc(
+          doc(db, 'businessSettings', 'main'),
+          deepClean({
+            enableQrCodeAutoSale: enabled,
+            updatedAt: serverTimestamp(),
+            updatedBy: actorId,
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('QR Code auto-sale toggle save warning:', err);
+      }
+    }
+    setMessage(
+      enabled
+        ? '⚡ QR কোড ন্যানো-সেকেন্ড অটো-সেল ফিচার চালু (ON) করা হয়েছে!'
+        : 'QR কোড ন্যানো-সেকেন্ড অটো-সেল ফিচার বন্ধ (OFF) করা হয়েছে।'
+    );
+  }
+
   async function handleToggleAiAssistant(enabled: boolean) {
     const actorId = currentAdmin?.username || user?.uid || 'admin';
     const updatedSettings: BusinessSettings = {
@@ -3263,6 +3313,8 @@ export default function App() {
         enableVoiceInput: settings.enableVoiceInput !== false,
         enableCameraScan: settings.enableCameraScan !== false,
         enableDrawingPad: settings.enableDrawingPad !== false,
+        enableSpecialOfferAutoSale: settings.enableSpecialOfferAutoSale !== false,
+        enableQrCodeAutoSale: settings.enableQrCodeAutoSale !== false,
         enableAiAssistant: settings.enableAiAssistant !== false,
         updatedBy: actorId,
       };
@@ -6257,6 +6309,24 @@ export default function App() {
                     </button>
                   </>
                 )}
+                {settings.enableQrCodeAutoSale !== false && (
+                  <button
+                    type="button"
+                    className="primary"
+                    style={{
+                      background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                      borderColor: '#4f46e5',
+                      boxShadow: '0 2px 8px rgba(79, 70, 229, 0.28)',
+                    }}
+                    onClick={() => {
+                      setQrModalInitialTab('stickers');
+                      setShowQrCodeSaleModal(true);
+                    }}
+                  >
+                    <QrCode size={16} />
+                    <span>📱 প্রডাক্টের QR কোড স্টিকার ও ন্যানো-সেকেন্ড স্ক্যানার</span>
+                  </button>
+                )}
               </div>
             </div>
             {/* PRODUCT SEARCH, FIELD FILTER & SORTING TOOLBAR */}
@@ -8756,6 +8826,90 @@ export default function App() {
                       <Percent size={16} />
                       <span>বিশেষ অফার অটো-সেল খুলুন</span>
                     </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="brand-popup-setting-card" style={{ marginTop: '16px' }}>
+              <div className="brand-popup-setting-top">
+                <div className="brand-popup-setting-info">
+                  <div
+                    className="brand-popup-setting-icon"
+                    style={{
+                      background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                      color: '#ffffff',
+                    }}
+                  >
+                    <QrCode size={22} />
+                  </div>
+                  <div className="brand-popup-setting-text">
+                    <div className="brand-popup-setting-title-row">
+                      <h3>⚡ QR কোড ন্যানো-সেকেন্ড অটো-সেল ও স্টিকার (QR Code Instant Auto-Sale)</h3>
+                      <span
+                        className={`brand-popup-status-pill ${
+                          settings.enableQrCodeAutoSale !== false ? 'is-on' : 'is-off'
+                        }`}
+                      >
+                        {settings.enableQrCodeAutoSale !== false ? 'চালু আছে (ON)' : 'বন্ধ আছে (OFF)'}
+                      </span>
+                    </div>
+                    <p>
+                      প্রডাক্টের গায়ে SKU সংবলিত QR কোড লাগিয়ে রাখলে শুধু ক্যামেরা ধরলেই ন্যানো-সেকেন্ডের মধ্যে প্রডাক্ট অটো-সেল হয়ে যাবে। এখান থেকে যেকোনো সময় ফিচারটি অন বা অফ করতে পারবেন এবং প্রডাক্টের QR স্টিকার ডাউনলোড করতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="brand-popup-setting-controls">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.enableQrCodeAutoSale !== false}
+                    className={`brand-toggle-switch-btn ${
+                      settings.enableQrCodeAutoSale !== false ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      handleToggleQrCodeAutoSale(settings.enableQrCodeAutoSale === false)
+                    }
+                  >
+                    <span className="brand-toggle-knob" />
+                    <span className="brand-toggle-label">
+                      {settings.enableQrCodeAutoSale !== false
+                        ? 'QR অটো-সেল: ON'
+                        : 'QR অটো-সেল: OFF'}
+                    </span>
+                  </button>
+
+                  {settings.enableQrCodeAutoSale !== false && (
+                    <>
+                      <button
+                        type="button"
+                        className="brand-preview-trigger-btn"
+                        onClick={() => {
+                          setQrModalInitialTab('scanner');
+                          setShowQrCodeSaleModal(true);
+                        }}
+                        style={{
+                          borderColor: '#c4b5fd',
+                          color: '#4f46e5',
+                          background: '#f5f3ff',
+                        }}
+                      >
+                        <QrCode size={16} />
+                        <span>QR স্ক্যানার খুলুন</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="brand-preview-trigger-btn"
+                        onClick={() => {
+                          setQrModalInitialTab('stickers');
+                          setShowQrCodeSaleModal(true);
+                        }}
+                      >
+                        <Download size={16} />
+                        <span>QR স্টিকার ডাউনলোড</span>
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -13027,7 +13181,47 @@ export default function App() {
         }}
       />
 
-      {/* GLOBAL FIXED FLOATING SPECIAL OFFER, QUICK SKU & CAMERA AUTO-SALE BUTTONS */}
+      {/* GLOBAL FIXED FLOATING QR CODE, SPECIAL OFFER, QUICK SKU & CAMERA AUTO-SALE BUTTONS */}
+      {settings.enableQrCodeAutoSale !== false && (
+        <button
+          type="button"
+          onClick={() => {
+            setQrModalInitialTab('scanner');
+            setShowQrCodeSaleModal(true);
+          }}
+          title="⚡ QR কোড ন্যানো-সেকেন্ড অটো-সেল স্ক্যানার (প্রডাক্টের QR কোডে ক্যামেরা ধরলেই তাৎক্ষণিক সেল)"
+          aria-label="QR কোড অটো-সেল"
+          style={{
+            position: 'fixed',
+            right: '14px',
+            bottom: `${
+              84 +
+              54 *
+                ((settings.showCalculator !== false ? 1 : 0) +
+                  (settings.enableCameraScan !== false ? 1 : 0) +
+                  (settings.enableDrawingPad !== false ? 1 : 0) +
+                  (settings.enableSpecialOfferAutoSale !== false ? 1 : 0))
+            }px`,
+            zIndex: 940,
+            width: '44px',
+            height: '44px',
+            minHeight: '44px',
+            padding: 0,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+            color: '#ffffff',
+            border: '2px solid #ffffff',
+            boxShadow: '0 6px 18px rgba(79, 70, 229, 0.48)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <QrCode size={19} />
+        </button>
+      )}
+
       {settings.enableSpecialOfferAutoSale !== false && (
         <button
           type="button"
@@ -13393,6 +13587,68 @@ export default function App() {
               : user?.email || '';
             await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
             setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+          }}
+        />
+      )}
+
+      {/* SEPARATE NANOSECOND QR CODE AUTO-SALE & STICKER MODAL */}
+      {settings.enableQrCodeAutoSale !== false && (
+        <QrCodeAutoSaleModal
+          isOpen={showQrCodeSaleModal}
+          onClose={() => setShowQrCodeSaleModal(false)}
+          products={products}
+          initialTab={qrModalInitialTab}
+          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+          shopName={settings.name || 'Glowzaa Shop'}
+          onExecuteSale={async ({ product, quantity, skuCode }) => {
+            const saleSeller: 'Rakib' | 'Limon' = currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib';
+            const actorId = saleSeller;
+            const actorEmail = `${saleSeller.toLowerCase()}@glowzaa.shop`;
+            const actorDisplay = saleSeller === 'Limon' ? 'লিমন (Limon)' : 'রাকিব (Rakib)';
+
+            const unitPrice = Number(product.sellingPrice) || 0;
+            const unitCost = Number(product.averageCost) || 0;
+            const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+            const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+            const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+
+            const createdId = await addEntry(
+              {
+                type: 'sale',
+                title: `⚡ ${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'}) [QR SKU: ${skuCode}]`,
+                amount: totalAmount,
+                date: today(),
+                status: 'posted',
+                productId: product.id,
+                quantity,
+                unitPrice,
+                unitCost,
+                cogsAmount,
+                grossProfit,
+                profit: grossProfit,
+                category: 'QR কোড অটো-সেল (POS)',
+                notes: `প্রডাক্টের QR কোড (SKU #${skuCode}) স্ক্যান করে ন্যানো-সেকেন্ডে স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
+                demo: false,
+              },
+              actorId,
+              actorEmail,
+              actorDisplay
+            );
+
+            setMessage(
+              `⚡ QR কোড অটো-সেল সম্পন্ন (SKU #${skuCode}): ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)} (লাভ: +${money(grossProfit)})`
+            );
+            return createdId;
+          }}
+          onUndoSale={async (entryId, product, quantity) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await removeEntry(entryId, actorId, actorEmail);
+            setMessage(
+              `↩️ QR কোড সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+            );
           }}
         />
       )}

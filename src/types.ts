@@ -93,6 +93,7 @@ export interface BusinessSettings {
   enableCameraScan?: boolean;
   enableDrawingPad?: boolean;
   enableSpecialOfferAutoSale?: boolean;
+  enableQrCodeAutoSale?: boolean;
   enableAiAssistant?: boolean;
   lowStockReorderPoint?: number;
   rakibEmail?: string;
