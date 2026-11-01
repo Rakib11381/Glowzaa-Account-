@@ -1,6 +1,19 @@
 export type RecordType = 'investment' | 'sale' | 'purchase' | 'expense' | 'withdrawal' | 'loan' | 'other';
 export type EntryStatus = 'draft' | 'posted' | 'void';
-export type Role = 'admin' | 'investor';
+export type Role = 'admin' | 'investor' | 'employee';
+
+export interface EmployeeAccount {
+  id: string;
+  username: string;
+  displayName: string;
+  password: string;
+  phone?: string;
+  designation?: string;
+  active: boolean;
+  createdBy: 'Rakib';
+  createdAt: string;
+  updatedAt?: string;
+}
 
 export interface Investor {
   id: string;
@@ -23,10 +36,42 @@ export interface Product {
   averageCost: number;
   sellingPrice: number;
   reorderPoint?: number;
+  trayStock?: number;
+  trayCapacity?: number;
+  totalTrayRefilled?: number;
+  totalTraySold?: number;
+  totalTraySoldAmount?: number;
+  lastTrayUpdatedBy?: 'Rakib' | 'Limon' | string;
+  lastTrayUpdatedAt?: string;
   imageUrl?: string;
   demo?: boolean;
   createdAt?: any;
   updatedAt?: any;
+}
+
+export interface TrayRefillLogItem {
+  id: string;
+  productId: string;
+  productName: string;
+  skuCode: string;
+  unit: string;
+  actionType: 'scan_refill' | 'tray_sale' | 'tray_setup' | 'return_to_stock' | 'shop_close_empty';
+  quantity: number;
+  unitCost: number;
+  unitPrice: number;
+  totalCostVal: number;
+  totalSellVal: number;
+  expectedProfit: number;
+  prevMainStock: number;
+  newMainStock: number;
+  prevTrayStock: number;
+  newTrayStock: number;
+  trayCapacity: number;
+  actor: 'Rakib' | 'Limon' | string;
+  date: string;
+  timestamp: string;
+  createdAtMs: number;
+  notes?: string;
 }
 
 export interface Entry {
@@ -46,7 +91,7 @@ export interface Entry {
   profit?: number; // Direct profit amount (alias for grossProfit)
   category?: string;
   notes?: string;
-  seller?: 'Rakib' | 'Limon';
+  seller?: 'Rakib' | 'Limon' | string;
   demo?: boolean;
   createdAt?: any;
   createdBy?: string;
@@ -94,6 +139,7 @@ export interface BusinessSettings {
   enableDrawingPad?: boolean;
   enableSpecialOfferAutoSale?: boolean;
   enableQrCodeAutoSale?: boolean;
+  enableTrayRefillFeature?: boolean;
   enableAiAssistant?: boolean;
   lowStockReorderPoint?: number;
   rakibEmail?: string;
@@ -186,14 +232,14 @@ export interface ApprovalRequest {
   title: string;
   description: string;
   reason: string;
-  requestedBy: 'Rakib' | 'Limon';
+  requestedBy: 'Rakib' | 'Limon' | string;
   requestedByName: string;
   requestedAt: string; // ISO string
   requestedAtFormatted: string; // Bengali formatted date-time e.g., "২৩/১০/২০২৬, ৯:৫৭:০৩ PM"
   targetApprover: 'Rakib' | 'Limon';
   targetApproverName: string;
   status: ApprovalStatus;
-  reviewedBy?: 'Rakib' | 'Limon';
+  reviewedBy?: 'Rakib' | 'Limon' | string;
   reviewedByName?: string;
   reviewedAt?: string;
   reviewedAtFormatted?: string;

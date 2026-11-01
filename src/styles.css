@@ -10457,3 +10457,816 @@ tr.inv-row-out-of-stock td:first-child {
     justify-content: center;
   }
 }
+
+/* =========================================================
+   MODERN EMPLOYEE ACCOUNT CREATION & CONTROL CENTER (RAKIB)
+   ========================================================= */
+.emp-mgmt-shell {
+  background: #ffffff;
+  border: 1.5px solid #99f6e4;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px -8px rgba(13, 148, 136, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04);
+  margin-bottom: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.emp-mgmt-hero {
+  background: linear-gradient(135deg, #091e32 0%, #0f3554 52%, #0f766e 100%);
+  padding: 20px 22px;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+}
+
+.emp-mgmt-hero::after {
+  content: '';
+  position: absolute;
+  top: -50px;
+  right: -50px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.22) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.emp-mgmt-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+}
+
+.emp-mgmt-title-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.emp-mgmt-icon-box {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 8px 18px rgba(20, 184, 166, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.emp-mgmt-heading-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.emp-mgmt-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.emp-rakib-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(94, 234, 212, 0.45);
+  color: #5eead4;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.emp-zero-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(244, 63, 94, 0.18);
+  border: 1px solid rgba(253, 164, 175, 0.4);
+  color: #fecdd3;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.emp-mgmt-heading-text h3 {
+  margin: 0 0 5px 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.emp-mgmt-heading-text p {
+  margin: 0;
+  font-size: 12.5px;
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.emp-mgmt-heading-text p b {
+  color: #5eead4;
+}
+
+/* KPI Strip inside Hero */
+.emp-mgmt-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.emp-kpi-box {
+  background: rgba(15, 23, 42, 0.46);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  backdrop-filter: blur(8px);
+}
+
+.emp-kpi-box span {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emp-kpi-box strong {
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.emp-kpi-box.active-tone strong {
+  color: #34d399;
+}
+
+.emp-kpi-box.sales-tone strong {
+  color: #38bdf8;
+}
+
+/* Body Container */
+.emp-mgmt-body {
+  padding: 20px;
+  background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 45%, #ffffff 100%);
+  box-sizing: border-box;
+}
+
+.emp-mgmt-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.15fr);
+  gap: 20px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Modern Form Card & Directory Card */
+.emp-modern-card {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.emp-modern-card.create-card {
+  border-color: #99f6e4;
+  box-shadow: 0 8px 24px rgba(13, 148, 136, 0.07);
+}
+
+.emp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.emp-card-head-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.emp-card-head-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  color: #0d9488;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.emp-card-head-title h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.emp-card-head-title small {
+  display: block;
+  font-size: 11.5px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.emp-auto-gen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%);
+  border: 1px solid #5eead4;
+  color: #0f766e;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  white-space: nowrap;
+}
+
+.emp-auto-gen-btn:hover {
+  background: #0d9488;
+  color: #ffffff;
+  border-color: #0d9488;
+  transform: translateY(-1px);
+}
+
+/* Form Rows & Inputs */
+.emp-form-row-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.emp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.emp-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.emp-field-label .req-star {
+  color: #e11d48;
+  margin-left: 2px;
+}
+
+.emp-input-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.emp-input-prefix {
+  position: absolute;
+  left: 12px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.emp-modern-input {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: 44px;
+  padding: 9px 12px 9px 38px !important;
+  border-radius: 11px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  font-size: 13.5px !important;
+  font-weight: 600;
+  outline: none !important;
+  box-sizing: border-box !important;
+  transition: all 0.18s ease !important;
+}
+
+.emp-modern-input::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.emp-modern-input:focus {
+  background: #ffffff !important;
+  border-color: #0d9488 !important;
+  box-shadow: 0 0 0 3.5px rgba(13, 148, 136, 0.15) !important;
+}
+
+.emp-modern-input.has-suffix {
+  padding-right: 42px !important;
+}
+
+.emp-input-suffix-btn {
+  position: absolute;
+  right: 6px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.emp-input-suffix-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+/* Role / Designation Quick Presets */
+.emp-role-presets-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.emp-role-presets-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.emp-role-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.emp-role-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.emp-role-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emp-role-chip:hover {
+  border-color: #0d9488;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
+.emp-role-chip.active {
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+  border-color: #0d9488;
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(13, 148, 136, 0.22);
+}
+
+/* Permission Matrix Preview Box */
+.emp-perm-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.emp-perm-box {
+  border-radius: 11px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.emp-perm-box.allowed {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.emp-perm-box.blocked {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #9f1239;
+}
+
+.emp-perm-box-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.emp-perm-list {
+  margin: 0;
+  padding-left: 15px;
+  display: grid;
+  gap: 2px;
+}
+
+.emp-submit-cta {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.28);
+  transition: all 0.18s ease;
+}
+
+.emp-submit-cta:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0f766e 0%, #115e59 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(13, 148, 136, 0.36);
+}
+
+.emp-submit-cta:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Employee Directory Toolbar */
+.emp-dir-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.emp-dir-filter-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.emp-dir-pill {
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.emp-dir-pill.active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+/* Employee Account Item Card */
+.emp-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 540px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.emp-account-card {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all 0.16s ease;
+  box-sizing: border-box;
+}
+
+.emp-account-card:hover {
+  border-color: #99f6e4;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.emp-account-card.is-blocked {
+  background: #fffafa;
+  border-color: #fecaca;
+}
+
+.emp-account-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.emp-account-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.emp-avatar-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0d9488 0%, #0284c7 100%);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.emp-account-card.is-blocked .emp-avatar-circle {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+}
+
+.emp-account-name-wrap {
+  min-width: 0;
+}
+
+.emp-account-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.emp-account-name-row strong {
+  font-size: 14.5px;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.emp-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.emp-status-pill.active {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.emp-status-pill.blocked {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+.emp-account-sub {
+  font-size: 12px;
+  color: #475569;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Credentials & Activity Strip inside Employee Card */
+.emp-cred-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+
+.emp-cred-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.emp-cred-cell span {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.emp-cred-val-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.emp-cred-val-row code {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  padding: 2px 7px;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emp-account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.emp-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.emp-mini-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.emp-mini-btn.copy {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  color: #0f766e;
+}
+
+.emp-mini-btn.copy:hover {
+  background: #ccfbf1;
+}
+
+.emp-mini-btn.warn {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.emp-mini-btn.success {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.emp-mini-btn.danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+/* Mobile Responsive Overrides for Employee Management */
+@media (max-width: 960px) {
+  .emp-mgmt-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .emp-mgmt-hero {
+    padding: 16px 14px;
+  }
+
+  .emp-mgmt-kpi-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .emp-kpi-box {
+    padding: 8px 8px;
+  }
+
+  .emp-kpi-box strong {
+    font-size: 14px;
+  }
+
+  .emp-mgmt-body {
+    padding: 12px;
+  }
+
+  .emp-modern-card {
+    padding: 14px 12px;
+  }
+
+  .emp-form-row-2 {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .emp-role-presets-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .emp-perm-matrix {
+    grid-template-columns: 1fr;
+  }
+
+  .emp-cred-strip {
+    grid-template-columns: 1fr;
+  }
+}

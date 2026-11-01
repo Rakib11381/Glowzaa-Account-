@@ -27,6 +27,7 @@ import type {
   EmailTriggerConfig,
   EmailNotificationLog,
   AiChatSession,
+  EmployeeAccount,
 } from './types';
 import { formatBengaliDateTime, calculateCashBalance } from './accounting';
 
@@ -1129,7 +1130,7 @@ export async function getAdminAuthData(): Promise<{
 
 // Update admin personal password in Firestore and localStorage
 export async function updateAdminPasswordInDb(
-  admin: 'Rakib' | 'Limon',
+  admin: 'Rakib' | 'Limon' | string,
   newPass: string,
   uid?: string
 ): Promise<void> {
@@ -1171,7 +1172,7 @@ export async function updateAdminPasswordInDb(
 
 // Update admin profile photo in Firestore and localStorage
 export async function updateAdminAvatarInDb(
-  admin: 'Rakib' | 'Limon',
+  admin: 'Rakib' | 'Limon' | string,
   avatarDataUrl: string,
   uid?: string
 ): Promise<void> {
@@ -1200,6 +1201,122 @@ export async function updateAdminAvatarInDb(
   } catch (err) {
     console.warn('Firestore avatar update warning:', err);
   }
+}
+
+// ============================================================================
+// EMPLOYEE ACCOUNT MANAGEMENT (Exclusively Created & Controlled by Rakib)
+// ============================================================================
+const EMPLOYEES_STORAGE_KEY = 'glowzaa_employees_v1';
+
+export function getCachedEmployees(): EmployeeAccount[] {
+  try {
+    const raw = localStorage.getItem(EMPLOYEES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCachedEmployees(list: EmployeeAccount[]): void {
+  try {
+    localStorage.setItem(EMPLOYEES_STORAGE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+export async function loadEmployeesFromDb(): Promise<EmployeeAccount[]> {
+  const local = getCachedEmployees();
+  if (!db) return local;
+  try {
+    const snap = await getDoc(doc(db, 'businessSettings', 'employees'));
+    if (snap.exists()) {
+      const data = snap.data();
+      const rows: EmployeeAccount[] = Array.isArray(data?.list) ? data.list : [];
+      saveCachedEmployees(rows);
+      return rows;
+    }
+  } catch (e) {
+    console.warn('Could not read employees from Firestore, using local cache:', e);
+  }
+  return local;
+}
+
+export function watchEmployees(
+  cb: (rows: EmployeeAccount[]) => void,
+  onError?: (e: Error) => void
+): Unsubscribe {
+  const cached = getCachedEmployees();
+  cb(cached);
+
+  if (!db) {
+    return () => {};
+  }
+
+  return onSnapshot(
+    doc(db, 'businessSettings', 'employees'),
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const rows: EmployeeAccount[] = Array.isArray(data?.list) ? data.list : [];
+        saveCachedEmployees(rows);
+        cb(rows);
+      } else {
+        cb(getCachedEmployees());
+      }
+    },
+    (err) => {
+      if (onError) onError(err as Error);
+      cb(getCachedEmployees());
+    }
+  );
+}
+
+export async function saveEmployeeAccounts(
+  employees: EmployeeAccount[],
+  actorUsername: string,
+  auditReason?: string
+): Promise<EmployeeAccount[]> {
+  if (actorUsername !== 'Rakib') {
+    throw new Error('অ্যাক্সেস অস্বীকৃত! শুধুমাত্র রাকিব (Rakib) কর্মচারীর একাউন্ট তৈরি বা পরিবর্তন করতে পারবেন।');
+  }
+
+  saveCachedEmployees(employees);
+
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'businessSettings', 'employees'),
+        cleanObject({
+          list: employees,
+          updatedBy: 'Rakib',
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
+
+      if (auditReason) {
+        await addDoc(
+          collection(db, 'auditLogs'),
+          cleanObject({
+            action: 'employee_account_manage',
+            recordId: `emp_mgr_${Date.now()}`,
+            actor: 'Rakib',
+            actorEmail: 'rakib@glowzaa.shop',
+            maker: 'Rakib',
+            makerName: 'রাকিব (Rakib)',
+            formattedTime: formatBengaliDateTime(new Date()),
+            reason: auditReason,
+            createdAt: serverTimestamp(),
+          })
+        );
+      }
+    } catch (err) {
+      console.warn('Could not sync employee accounts to Firestore:', err);
+    }
+  }
+
+  return employees;
 }
 
 // Ensure Rakib and Limon have partner records in investors collection
@@ -1415,7 +1532,7 @@ export async function createApprovalRequest(
 // Approve & execute a Dual-Approval Request (Checker approves)
 export async function approveApprovalRequest(
   req: ApprovalRequest,
-  reviewer: 'Rakib' | 'Limon',
+  reviewer: 'Rakib' | 'Limon' | string,
   reviewerName: string,
   reviewNote?: string
 ): Promise<void> {
@@ -1643,7 +1760,7 @@ export async function approveApprovalRequest(
 // Reject a Dual-Approval Request
 export async function rejectApprovalRequest(
   req: ApprovalRequest,
-  reviewer: 'Rakib' | 'Limon',
+  reviewer: 'Rakib' | 'Limon' | string,
   reviewerName: string,
   reason: string
 ): Promise<void> {

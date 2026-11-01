@@ -21,17 +21,29 @@ import {
   Calendar,
   Sparkles,
   Check,
+  Users,
+  UserPlus,
+  LogOut,
+  Copy,
+  Phone,
+  Briefcase,
+  User as UserIcon,
+  Search,
+  RefreshCw,
 } from 'lucide-react';
-import { money, dateLabel, type PartnerAccountBalance } from '../accounting';
-import type { Entry, Investor, Product, ApprovalRequest } from '../types';
+import { money, dateLabel, toBengaliNumerals, formatBengaliDateTime, type PartnerAccountBalance } from '../accounting';
+import type { Entry, Investor, Product, ApprovalRequest, EmployeeAccount } from '../types';
 import TermsConditionsCard from './TermsConditionsCard';
 import VoiceFormAssistant from './VoiceFormAssistant';
 
 interface AdminProfileProps {
   adminUser: {
-    username: 'Rakib' | 'Limon';
+    username: string;
     displayName: string;
-    role: 'admin';
+    role: 'admin' | 'employee';
+    employeeId?: string;
+    designation?: string;
+    phone?: string;
   };
   avatarUrl?: string;
   onUpdateAvatar: (dataUrl: string) => Promise<void>;
@@ -56,6 +68,8 @@ interface AdminProfileProps {
   onRejectRequest: (req: ApprovalRequest, reason: string) => Promise<void>;
   onLogout?: () => void;
   enableVoiceInput?: boolean;
+  employees?: EmployeeAccount[];
+  onSaveEmployees?: (nextEmployees: EmployeeAccount[], auditReason?: string) => Promise<void>;
 }
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
@@ -137,14 +151,38 @@ export default function AdminProfile({
   approvalRequests,
   onApproveRequest,
   onRejectRequest,
+  onLogout,
   enableVoiceInput = true,
+  employees = [],
+  onSaveEmployees,
 }: AdminProfileProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [profileBannerMsg, setProfileBannerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Active section filter ('all' | 'approvals' | 'wallet' | 'security' | 'terms')
-  const [activeSection, setActiveSection] = useState<'all' | 'approvals' | 'wallet' | 'security' | 'terms'>('all');
+  const isRakibAdmin = adminUser.role === 'admin' && adminUser.username === 'Rakib';
+  const isEmployeeUser = adminUser.role === 'employee';
+
+  // Active section filter ('all' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms')
+  const [activeSection, setActiveSection] = useState<
+    'all' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms'
+  >('all');
+
+  // Employee Account Creation & Management states (Exclusively for Rakib)
+  const [empDisplayName, setEmpDisplayName] = useState('');
+  const [empUsername, setEmpUsername] = useState('');
+  const [empPassword, setEmpPassword] = useState('');
+  const [empPhone, setEmpPhone] = useState('');
+  const [empDesignation, setEmpDesignation] = useState('মেলার দোকান ও ট্রে ডেটা এন্ট্রি');
+  const [showEmpCreatePass, setShowEmpCreatePass] = useState(false);
+  const [isSavingEmp, setIsSavingEmp] = useState(false);
+  const [empFormMsg, setEmpFormMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [visibleEmpPassMap, setVisibleEmpPassMap] = useState<Record<string, boolean>>({});
+  const [editingEmpPassId, setEditingEmpPassId] = useState<string | null>(null);
+  const [newEmpPassInput, setNewEmpPassInput] = useState<string>('');
+  const [empSearchQuery, setEmpSearchQuery] = useState<string>('');
+  const [empStatusFilter, setEmpStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
+  const [copiedEmpId, setCopiedEmpId] = useState<string | null>(null);
 
   // Withdrawal & Special Loan Modal states
   const [withdrawalWindow, setWithdrawalWindow] = useState(() => getFridayNightWithdrawalStatus());
@@ -566,6 +604,370 @@ export default function AdminProfile({
     record_waste: { label: 'নষ্ট/ক্ষতিগ্রস্থ পণ্য রেকর্ড', color: '#e11d48' },
   };
 
+  // Rakib-only Employee Account handlers
+  async function handleCreateEmployee(e: React.FormEvent) {
+    e.preventDefault();
+    if (!isRakibAdmin || !onSaveEmployees) return;
+    setEmpFormMsg(null);
+
+    const cleanName = empDisplayName.trim();
+    const cleanUser = empUsername.trim().replace(/\s+/g, '');
+    const cleanPass = empPassword.trim();
+
+    if (!cleanName || !cleanUser || !cleanPass) {
+      setEmpFormMsg({
+        type: 'error',
+        text: 'অনুগ্রহ করে কর্মচারীর নাম, লগইন ইউজারনেম এবং গোপন পাসওয়ার্ড পূরণ করুন।',
+      });
+      return;
+    }
+
+    if (cleanUser.toLowerCase() === 'rakib' || cleanUser.toLowerCase() === 'limon') {
+      setEmpFormMsg({
+        type: 'error',
+        text: '"Rakib" বা "Limon" সুপার অ্যাডমিন আইডি — কর্মচারীর জন্য আলাদা ইউজারনেম দিন (যেমন: Hasan, Staff1)।',
+      });
+      return;
+    }
+
+    if (cleanPass.length < 4) {
+      setEmpFormMsg({
+        type: 'error',
+        text: 'কর্মচারীর পাসওয়ার্ড কমপক্ষে ৪ অক্ষর বা সংখ্যার হতে হবে।',
+      });
+      return;
+    }
+
+    const exists = employees.some(
+      (item) => item.username.toLowerCase() === cleanUser.toLowerCase()
+    );
+    if (exists) {
+      setEmpFormMsg({
+        type: 'error',
+        text: `"${cleanUser}" ইউজারনেম দিয়ে ইতিমধ্যে একটি কর্মচারী একাউন্ট রয়েছে! ভিন্ন ইউজারনেম দিন।`,
+      });
+      return;
+    }
+
+    const newEmployee: EmployeeAccount = {
+      id: `emp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      username: cleanUser,
+      displayName: cleanName,
+      password: cleanPass,
+      phone: empPhone.trim() || undefined,
+      designation: empDesignation.trim() || 'মেলার দোকান ও ট্রে ডেটা এন্ট্রি',
+      active: true,
+      createdBy: 'Rakib',
+      createdAt: formatBengaliDateTime(new Date()),
+    };
+
+    setIsSavingEmp(true);
+    try {
+      const nextList = [newEmployee, ...employees];
+      await onSaveEmployees(
+        nextList,
+        `👷 রাকিব নতুন কর্মচারী একাউন্ট তৈরি করেছেন: ${cleanName} (ইউজারনেম: ${cleanUser})`
+      );
+      setEmpDisplayName('');
+      setEmpUsername('');
+      setEmpPassword('');
+      setEmpPhone('');
+      setEmpFormMsg({
+        type: 'success',
+        text: `✅ কর্মচারী "${cleanName}" (ইউজারনেম: ${cleanUser})-এর একাউন্ট সফলভাবে তৈরি হয়েছে! এখন তিনি এই ইউজারনেম ও পাসওয়ার্ড দিয়ে লগইন করে শুধু ডেটা এন্ট্রি ও ট্রে হিসাব রাখতে পারবেন।`,
+      });
+    } catch (err: any) {
+      setEmpFormMsg({
+        type: 'error',
+        text: err?.message || 'কর্মচারী একাউন্ট তৈরি করতে সমস্যা হয়েছে।',
+      });
+    } finally {
+      setIsSavingEmp(false);
+    }
+  }
+
+  async function handleToggleEmployeeActive(emp: EmployeeAccount) {
+    if (!isRakibAdmin || !onSaveEmployees) return;
+    setIsSavingEmp(true);
+    setEmpFormMsg(null);
+    try {
+      const nextActive = !emp.active;
+      const nextList = employees.map((item) =>
+        item.id === emp.id
+          ? { ...item, active: nextActive, updatedAt: formatBengaliDateTime(new Date()) }
+          : item
+      );
+      await onSaveEmployees(
+        nextList,
+        `👷 রাকিব কর্মচারী "${emp.displayName}" (${emp.username})-এর একাউন্ট ${
+          nextActive ? 'সচল (Active)' : 'সাময়িক বন্ধ (Blocked)'
+        } করেছেন`
+      );
+      setEmpFormMsg({
+        type: 'success',
+        text: `কর্মচারী "${emp.displayName}"-এর একাউন্ট ${
+          nextActive ? 'সচল (Active) করা হয়েছে' : 'সাময়িক বন্ধ (Blocked) করা হয়েছে'
+        }।`,
+      });
+    } catch (err: any) {
+      setEmpFormMsg({
+        type: 'error',
+        text: err?.message || 'স্ট্যাটাস পরিবর্তন ব্যর্থ হয়েছে।',
+      });
+    } finally {
+      setIsSavingEmp(false);
+    }
+  }
+
+  async function handleSaveEmployeePassword(emp: EmployeeAccount) {
+    if (!isRakibAdmin || !onSaveEmployees) return;
+    const cleanPass = newEmpPassInput.trim();
+    if (cleanPass.length < 4) {
+      setEmpFormMsg({
+        type: 'error',
+        text: 'নতুন পাসওয়ার্ড কমপক্ষে ৪ অক্ষরের হতে হবে।',
+      });
+      return;
+    }
+    setIsSavingEmp(true);
+    setEmpFormMsg(null);
+    try {
+      const nextList = employees.map((item) =>
+        item.id === emp.id
+          ? { ...item, password: cleanPass, updatedAt: formatBengaliDateTime(new Date()) }
+          : item
+      );
+      await onSaveEmployees(
+        nextList,
+        `🔑 রাকিব কর্মচারী "${emp.displayName}" (${emp.username})-এর লগইন পাসওয়ার্ড পরিবর্তন করেছেন`
+      );
+      setEditingEmpPassId(null);
+      setNewEmpPassInput('');
+      setEmpFormMsg({
+        type: 'success',
+        text: `✅ "${emp.displayName}"-এর নতুন পাসওয়ার্ড সফলভাবে সংরক্ষিত হয়েছে!`,
+      });
+    } catch (err: any) {
+      setEmpFormMsg({
+        type: 'error',
+        text: err?.message || 'পাসওয়ার্ড আপডেট করা যায়নি।',
+      });
+    } finally {
+      setIsSavingEmp(false);
+    }
+  }
+
+  async function handleDeleteEmployee(emp: EmployeeAccount) {
+    if (!isRakibAdmin || !onSaveEmployees) return;
+    setIsSavingEmp(true);
+    setEmpFormMsg(null);
+    try {
+      const nextList = employees.filter((item) => item.id !== emp.id);
+      await onSaveEmployees(
+        nextList,
+        `🗑️ রাকিব কর্মচারী "${emp.displayName}" (${emp.username})-এর একাউন্ট ডিলিট করেছেন`
+      );
+      setEmpFormMsg({
+        type: 'success',
+        text: `কর্মচারী "${emp.displayName}" (${emp.username})-এর একাউন্ট স্থায়ীভাবে মুছে ফেলা হয়েছে।`,
+      });
+    } catch (err: any) {
+      setEmpFormMsg({
+        type: 'error',
+        text: err?.message || 'কর্মচারী একাউন্ট ডিলিট করা যায়নি।',
+      });
+    } finally {
+      setIsSavingEmp(false);
+    }
+  }
+
+  // Dedicated Non-Admin View when an Employee is logged in
+  if (isEmployeeUser) {
+    const todayStr = getTodayStr();
+    const empUnameLower = adminUser.username.toLowerCase();
+    const empDispLower = adminUser.displayName.toLowerCase();
+    const empEntries = entries
+      .filter((e) => {
+        const s = String(e.seller || '').toLowerCase();
+        const cb = String(e.createdBy || '').toLowerCase();
+        const notes = String(e.notes || '').toLowerCase();
+        return (
+          s === empUnameLower ||
+          s === empDispLower ||
+          cb === empUnameLower ||
+          cb === empDispLower ||
+          notes.includes(empUnameLower) ||
+          notes.includes(empDispLower)
+        );
+      })
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    const todayEmpEntries = empEntries.filter((e) => e.date === todayStr);
+    const todayEmpSales = todayEmpEntries
+      .filter((e) => e.type === 'sale' && e.status === 'posted')
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const totalEmpSales = empEntries
+      .filter((e) => e.type === 'sale' && e.status === 'posted')
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+    return (
+      <div className="profile-container">
+        <div
+          className="profile-executive-card"
+          style={{
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0f766e 100%)',
+          }}
+        >
+          <div className="profile-exec-top">
+            <div className="profile-avatar-block">
+              <div
+                className="profile-avatar-frame"
+                style={{ cursor: 'default', border: '3px solid #2dd4bf' }}
+              >
+                <span className="profile-avatar-initial">{initialLetter}</span>
+              </div>
+            </div>
+
+            <div className="profile-exec-identity">
+              <div className="profile-name-line" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                <h2>{adminUser.displayName}</h2>
+                <span
+                  className="role-tag"
+                  style={{
+                    background: 'rgba(45, 212, 191, 0.2)',
+                    color: '#5eead4',
+                    border: '1px solid rgba(94, 234, 212, 0.45)',
+                  }}
+                >
+                  👷 কর্মচারী (ডেটা এন্ট্রি প্যানেল)
+                </span>
+              </div>
+              <p className="profile-exec-role">
+                {adminUser.designation || 'মেলার দোকান ও ট্রে ডেটা এন্ট্রি অপারেটর'} · নিয়োগকর্তা: রাকিব (Rakib)
+              </p>
+
+              <div className="profile-exec-meta-grid">
+                <div className="exec-meta-cell">
+                  <span>লগইন ইউজারনেম / আইডি</span>
+                  <strong>{adminUser.username}</strong>
+                </div>
+                <div className="exec-meta-cell">
+                  <span>অ্যাক্সেস লেভেল</span>
+                  <strong style={{ color: '#5eead4' }}>শুধু ডেটা এন্ট্রি ও হিসাব</strong>
+                </div>
+                <div className="exec-meta-cell">
+                  <span>অ্যাডমিন ক্ষমতা / ডিলিট</span>
+                  <strong style={{ color: '#fca5a5' }}>🚫 সম্পূর্ণ নিষিদ্ধ</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: '14px',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              background: 'rgba(15, 23, 42, 0.55)',
+              border: '1px solid rgba(148, 163, 184, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+            }}
+          >
+            <div style={{ fontSize: '12px', color: '#e2e8f0', lineHeight: 1.5 }}>
+              🔒 <b>নিরাপত্তা নীতিমালা:</b> কর্মচারী একাউন্ট থেকে শুধুমাত্র প্রতিদিনের বিক্রয়, মেলার ট্রে রিফিল/বিক্রয়, QR স্ক্যানার এবং স্টক এন্ট্রি করা যাবে। কোনো প্রকার অ্যাডমিন ফিচার, ডিলিট, অনুমোদন বা অর্থ উত্তোলনের অধিকার নেই।
+            </div>
+            {onLogout && (
+              <button
+                type="button"
+                className="danger"
+                onClick={onLogout}
+                style={{ padding: '8px 14px', fontSize: '12.5px', fontWeight: 700 }}
+              >
+                <LogOut size={15} /> লগআউট করুন
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Employee Personal Entry KPIs */}
+        <div className="profile-stats-grid">
+          <div className="stat-card">
+            <div className="stat-icon green">
+              <TrendingUp size={20} />
+            </div>
+            <div className="stat-content">
+              <span>আমার আজকের বিক্রয় এন্ট্রি</span>
+              <strong style={{ color: '#047857' }}>{money(todayEmpSales)}</strong>
+              <small className="stat-sub-meta">
+                আজ মোট {toBengaliNumerals(todayEmpEntries.length)}টি এন্ট্রি করেছেন
+              </small>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon blue">
+              <FileText size={20} />
+            </div>
+            <div className="stat-content">
+              <span>আমার সর্বমোট বিক্রয় রেকর্ড</span>
+              <strong>{money(totalEmpSales)}</strong>
+              <small className="stat-sub-meta">
+                মোট {toBengaliNumerals(empEntries.length)}টি লেনদেন এন্ট্রি
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel" style={{ margin: 0 }}>
+          <div className="panel-head">
+            <div className="panel-head-info">
+              <h3>📋 আমার প্রোফাইল থেকে এন্ট্রিকৃত লেনদেন সমূহ ({toBengaliNumerals(empEntries.length)})</h3>
+              <p>আপনার আইডি ({adminUser.username}) থেকে যে সকল বিক্রয় ও হিসাব এন্ট্রি করা হয়েছে</p>
+            </div>
+          </div>
+          {empEntries.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+              আপনি এখনো কোনো লেনদেন এন্ট্রি করেননি।
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>তারিখ</th>
+                    <th>ধরন</th>
+                    <th>বিবরণ</th>
+                    <th>টাকার পরিমাণ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {empEntries.slice(0, 50).map((e) => (
+                    <tr key={e.id}>
+                      <td>{dateLabel(e.date)}</td>
+                      <td>
+                        <span className="badge posted">
+                          {e.type === 'sale' ? 'বিক্রয়' : e.type === 'purchase' ? 'মাল ক্রয়' : 'খরচ'}
+                        </span>
+                      </td>
+                      <td>
+                        <b>{e.title}</b>
+                      </td>
+                      <td style={{ fontWeight: 700, color: '#0f766e' }}>{money(e.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="profile-container">
       {/* Hidden File Input for Avatar Upload */}
@@ -813,6 +1215,23 @@ export default function AdminProfile({
         >
           সব দেখুন
         </button>
+        {isRakibAdmin && (
+          <button
+            type="button"
+            className={`profile-sec-btn ${activeSection === 'employees' ? 'active' : ''}`}
+            onClick={() => setActiveSection('employees')}
+            style={
+              activeSection === 'employees'
+                ? undefined
+                : { borderColor: '#5eead4', background: '#f0fdfa', color: '#0f766e', fontWeight: 800 }
+            }
+          >
+            👷 কর্মচারী একাউন্ট তৈরি ও নিয়ন্ত্রণ
+            <span className="sec-badge-count" style={{ background: '#0d9488', color: '#ffffff' }}>
+              {toBengaliNumerals(employees.length)}
+            </span>
+          </button>
+        )}
         <button
           type="button"
           className={`profile-sec-btn ${activeSection === 'approvals' ? 'active' : ''}`}
@@ -845,6 +1264,716 @@ export default function AdminProfile({
           পাসওয়ার্ড পরিবর্তন
         </button>
       </div>
+
+      {/* 3.5 EXCLUSIVE EMPLOYEE ACCOUNT CREATION & MANAGEMENT (RAKIB ONLY) */}
+      {isRakibAdmin && (activeSection === 'all' || activeSection === 'employees') && (() => {
+        const activeEmpCount = employees.filter((e) => e.active).length;
+        const blockedEmpCount = employees.length - activeEmpCount;
+
+        const getEmployeeActivity = (emp: EmployeeAccount) => {
+          const unameLow = emp.username.toLowerCase();
+          const dispLow = emp.displayName.toLowerCase();
+          const todayStr = getTodayStr();
+          let totalCount = 0;
+          let todayCount = 0;
+          let totalSalesVal = 0;
+
+          for (const entry of entries) {
+            const s = String(entry.seller || '').toLowerCase();
+            const cb = String(entry.createdBy || '').toLowerCase();
+            if (s === unameLow || s === dispLow || cb === unameLow || cb === dispLow) {
+              totalCount += 1;
+              if (entry.date === todayStr) todayCount += 1;
+              if (entry.type === 'sale' && entry.status === 'posted') {
+                totalSalesVal += Number(entry.amount || 0);
+              }
+            }
+          }
+          return { totalCount, todayCount, totalSalesVal };
+        };
+
+        const totalAllEmpEntries = employees.reduce(
+          (sum, emp) => sum + getEmployeeActivity(emp).totalCount,
+          0
+        );
+
+        const filteredEmployeesList = employees.filter((emp) => {
+          if (empStatusFilter === 'active' && !emp.active) return false;
+          if (empStatusFilter === 'blocked' && emp.active) return false;
+          const q = empSearchQuery.trim().toLowerCase();
+          if (!q) return true;
+          return (
+            emp.displayName.toLowerCase().includes(q) ||
+            emp.username.toLowerCase().includes(q) ||
+            (emp.phone || '').toLowerCase().includes(q) ||
+            (emp.designation || '').toLowerCase().includes(q)
+          );
+        });
+
+        const rolePresets = [
+          { icon: '🍱', label: 'মেলার দোকান ও ট্রে ডেটা এন্ট্রি' },
+          { icon: '📷', label: 'QR ও ক্যামেরা সেল অপারেটর' },
+          { icon: '📦', label: 'স্টক ও গোডাউন সহকারী' },
+          { icon: '🧾', label: 'ক্যাশ ও দৈনিক হিসাব সহকারী' },
+        ];
+
+        const handleAutoGenerateCredentials = () => {
+          const nextNum = employees.length + 1;
+          const asciiFromName = empDisplayName
+            .trim()
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .slice(0, 8);
+          const generatedUser = asciiFromName
+            ? `${asciiFromName}${nextNum}`
+            : `Staff${nextNum}`;
+          const randPin = Math.floor(1000 + Math.random() * 9000);
+          const generatedPass = `G${randPin}`;
+          if (!empDisplayName.trim()) {
+            setEmpDisplayName(`কর্মচারী #${toBengaliNumerals(nextNum)}`);
+          }
+          setEmpUsername(generatedUser);
+          setEmpPassword(generatedPass);
+          setShowEmpCreatePass(true);
+          setEmpFormMsg({
+            type: 'success',
+            text: `✨ অটো আইডি "${generatedUser}" এবং পাসওয়ার্ড "${generatedPass}" তৈরি করা হয়েছে! এখন নাম যাচাই করে নিচের বাটনে চাপ দিন।`,
+          });
+        };
+
+        const handleCopyCredentials = async (emp: EmployeeAccount) => {
+          const textToCopy = `🏪 Glowzaa Shop — কর্মচারী লগইন তথ্য\n👷 নাম: ${emp.displayName}\n🆔 ইউজারনেম (ID): ${emp.username}\n🔑 পাসওয়ার্ড: ${emp.password}\n📌 দায়িত্ব: ${emp.designation || 'ডেটা এন্ট্রি ও হিসাব'}`;
+          try {
+            await navigator.clipboard.writeText(textToCopy);
+            setCopiedEmpId(emp.id);
+            setTimeout(() => setCopiedEmpId(null), 3000);
+          } catch {
+            setEmpFormMsg({
+              type: 'success',
+              text: `লগইন তথ্য — আইডি: ${emp.username} | পাসওয়ার্ড: ${emp.password}`,
+            });
+          }
+        };
+
+        const empCreatePassLen = empPassword.trim().length;
+        const empPassStrengthLabel =
+          empCreatePassLen === 0
+            ? ''
+            : empCreatePassLen < 4
+            ? 'কমপক্ষে ৪ অক্ষর দিন'
+            : empCreatePassLen < 6
+            ? 'সুরক্ষিত (Valid)'
+            : 'শক্তিশালী পাসওয়ার্ড';
+        const empPassStrengthColor =
+          empCreatePassLen < 4 ? '#ef4444' : empCreatePassLen < 6 ? '#f59e0b' : '#10b981';
+
+        return (
+          <div className="emp-mgmt-shell">
+            {/* Executive Gradient Header + 3 KPI Strip */}
+            <div className="emp-mgmt-hero">
+              <div className="emp-mgmt-hero-top">
+                <div className="emp-mgmt-title-group">
+                  <div className="emp-mgmt-icon-box">
+                    <UserPlus size={24} />
+                  </div>
+                  <div className="emp-mgmt-heading-text">
+                    <div className="emp-mgmt-badge-row">
+                      <span className="emp-rakib-lock-badge">
+                        <Lock size={12} /> শুধু Rakib নিয়ন্ত্রিত
+                      </span>
+                      <span className="emp-zero-admin-badge">
+                        🛡️ জিরো-অ্যাডমিন রেস্ট্রিকশন সক্রিয়
+                      </span>
+                    </div>
+                    <h3>👷 কর্মচারীর একাউন্ট তৈরি ও নিয়ন্ত্রণ প্যানেল</h3>
+                    <p>
+                      এখান থেকে কর্মচারীর লগইন আইডি ও পাসওয়ার্ড তৈরি করুন। কর্মচারী শুধু{' '}
+                      <b>ডেটা এন্ট্রি, QR স্ক্যান এবং মেলার ট্রে ও বিক্রয় হিসাব</b> রাখতে পারবে — কোনো প্রকার{' '}
+                      <b>অ্যাডমিন ফিচার বা ডিলিট অধিকার পাবে না</b>।
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="emp-mgmt-kpi-strip">
+                <div className="emp-kpi-box">
+                  <span>মোট কর্মচারী একাউন্ট</span>
+                  <strong>{toBengaliNumerals(employees.length)} জন</strong>
+                </div>
+                <div className="emp-kpi-box active-tone">
+                  <span>🟢 সচল / 🔴 বন্ধ</span>
+                  <strong>
+                    {toBengaliNumerals(activeEmpCount)} সচল • {toBengaliNumerals(blockedEmpCount)} বন্ধ
+                  </strong>
+                </div>
+                <div className="emp-kpi-box sales-tone">
+                  <span>📊 কর্মচারী কর্তৃক এন্ট্রি</span>
+                  <strong>{toBengaliNumerals(totalAllEmpEntries)}টি রেকর্ড</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="emp-mgmt-body">
+              {empFormMsg && (
+                <div
+                  className={empFormMsg.type === 'success' ? 'success' : 'alert'}
+                  style={{ marginBottom: '16px', borderRadius: '12px' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {empFormMsg.type === 'success' ? (
+                      <CheckCircle2 size={18} />
+                    ) : (
+                      <AlertTriangle size={18} />
+                    )}
+                    <span>{empFormMsg.text}</span>
+                  </div>
+                  <button type="button" onClick={() => setEmpFormMsg(null)}>
+                    ×
+                  </button>
+                </div>
+              )}
+
+              <div className="emp-mgmt-grid">
+                {/* LEFT CARD: CREATE NEW EMPLOYEE ACCOUNT FORM */}
+                <form
+                  onSubmit={handleCreateEmployee}
+                  className="emp-modern-card create-card"
+                  autoComplete="off"
+                >
+                  <div className="emp-card-head">
+                    <div className="emp-card-head-title">
+                      <div className="emp-card-head-icon">
+                        <UserPlus size={18} />
+                      </div>
+                      <div>
+                        <h4>নতুন কর্মচারী একাউন্ট তৈরি করুন</h4>
+                        <small>কর্মচারীর নাম, লগইন আইডি ও পাসওয়ার্ড নির্ধারণ করুন</small>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="emp-auto-gen-btn"
+                      onClick={handleAutoGenerateCredentials}
+                      title="এক ক্লিকে অটোমেটিক ইউজারনেম ও পাসওয়ার্ড তৈরি করুন"
+                    >
+                      <Sparkles size={13} />
+                      <span>অটো আইডি/পাসওয়ার্ড</span>
+                    </button>
+                  </div>
+
+                  {/* Field 1: Full Name */}
+                  <div className="emp-field">
+                    <div className="emp-field-label">
+                      <span>
+                        কর্মচারীর পূর্ণ নাম (বাংলায় বা ইংরেজিতে)
+                        <span className="req-star">*</span>
+                      </span>
+                      <span style={{ fontSize: '11px', color: '#0d9488', fontWeight: 700 }}>
+                        প্রোফাইল নাম
+                      </span>
+                    </div>
+                    <div className="emp-input-box">
+                      <span className="emp-input-prefix">
+                        <UserIcon size={16} />
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        className="emp-modern-input"
+                        value={empDisplayName}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEmpDisplayName(val);
+                          if (!empUsername.trim()) {
+                            const cleanAscii = val.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10);
+                            if (cleanAscii.length >= 3) {
+                              setEmpUsername(cleanAscii);
+                            }
+                          }
+                        }}
+                        placeholder="যেমন: হাসান (কর্মচারী) বা রহিম"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Login Username + Secret Password (Stacks on mobile, 2 cols on desktop) */}
+                  <div className="emp-form-row-2">
+                    <div className="emp-field">
+                      <div className="emp-field-label">
+                        <span>
+                          লগইন ইউজারনেম (ID)
+                          <span className="req-star">*</span>
+                        </span>
+                      </div>
+                      <div className="emp-input-box">
+                        <span className="emp-input-prefix">
+                          <Key size={15} />
+                        </span>
+                        <input
+                          type="text"
+                          required
+                          className="emp-modern-input"
+                          value={empUsername}
+                          onChange={(e) => setEmpUsername(e.target.value.replace(/\s+/g, ''))}
+                          placeholder="যেমন: Hasan বা Staff1"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="emp-field">
+                      <div className="emp-field-label">
+                        <span>
+                          গোপন পাসওয়ার্ড
+                          <span className="req-star">*</span>
+                        </span>
+                        {empPassStrengthLabel && (
+                          <span
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: 800,
+                              color: empPassStrengthColor,
+                            }}
+                          >
+                            {empPassStrengthLabel}
+                          </span>
+                        )}
+                      </div>
+                      <div className="emp-input-box">
+                        <span className="emp-input-prefix">
+                          <Lock size={15} />
+                        </span>
+                        <input
+                          type={showEmpCreatePass ? 'text' : 'password'}
+                          required
+                          className="emp-modern-input has-suffix"
+                          value={empPassword}
+                          onChange={(e) => setEmpPassword(e.target.value)}
+                          placeholder="কমপক্ষে ৪ অক্ষর বা সংখ্যা"
+                        />
+                        <button
+                          type="button"
+                          className="emp-input-suffix-btn"
+                          onClick={() => setShowEmpCreatePass(!showEmpCreatePass)}
+                          title={showEmpCreatePass ? 'পাসওয়ার্ড লুকান' : 'পাসওয়ার্ড দেখুন'}
+                        >
+                          {showEmpCreatePass ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Mobile Number + Designation Input */}
+                  <div className="emp-form-row-2">
+                    <div className="emp-field">
+                      <div className="emp-field-label">
+                        <span>মোবাইল নম্বর (ঐচ্ছিক)</span>
+                      </div>
+                      <div className="emp-input-box">
+                        <span className="emp-input-prefix">
+                          <Phone size={15} />
+                        </span>
+                        <input
+                          type="tel"
+                          className="emp-modern-input"
+                          value={empPhone}
+                          onChange={(e) => setEmpPhone(e.target.value)}
+                          placeholder="০১৭xxxxxxxx"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="emp-field">
+                      <div className="emp-field-label">
+                        <span>দায়িত্ব / পদবী</span>
+                      </div>
+                      <div className="emp-input-box">
+                        <span className="emp-input-prefix">
+                          <Briefcase size={15} />
+                        </span>
+                        <input
+                          type="text"
+                          className="emp-modern-input"
+                          value={empDesignation}
+                          onChange={(e) => setEmpDesignation(e.target.value)}
+                          placeholder="মেলার দোকান ও ট্রে ডেটা এন্ট্রি"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Role / Designation Selector Chips */}
+                  <div className="emp-role-presets-wrap">
+                    <span className="emp-role-presets-label">
+                      ⚡ এক ক্লিকে কর্মচারীর দায়িত্ব (Role) নির্বাচন করুন:
+                    </span>
+                    <div className="emp-role-presets-grid">
+                      {rolePresets.map((preset) => {
+                        const isSelected = empDesignation.trim() === preset.label;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            className={`emp-role-chip ${isSelected ? 'active' : ''}`}
+                            onClick={() => setEmpDesignation(preset.label)}
+                          >
+                            <b>{preset.icon}</b>
+                            <span>{preset.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Modern 2-Column Permission Matrix Preview */}
+                  <div className="emp-perm-matrix">
+                    <div className="emp-perm-box allowed">
+                      <div className="emp-perm-box-head">
+                        <CheckCircle2 size={14} />
+                        <span>অনুমোদিত কাজ (পাবেন)</span>
+                      </div>
+                      <ul className="emp-perm-list">
+                        <li>বিক্রয়, মাল ক্রয় ও খরচ এন্ট্রি</li>
+                        <li>QR ও ক্যামেরা অটো-সেল স্ক্যানার</li>
+                        <li>মেলার ট্রে রিফিল ও বিক্রয় হিসাব</li>
+                        <li>স্টক দেখা ও নতুন পণ্য যোগ</li>
+                      </ul>
+                    </div>
+
+                    <div className="emp-perm-box blocked">
+                      <div className="emp-perm-box-head">
+                        <XCircle size={14} />
+                        <span>নিষিদ্ধ অ্যাডমিন ফিচার (পাবেন না)</span>
+                      </div>
+                      <ul className="emp-perm-list">
+                        <li>কোনো লেনদেন বা পণ্য ডিলিট/এডিট</li>
+                        <li>অংশীদার, মুনাফা বণ্টন ও উত্তোলন</li>
+                        <li>অনুমোদন (Approval) বা AI সহকারী</li>
+                        <li>অডিট লগ, সেটিংস ও ডেটা রিসেট</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="emp-submit-cta" disabled={isSavingEmp}>
+                    <UserPlus size={18} />
+                    <span>
+                      {isSavingEmp
+                        ? 'কর্মচারী একাউন্ট তৈরি হচ্ছে…'
+                        : 'কর্মচারী একাউন্ট তৈরি ও সংরক্ষণ করুন'}
+                    </span>
+                  </button>
+                </form>
+
+                {/* RIGHT CARD: EXISTING EMPLOYEES DIRECTORY & ACCESS CONTROL */}
+                <div className="emp-modern-card">
+                  <div className="emp-card-head">
+                    <div className="emp-card-head-title">
+                      <div
+                        className="emp-card-head-icon"
+                        style={{
+                          background: '#eff6ff',
+                          borderColor: '#bfdbfe',
+                          color: '#0284c7',
+                        }}
+                      >
+                        <Users size={18} />
+                      </div>
+                      <div>
+                        <h4>
+                          তৈরিকৃত কর্মচারী একাউন্ট তালিকা ({toBengaliNumerals(employees.length)} জন)
+                        </h4>
+                        <small>লগইন তথ্য কপি, পাসওয়ার্ড পরিবর্তন ও অ্যাক্সেস নিয়ন্ত্রণ</small>
+                      </div>
+                    </div>
+
+                    <div className="emp-dir-filter-pills">
+                      <button
+                        type="button"
+                        className={`emp-dir-pill ${empStatusFilter === 'all' ? 'active' : ''}`}
+                        onClick={() => setEmpStatusFilter('all')}
+                      >
+                        সবাই ({toBengaliNumerals(employees.length)})
+                      </button>
+                      <button
+                        type="button"
+                        className={`emp-dir-pill ${empStatusFilter === 'active' ? 'active' : ''}`}
+                        onClick={() => setEmpStatusFilter('active')}
+                      >
+                        🟢 সচল ({toBengaliNumerals(activeEmpCount)})
+                      </button>
+                      {blockedEmpCount > 0 && (
+                        <button
+                          type="button"
+                          className={`emp-dir-pill ${empStatusFilter === 'blocked' ? 'active' : ''}`}
+                          onClick={() => setEmpStatusFilter('blocked')}
+                        >
+                          🔴 বন্ধ ({toBengaliNumerals(blockedEmpCount)})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {employees.length > 1 && (
+                    <div className="emp-input-box">
+                      <span className="emp-input-prefix">
+                        <Search size={15} />
+                      </span>
+                      <input
+                        type="text"
+                        className="emp-modern-input"
+                        value={empSearchQuery}
+                        onChange={(e) => setEmpSearchQuery(e.target.value)}
+                        placeholder="কর্মচারীর নাম, ইউজারনেম বা মোবাইল নম্বর দিয়ে খুঁজুন…"
+                      />
+                    </div>
+                  )}
+
+                  {filteredEmployeesList.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '34px 18px',
+                        textAlign: 'center',
+                        background: '#f8fafc',
+                        borderRadius: '14px',
+                        border: '1.5px dashed #cbd5e1',
+                        color: '#64748b',
+                        fontSize: '13px',
+                        lineHeight: 1.55,
+                      }}
+                    >
+                      <Users
+                        size={32}
+                        style={{ color: '#94a3b8', margin: '0 auto 8px', display: 'block' }}
+                      />
+                      {employees.length === 0 ? (
+                        <>
+                          <b>এখনো কোনো কর্মচারী একাউন্ট তৈরি করা হয়নি।</b>
+                          <div style={{ marginTop: '4px', fontSize: '12px' }}>
+                            বাম পাশের ফর্ম থেকে কর্মচারীর নাম, ইউজারনেম ও পাসওয়ার্ড দিয়ে একাউন্ট তৈরি করুন।
+                          </div>
+                        </>
+                      ) : (
+                        <span>আপনার সার্চ বা ফিল্টারের সাথে মিলে এমন কোনো কর্মচারী পাওয়া যায়নি।</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="emp-account-list">
+                      {filteredEmployeesList.map((emp) => {
+                        const showPass = Boolean(visibleEmpPassMap[emp.id]);
+                        const isEditingPass = editingEmpPassId === emp.id;
+                        const activity = getEmployeeActivity(emp);
+                        const isCopied = copiedEmpId === emp.id;
+                        const avatarInitial = (emp.displayName || emp.username || 'E')
+                          .trim()
+                          .charAt(0)
+                          .toUpperCase();
+
+                        return (
+                          <div
+                            key={emp.id}
+                            className={`emp-account-card ${!emp.active ? 'is-blocked' : ''}`}
+                          >
+                            {/* Top Identity + Status */}
+                            <div className="emp-account-top">
+                              <div className="emp-account-identity">
+                                <div className="emp-avatar-circle">{avatarInitial}</div>
+                                <div className="emp-account-name-wrap">
+                                  <div className="emp-account-name-row">
+                                    <strong>{emp.displayName}</strong>
+                                    <span
+                                      className={`emp-status-pill ${
+                                        emp.active ? 'active' : 'blocked'
+                                      }`}
+                                    >
+                                      {emp.active ? '🟢 সচল (Active)' : '🔴 সাময়িক বন্ধ'}
+                                    </span>
+                                  </div>
+                                  <div className="emp-account-sub">
+                                    <span>📌 {emp.designation || 'ডেটা এন্ট্রি অপারেটর'}</span>
+                                    {emp.phone && <span>• 📞 {emp.phone}</span>}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                className="emp-mini-btn copy"
+                                onClick={() => handleCopyCredentials(emp)}
+                                title="হোয়াটসঅ্যাপ বা মেসেঞ্জারে পাঠানোর জন্য লগইন আইডি ও পাসওয়ার্ড কপি করুন"
+                              >
+                                {isCopied ? <Check size={13} /> : <Copy size={13} />}
+                                <span>{isCopied ? 'কপি হয়েছে!' : 'লগইন তথ্য কপি'}</span>
+                              </button>
+                            </div>
+
+                            {/* Credentials & Activity Strip */}
+                            <div className="emp-cred-strip">
+                              <div className="emp-cred-cell">
+                                <span>লগইন ইউজারনেম (ID) ও পাসওয়ার্ড</span>
+                                <div className="emp-cred-val-row">
+                                  <code style={{ color: '#0f766e', borderColor: '#99f6e4' }}>
+                                    ID: {emp.username}
+                                  </code>
+                                  <code>{showPass ? emp.password : '••••••'}</code>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setVisibleEmpPassMap((prev) => ({
+                                        ...prev,
+                                        [emp.id]: !prev[emp.id],
+                                      }))
+                                    }
+                                    style={{
+                                      background: 'transparent',
+                                      border: 'none',
+                                      color: '#0284c7',
+                                      fontSize: '11px',
+                                      fontWeight: 800,
+                                      cursor: 'pointer',
+                                      padding: '2px 4px',
+                                    }}
+                                  >
+                                    {showPass ? 'লুকান' : 'দেখুন'}
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="emp-cred-cell">
+                                <span>কর্মচারীর কাজের হিসাব (Activity)</span>
+                                <div
+                                  style={{
+                                    fontSize: '12px',
+                                    fontWeight: 800,
+                                    color: '#0f172a',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    flexWrap: 'wrap',
+                                  }}
+                                >
+                                  <span style={{ color: '#0d9488' }}>
+                                    মোট {toBengaliNumerals(activity.totalCount)}টি এন্ট্রি
+                                  </span>
+                                  <span>•</span>
+                                  <span style={{ color: '#0284c7' }}>
+                                    বিক্রয়: {money(activity.totalSalesVal)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Inline Password Edit Box (if open) */}
+                            {isEditingPass && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  flexWrap: 'wrap',
+                                  background: '#f0fdfa',
+                                  border: '1px solid #5eead4',
+                                  padding: '8px 10px',
+                                  borderRadius: '10px',
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: '11.5px',
+                                    fontWeight: 800,
+                                    color: '#0f766e',
+                                  }}
+                                >
+                                  🔑 নতুন পাসওয়ার্ড:
+                                </span>
+                                <input
+                                  type="text"
+                                  value={newEmpPassInput}
+                                  onChange={(e) => setNewEmpPassInput(e.target.value)}
+                                  placeholder="নতুন পাসওয়ার্ড লিখুন"
+                                  style={{
+                                    flex: 1,
+                                    minWidth: '120px',
+                                    padding: '6px 10px',
+                                    fontSize: '12.5px',
+                                    borderRadius: '8px',
+                                    border: '1.5px solid #0d9488',
+                                    background: '#ffffff',
+                                    fontWeight: 700,
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  className="emp-mini-btn success"
+                                  onClick={() => handleSaveEmployeePassword(emp)}
+                                  disabled={isSavingEmp}
+                                >
+                                  <Check size={13} /> সেভ করুন
+                                </button>
+                                <button
+                                  type="button"
+                                  className="emp-mini-btn"
+                                  onClick={() => {
+                                    setEditingEmpPassId(null);
+                                    setNewEmpPassInput('');
+                                  }}
+                                >
+                                  বাতিল
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Bottom Action Controls */}
+                            <div className="emp-account-actions">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="emp-mini-btn"
+                                  onClick={() => {
+                                    if (isEditingPass) {
+                                      setEditingEmpPassId(null);
+                                      setNewEmpPassInput('');
+                                    } else {
+                                      setEditingEmpPassId(emp.id);
+                                      setNewEmpPassInput(emp.password);
+                                    }
+                                  }}
+                                >
+                                  <Key size={13} />
+                                  <span>পাসওয়ার্ড পরিবর্তন</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className={`emp-mini-btn ${emp.active ? 'warn' : 'success'}`}
+                                  onClick={() => handleToggleEmployeeActive(emp)}
+                                  disabled={isSavingEmp}
+                                >
+                                  <RefreshCw size={12} />
+                                  <span>{emp.active ? 'সাময়িক বন্ধ করুন' : 'সচল করুন'}</span>
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                className="emp-mini-btn danger"
+                                onClick={() => handleDeleteEmployee(emp)}
+                                disabled={isSavingEmp}
+                                title="কর্মচারী একাউন্ট স্থায়ীভাবে ডিলিট করুন"
+                              >
+                                <Trash2 size={13} />
+                                <span>ডিলিট</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 4. DUAL-ADMIN APPROVAL & INTEGRITY CENTER */}
       {(activeSection === 'all' || activeSection === 'approvals') && (
