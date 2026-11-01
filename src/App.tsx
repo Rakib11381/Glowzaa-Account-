@@ -6944,36 +6944,23 @@ export default function App() {
                 )}
               </div>
             </div>
-            {/* PRODUCT SEARCH, FIELD FILTER & SORTING TOOLBAR */}
+            {/* COMPACT PRODUCT SEARCH, FILTER & REORDER BAR */}
             <div className="inventory-search-filter-shell">
-              {/* Row 1: Search Input + Field Scope Chips */}
+              {/* Row 1: Search Input + Quick Filter Reset */}
               <div className="inventory-search-top-row">
                 <div className="inventory-search-input-wrap">
-                  <Search size={18} className="inventory-search-icon" />
+                  <Search size={15} className="inventory-search-icon" />
                   <input
                     type="text"
-                    inputMode={
-                      productSearchField === 'sku' ||
-                      productSearchField === 'averageCost' ||
-                      productSearchField === 'sellingPrice' ||
-                      productSearchField === 'anyPrice'
-                        ? 'numeric'
-                        : 'text'
-                    }
                     value={productSearchQuery}
-                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      if (productSearchField !== 'all') setProductSearchField('all');
+                      setProductSearchQuery(e.target.value);
+                    }}
                     placeholder={
-                      productSearchField === 'name'
-                        ? 'পণ্যের নাম লিখে সার্চ করুন (যেমন: রাবার, কাকড়া)...'
-                        : productSearchField === 'sku'
-                        ? 'SKU নাম্বার লিখে সার্চ করুন (যেমন: 1, 2, 3, 4)...'
-                        : productSearchField === 'averageCost'
-                        ? 'গড় ক্রয়মূল্য (কেনা দাম) লিখে সার্চ করুন (যেমন: 6, 35, ৪০)...'
-                        : productSearchField === 'sellingPrice'
-                        ? 'বিক্রয়মূল্য (বেচা দাম) লিখে সার্চ করুন (যেমন: 10, 50, ৮০)...'
-                        : productSearchField === 'anyPrice'
-                        ? 'যেকোনো দাম (ক্রয়মূল্য, বিক্রয়মূল্য বা মোট মূল্য) লিখে সার্চ করুন...'
-                        : 'পণ্যের নাম, SKU, ক্রয়মূল্য, বিক্রয়মূল্য বা দাম দিয়ে সার্চ করুন...'
+                      isEmployee
+                        ? 'পণ্যের নাম, SKU বা বিক্রয়মূল্য দিয়ে সার্চ করুন...'
+                        : 'পণ্যের নাম, SKU বা দাম লিখে সার্চ করুন...'
                     }
                     className="inventory-search-input"
                   />
@@ -6984,233 +6971,75 @@ export default function App() {
                       onClick={() => setProductSearchQuery('')}
                       title="সার্চ মুছুন"
                     >
-                      <X size={15} />
+                      <X size={14} />
                     </button>
                   )}
                 </div>
 
-                {/* Search Field Scope Selector Pills */}
-                <div className="inventory-search-scope-pills" role="group" aria-label="সার্চ ক্ষেত্র নির্বাচন">
-                  {(
-                    [
-                      { id: 'all', label: '🔍 সব কিছু' },
-                      { id: 'name', label: '📦 নাম' },
-                      { id: 'sku', label: '🏷️ SKU' },
-                      ...(!isEmployee ? ([{ id: 'averageCost', label: '📥 ক্রয়মূল্য' }] as const) : []),
-                      { id: 'sellingPrice', label: '🏷️ বিক্রয়মূল্য' },
-                      { id: 'anyPrice', label: '৳ দাম' },
-                    ] as const
-                  ).map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`inv-scope-pill ${productSearchField === item.id ? 'active' : ''}`}
-                      onClick={() => setProductSearchField(item.id)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
+                {hasActiveProductFilters && (
+                  <button
+                    type="button"
+                    className="inv-reset-filter-btn"
+                    onClick={resetProductFilters}
+                    title="সকল ফিল্টার রিসেট করুন"
+                  >
+                    <RotateCcw size={12} />
+                    <span>রিসেট</span>
+                  </button>
+                )}
               </div>
 
-              {/* Row 2: Sorting Dropdown, SKU Filter, Stock Filter & Price Range */}
+              {/* Row 2: Compact 2-Column Selects (Stock Filter + Sort Order) */}
               <div className="inventory-filter-controls-grid">
-                {/* Sort By Select */}
-                <div className="inv-filter-group">
-                  <label className="inv-filter-label">
-                    <Filter size={13} />
-                    <span>শর্টিং / ক্রম সাজান:</span>
-                  </label>
-                  <select
-                    value={productSortBy}
-                    onChange={(e) => setProductSortBy(e.target.value as any)}
-                    className="inv-filter-select"
-                  >
-                    <option value="default">ডিফল্ট তালিকা (পূর্বনির্ধারিত)</option>
-                    <option value="price_asc">বিক্রয়মূল্য: কম থেকে বেশি (Low → High)</option>
-                    <option value="price_desc">বিক্রয়মূল্য: বেশি থেকে কম (High → Low)</option>
-                    {!isEmployee && (
-                      <>
-                        <option value="cost_asc">ক্রয়মূল্য: কম থেকে বেশি (Low → High)</option>
-                        <option value="cost_desc">ক্রয়মূল্য: বেশি থেকে কম (High → Low)</option>
-                      </>
-                    )}
-                    <option value="name_asc">পণ্যের নাম: ক → হ (A → Z)</option>
-                    <option value="name_desc">পণ্যের নাম: হ → ক (Z → A)</option>
-                    <option value="sku_asc">SKU কোড: ছোট থেকে বড় (A → Z)</option>
-                    <option value="sku_desc">SKU কোড: বড় থেকে ছোট (Z → A)</option>
-                    <option value="stock_desc">স্টক পরিমাণ: বেশি থেকে কম</option>
-                    <option value="stock_asc">স্টক পরিমাণ: কম থেকে বেশি</option>
-                    {!isEmployee && (
-                      <>
-                        <option value="total_val_desc">মোট স্টক মূল্য: বেশি থেকে কম</option>
-                        <option value="total_val_asc">মোট স্টক মূল্য: কম থেকে বেশি</option>
-                      </>
-                    )}
-                  </select>
-                </div>
+                <select
+                  value={productStockFilter}
+                  onChange={(e) => setProductStockFilter(e.target.value as any)}
+                  className="inv-filter-select"
+                  aria-label="স্টক অবস্থা ফিল্টার"
+                >
+                  <option value="all">📦 সকল পণ্য ({toBengaliNumerals(products.length)}টি)</option>
+                  <option value="below_reorder">
+                    ⚠️ কম স্টক / পুনঃঅর্ডার (≤{toBengaliNumerals(reorderPointThreshold)}) —{' '}
+                    {toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি
+                  </option>
+                  <option value="in_stock">✅ স্টকে আছে (&gt;০)</option>
+                  <option value="out_of_stock">
+                    🚨 স্টক শেষ (০) — {toBengaliNumerals(reorderAlertSummary.outOfStockProducts.length)}টি
+                  </option>
+                </select>
 
-                {/* SKU Quick Filter */}
-                <div className="inv-filter-group">
-                  <label className="inv-filter-label">
-                    <Tag size={13} />
-                    <span>SKU ফিল্টার:</span>
-                  </label>
-                  <select
-                    value={productSkuFilter}
-                    onChange={(e) => setProductSkuFilter(e.target.value)}
-                    className="inv-filter-select"
-                  >
-                    <option value="all">সকল SKU ({toBengaliNumerals(uniqueProductSkus.length)}টি)</option>
-                    {uniqueProductSkus.map((skuCode) => (
-                      <option key={skuCode} value={skuCode}>
-                        🏷️ SKU: {skuCode}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Stock Status Filter */}
-                <div className="inv-filter-group">
-                  <label className="inv-filter-label">
-                    <Boxes size={13} />
-                    <span>স্টক অবস্থা:</span>
-                  </label>
-                  <select
-                    value={productStockFilter}
-                    onChange={(e) => setProductStockFilter(e.target.value as any)}
-                    className="inv-filter-select"
-                  >
-                    <option value="all">সকল পণ্য ({toBengaliNumerals(products.length)}টি)</option>
-                    <option value="below_reorder">
-                      ⚠️ পুনঃঅর্ডার প্রয়োজন (≤ {toBengaliNumerals(reorderPointThreshold)} একক) —{' '}
-                      {toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি
-                    </option>
-                    <option value="in_stock">স্টকে আছে (In Stock &gt; ০)</option>
-                    <option value="low_stock">
-                      স্টক কম আছে (১ – {toBengaliNumerals(reorderPointThreshold)} একক) —{' '}
-                      {toBengaliNumerals(reorderAlertSummary.lowStockOnlyProducts.length)}টি
-                    </option>
-                    <option value="out_of_stock">
-                      🚨 স্টক শেষ (Out of Stock = ০) —{' '}
-                      {toBengaliNumerals(reorderAlertSummary.outOfStockProducts.length)}টি
-                    </option>
-                  </select>
-                </div>
-
-                {/* Min - Max Price Filter */}
-                <div className="inv-filter-group inv-price-range-group">
-                  <label className="inv-filter-label">
-                    <BadgeDollarSign size={13} />
-                    <span>
-                      {productSearchField === 'averageCost' ? 'ক্রয়মূল্য রেঞ্জ (৳):' : 'দাম রেঞ্জ (৳):'}
-                    </span>
-                  </label>
-                  <div className="inv-price-inputs">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={productMinPrice}
-                      onChange={(e) => setProductMinPrice(e.target.value)}
-                      placeholder="সর্বনিম্ন ৳"
-                      className="inv-price-input"
-                    />
-                    <span className="inv-price-sep">–</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={productMaxPrice}
-                      onChange={(e) => setProductMaxPrice(e.target.value)}
-                      placeholder="সর্বোচ্চ ৳"
-                      className="inv-price-input"
-                    />
-                  </div>
-                </div>
+                <select
+                  value={productSortBy}
+                  onChange={(e) => setProductSortBy(e.target.value as any)}
+                  className="inv-filter-select"
+                  aria-label="শর্টিং বা ক্রম"
+                >
+                  <option value="default">⇅ ডিফল্ট তালিকা</option>
+                  <option value="price_asc">৳ বিক্রয়মূল্য: কম → বেশি</option>
+                  <option value="price_desc">৳ বিক্রয়মূল্য: বেশি → কম</option>
+                  {!isEmployee && (
+                    <>
+                      <option value="cost_asc">📥 ক্রয়মূল্য: কম → বেশি</option>
+                      <option value="cost_desc">📥 ক্রয়মূল্য: বেশি → কম</option>
+                    </>
+                  )}
+                  <option value="stock_desc">📊 স্টক: বেশি → কম</option>
+                  <option value="stock_asc">📊 স্টক: কম → বেশি</option>
+                  <option value="name_asc">🔤 নাম: ক → হ</option>
+                  <option value="sku_asc">🏷️ SKU: ছোট → বড়</option>
+                  {!isEmployee && <option value="total_val_desc">💰 মোট মূল্য: বেশি → কম</option>}
+                </select>
               </div>
 
-              {/* Row 2.5: Configurable Reorder Point Control (পুনঃঅর্ডার সতর্কতা সীমা) */}
-              <div className="inv-reorder-config-bar">
-                <div className="inv-reorder-config-left">
-                  <span className="inv-reorder-icon-wrap">
-                    <Bell size={15} />
-                  </span>
-                  <div className="inv-reorder-config-text">
-                    <strong>স্টক পুনঃঅর্ডার সতর্কতা সীমা (Reorder Point):</strong>
-                    <span>
-                      স্টক <b>{toBengaliNumerals(reorderPointThreshold)}</b> বা তার নিচে নামলে টেবিলে হাইলাইট ও সতর্কতা দেখাবে
-                    </span>
-                  </div>
-                </div>
-
-                <div className="inv-reorder-controls">
-                  <div className="inv-reorder-stepper">
-                    <button
-                      type="button"
-                      className="inv-reorder-step-btn"
-                      onClick={() => applyGlobalReorderPoint(Math.max(0, reorderPointThreshold - 1))}
-                      title="১ কমান"
-                    >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      min="0"
-                      value={reorderPointInput}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setReorderPointInput(val);
-                        const num = Number(val);
-                        if (val.trim() !== '' && Number.isFinite(num) && num >= 0) {
-                          applyGlobalReorderPoint(num, false);
-                        }
-                      }}
-                      onBlur={() => {
-                        const num = Number(reorderPointInput);
-                        if (Number.isFinite(num) && num >= 0) {
-                          applyGlobalReorderPoint(num, true);
-                        } else {
-                          setReorderPointInput(String(reorderPointThreshold));
-                        }
-                      }}
-                      className="inv-reorder-number-input"
-                      aria-label="পুনঃঅর্ডার সতর্কতা সীমা"
-                    />
-                    <button
-                      type="button"
-                      className="inv-reorder-step-btn"
-                      onClick={() => applyGlobalReorderPoint(reorderPointThreshold + 1)}
-                      title="১ বাড়ান"
-                    >
-                      +
-                    </button>
-                  </div>
-
-                  <div className="inv-reorder-presets">
-                    {[5, 10, 15, 25, 50].map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        className={`inv-reorder-preset-chip ${
-                          reorderPointThreshold === preset ? 'active' : ''
-                        }`}
-                        onClick={() => applyGlobalReorderPoint(preset)}
-                      >
-                        ≤ {toBengaliNumerals(preset)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 3: Live Search Result Summary & Quick Reset */}
+              {/* Row 3: Compact Metrics + Side-by-Side Low Stock & Reorder Stepper */}
               <div className="inventory-search-status-bar">
                 <div className="inventory-status-metrics">
-                  <span className="inv-metric-badge primary">
-                    দেখানো হচ্ছে: <b>{toBengaliNumerals(filteredAndSortedProducts.length)}টি</b> / মোট{' '}
-                    {toBengaliNumerals(products.length)}টি পণ্য
+                  <span className="inv-metric-badge teal-badge">
+                    পণ্য: <b>{toBengaliNumerals(filteredAndSortedProducts.length)}</b>/
+                    {toBengaliNumerals(products.length)}টি
                   </span>
                   <span className="inv-metric-badge">
-                    মোট স্টক:{' '}
+                    স্টক:{' '}
                     <b>
                       {toBengaliNumerals(
                         filteredAndSortedProducts.reduce(
@@ -7222,7 +7051,7 @@ export default function App() {
                   </span>
                   {!isEmployee && (
                     <span className="inv-metric-badge">
-                      স্টক মূল্য:{' '}
+                      মূল্য:{' '}
                       <b>
                         {money(
                           filteredAndSortedProducts.reduce((sum, item) => sum + item.totalStockValue, 0)
@@ -7230,7 +7059,21 @@ export default function App() {
                       </b>
                     </span>
                   )}
-                  {reorderAlertSummary.totalAlertCount > 0 && (
+                  {productSkuFilter !== 'all' && (
+                    <button
+                      type="button"
+                      className="inv-metric-badge warning-clickable active"
+                      onClick={() => setProductSkuFilter('all')}
+                      title="SKU ফিল্টার সরাতে ক্লিক করুন"
+                    >
+                      🏷️ SKU: {productSkuFilter} ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Side-by-Side Row: Low Stock Badge + Reorder Point Stepper */}
+                <div className="inventory-reorder-alert-row">
+                  {reorderAlertSummary.totalAlertCount > 0 ? (
                     <button
                       type="button"
                       className={`inv-metric-badge warning-clickable ${
@@ -7241,184 +7084,65 @@ export default function App() {
                           prev === 'below_reorder' ? 'all' : 'below_reorder'
                         )
                       }
-                      title="পুনঃঅর্ডার সীমার নিচে থাকা পণ্যগুলো ফিল্টার করতে ক্লিক করুন"
+                      title="কম স্টকের পণ্য ফিল্টার করুন"
                     >
-                      ⚠️ পুনঃঅর্ডার প্রয়োজন:{' '}
-                      <b>{toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি পণ্য</b>
+                      ⚠️ কম স্টক: <b>{toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি</b>
                     </button>
-                  )}
-                </div>
-
-                {hasActiveProductFilters && (
-                  <button
-                    type="button"
-                    className="inv-reset-filter-btn"
-                    onClick={resetProductFilters}
-                  >
-                    <RotateCcw size={13} />
-                    <span>ফিল্টার ও সার্চ রিসেট করুন</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* FLOATING TOAST NOTIFICATION FOR LOW STOCK / REORDER POINT */}
-            {reorderToastPopupVisible && reorderAlertSummary.totalAlertCount > 0 && (
-              <div className="inv-reorder-floating-toast" role="status" aria-live="polite">
-                <div className="inv-reorder-toast-icon">
-                  <AlertTriangle size={20} />
-                </div>
-                <div className="inv-reorder-toast-content">
-                  <div className="inv-reorder-toast-title">
-                    <span>
-                      🔔 স্টক পুনঃঅর্ডার সতর্কতা! ({toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি পণ্য সীমার নিচে)
+                  ) : (
+                    <span className="inv-metric-badge teal-badge">
+                      ✅ কম স্টক: <b>০টি</b>
                     </span>
-                    <button
-                      type="button"
-                      className="inv-reorder-toast-close"
-                      onClick={() => setReorderToastPopupVisible(false)}
-                      aria-label="টুলটিপ বন্ধ করুন"
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
-                  <p className="inv-reorder-toast-desc">
-                    বর্তমানে{' '}
-                    {reorderAlertSummary.outOfStockProducts.length > 0 && (
-                      <b className="text-danger">
-                        {toBengaliNumerals(reorderAlertSummary.outOfStockProducts.length)}টি পণ্যের স্টক সম্পূর্ণ শেষ (০){' '}
-                      </b>
-                    )}
-                    {reorderAlertSummary.outOfStockProducts.length > 0 &&
-                      reorderAlertSummary.lowStockOnlyProducts.length > 0 &&
-                      'এবং '}
-                    {reorderAlertSummary.lowStockOnlyProducts.length > 0 && (
-                      <b>
-                        {toBengaliNumerals(reorderAlertSummary.lowStockOnlyProducts.length)}টি পণ্যের স্টক পুনঃঅর্ডার সীমা (≤{' '}
-                        {toBengaliNumerals(reorderPointThreshold)}) এর নিচে নেমেছে।
-                      </b>
-                    )}
-                  </p>
-                  <div className="inv-reorder-toast-actions">
-                    <button
-                      type="button"
-                      className="inv-reorder-toast-btn primary"
-                      onClick={() => {
-                        setProductStockFilter((prev) =>
-                          prev === 'below_reorder' ? 'all' : 'below_reorder'
-                        );
-                        setReorderToastPopupVisible(false);
-                      }}
-                    >
-                      {productStockFilter === 'below_reorder'
-                        ? 'সব পণ্য দেখুন'
-                        : '⚠️ কম স্টকের পণ্যগুলো দেখুন'}
-                    </button>
-                    <button
-                      type="button"
-                      className="inv-reorder-toast-btn secondary"
-                      onClick={() => setReorderToastPopupVisible(false)}
-                    >
-                      ঠিক আছে
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+                  )}
 
-            {/* INLINE VISUAL ALERT BANNER ABOVE INVENTORY TABLE */}
-            {showReorderBanner && reorderAlertSummary.totalAlertCount > 0 && (
-              <div
-                className={`inv-reorder-inline-banner ${
-                  reorderAlertSummary.outOfStockProducts.length > 0 ? 'has-critical' : ''
-                }`}
-              >
-                <div className="inv-reorder-banner-head">
-                  <div className="inv-reorder-banner-title-wrap">
-                    <span className="inv-reorder-pulse-dot" />
-                    <div>
-                      <h4>
-                        ⚠️ স্টক পুনঃঅর্ডার সতর্কতা (Low Stock Reorder Alert):{' '}
-                        {toBengaliNumerals(reorderAlertSummary.totalAlertCount)}টি পণ্য পুনঃঅর্ডার সীমা (≤{' '}
-                        {toBengaliNumerals(reorderPointThreshold)}) বা তার নিচে রয়েছে
-                      </h4>
-                      <p>
-                        নিচের তালিকায় হলুদ ও লাল রঙের সারিগুলো দ্রুত স্টক পুনঃভর্তি (Restock / Reorder) করার জন্য চিহ্নিত করা হয়েছে।
-                      </p>
+                  <div className="inv-reorder-compact-inline" title="স্টক সতর্কতা সীমা (Reorder Point)">
+                    <span className="inv-reorder-compact-label">
+                      <Bell size={12} /> সতর্কতা সীমা:
+                    </span>
+                    <div className="inv-reorder-stepper">
+                      <button
+                        type="button"
+                        className="inv-reorder-step-btn"
+                        onClick={() => applyGlobalReorderPoint(Math.max(0, reorderPointThreshold - 1))}
+                        title="১ কমান"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min="0"
+                        value={reorderPointInput}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setReorderPointInput(val);
+                          const num = Number(val);
+                          if (val.trim() !== '' && Number.isFinite(num) && num >= 0) {
+                            applyGlobalReorderPoint(num, false);
+                          }
+                        }}
+                        onBlur={() => {
+                          const num = Number(reorderPointInput);
+                          if (Number.isFinite(num) && num >= 0) {
+                            applyGlobalReorderPoint(num, true);
+                          } else {
+                            setReorderPointInput(String(reorderPointThreshold));
+                          }
+                        }}
+                        className="inv-reorder-number-input"
+                        aria-label="পুনঃঅর্ডার সতর্কতা সীমা"
+                      />
+                      <button
+                        type="button"
+                        className="inv-reorder-step-btn"
+                        onClick={() => applyGlobalReorderPoint(reorderPointThreshold + 1)}
+                        title="১ বাড়ান"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
-
-                  <div className="inv-reorder-banner-actions">
-                    <button
-                      type="button"
-                      className={`inv-reorder-filter-toggle-btn ${
-                        productStockFilter === 'below_reorder' ? 'active' : ''
-                      }`}
-                      onClick={() =>
-                        setProductStockFilter((prev) =>
-                          prev === 'below_reorder' ? 'all' : 'below_reorder'
-                        )
-                      }
-                    >
-                      <Filter size={13} />
-                      <span>
-                        {productStockFilter === 'below_reorder'
-                          ? `সব পণ্য দেখান (${toBengaliNumerals(products.length)}টি)`
-                          : `শুধু পুনঃঅর্ডার প্রয়োজন এমন পণ্য দেখুন (${toBengaliNumerals(
-                              reorderAlertSummary.totalAlertCount
-                            )}টি)`}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="inv-reorder-banner-dismiss"
-                      onClick={() => setShowReorderBanner(false)}
-                      title="সতর্কতা ব্যানার লুকান"
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Quick Chips of Low-Stock Products */}
-                <div className="inv-reorder-product-chips">
-                  {reorderAlertSummary.belowReorderProducts.slice(0, 8).map((item) => (
-                    <button
-                      key={item.product.id}
-                      type="button"
-                      className={`inv-reorder-chip ${item.isOutOfStock ? 'critical' : 'warning'}`}
-                      onClick={() => {
-                        if (admin) {
-                          handleOpenEditProduct(item.product);
-                        } else {
-                          setProductSearchQuery(item.product.name);
-                        }
-                      }}
-                      title={
-                        admin
-                          ? `${item.product.name} — স্টক আপডেট করতে ক্লিক করুন`
-                          : `${item.product.name} (স্টক: ${item.stock} ${item.product.unit})`
-                      }
-                    >
-                      <span className="inv-reorder-chip-status">
-                        {item.isOutOfStock ? '🚨' : '⚠️'}
-                      </span>
-                      <span className="inv-reorder-chip-name">{item.product.name}</span>
-                      <span className="inv-reorder-chip-sku">({item.displaySku})</span>
-                      <span className="inv-reorder-chip-stock">
-                        {toBengaliNumerals(item.stock)} {item.product.unit} / সীমা:{' '}
-                        {toBengaliNumerals(item.reorderPoint)}
-                      </span>
-                    </button>
-                  ))}
-                  {reorderAlertSummary.belowReorderProducts.length > 8 && (
-                    <span className="inv-reorder-chip-more">
-                      + আরও {toBengaliNumerals(reorderAlertSummary.belowReorderProducts.length - 8)}টি পণ্য
-                    </span>
-                  )}
                 </div>
               </div>
-            )}
+            </div>
 
             <div className="table-wrap">
               <table>
@@ -14668,7 +14392,7 @@ export default function App() {
             averageCost: String(suggestion.estimatedUnitCost || ''),
             sellingPrice: String(suggestion.estimatedSellingPrice || ''),
             reorderPoint: String(reorderPointThreshold || 5),
-            imageUrl: '',
+            imageUrl: suggestion.imageUrl || '',
           });
           setShowProductModal(true);
         }}

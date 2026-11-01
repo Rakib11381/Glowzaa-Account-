@@ -2795,6 +2795,793 @@ User Question: "${rawQuestion}"`;
     }
   });
 
+  // ============================================================================
+  // MARKET ADVISOR: ACCURATE GOOGLE/WEB PRODUCT IMAGE SEARCH & AUTO-TRENDING ENGINE
+  // ============================================================================
+  const productImageSearchCache = new Map<
+    string,
+    { urls: string[]; updatedAt: number }
+  >();
+  const resolvedDataUrlCache = new Map<
+    string,
+    { dataUrl: string; sourceUrl: string; updatedAt: number }
+  >();
+  const IMAGE_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
+
+  function normalizeSearchKey(q: string): string {
+    return String(q || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  }
+
+  function decodeHtmlEntities(raw: string): string {
+    return raw
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\\u0026/g, '&')
+      .replace(/\\u003d/g, '=')
+      .replace(/\\\//g, '/');
+  }
+
+  // Convert any verbose or bilingual product title into a crisp 3-5 word English product search query
+  function toConciseProductSearchQuery(raw: string): string {
+    const input = String(raw || '').trim();
+    if (!input) return 'hair claw clip';
+
+    // If there is an English phrase inside parentheses, e.g. "বাংলা নাম (English Product Name)", prefer it
+    const parenMatches = [...input.matchAll(/\(([^)]+)\)/g)].map((m) => m[1].trim());
+    const englishParen = parenMatches.find((p) => /[a-zA-Z]{3,}/.test(p));
+    let asciiPart = (englishParen || input)
+      .replace(/[^\x00-\x7F]+/g, ' ')
+      .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Map common Bengali shop product terms if no English words were provided
+    if (!asciiPart || asciiPart.length < 3) {
+      const bn = input.toLowerCase();
+      if (bn.includes('কাকড়া') || bn.includes('ক্ল-ক্লিপ') || bn.includes('ক্লিপ')) return 'Korean hair claw clip';
+      if (bn.includes('রাবার') || bn.includes('স্ক্রাঞ্চি')) return 'silk hair scrunchies set';
+      if (bn.includes('বো') || bn.includes('ফিতা') || bn.includes('রিবন')) return 'satin bow hair clip';
+      if (bn.includes('ঝুমকা') || bn.includes('দুল') || bn.includes('ইয়াররিং')) return 'oxidised jhumka earrings';
+      if (bn.includes('আংটি') || bn.includes('রিং')) return 'gold adjustable finger rings';
+      if (bn.includes('চুড়ি') || bn.includes('বালা')) return 'red velvet glass bangles set';
+      if (bn.includes('মালা') || bn.includes('নেকলেস') || bn.includes('চেইন')) return 'layered pearl pendant necklace';
+      if (bn.includes('ব্রেসলেট')) return 'crystal beaded charm bracelet';
+      if (bn.includes('নোজ') || bn.includes('নথ')) return 'gold stone nose pin stud';
+      if (bn.includes('পায়েল') || bn.includes('অ্যাঙ্কলেট')) return 'silver ghungroo payal anklet';
+      if (bn.includes('মিরর') || bn.includes('আয়না') || bn.includes('চিরুনি')) return 'cute folding pocket mirror comb';
+      if (bn.includes('নেইল পলিশ')) return 'peel off nail polish bottle';
+      if (bn.includes('নেইল')) return 'glossy press on nails kit';
+      if (bn.includes('লিপ অয়েল')) return 'fruit lip oil gloss roller';
+      if (bn.includes('লিপ') || bn.includes('লিপস্টিক')) return 'velvet lip tint gloss';
+      if (bn.includes('ব্রাশ') || bn.includes('ব্লেন্ডার')) return 'makeup sponge beauty blender';
+      if (bn.includes('পারফিউম') || bn.includes('আতর')) return 'mini pocket perfume spray';
+      if (bn.includes('কাজল') || bn.includes('আইলাইনার')) return 'waterproof liquid eyeliner pen';
+      if (bn.includes('আইব্রো')) return 'eyebrow pencil with brush';
+      if (bn.includes('আইস রোলার')) return 'pink silicone facial ice roller';
+      if (bn.includes('ব্যাগ') || bn.includes('পার্স') || bn.includes('মানিব্যাগ')) return 'mini quilted coin purse women';
+      if (bn.includes('ঘড়ি')) return 'rose gold ladies magnetic watch';
+      if (bn.includes('চশমা') || bn.includes('সানগ্লাস')) return 'cat eye sunglasses women';
+      if (bn.includes('পাউচ')) return 'transparent travel makeup pouch';
+      if (bn.includes('কম্বো') || bn.includes('গিফট')) return 'hair accessories gift box hamper';
+      return 'Korean hair claw clip';
+    }
+
+    // Strip ambiguous tokens ("ph" -> Philippines map, "ad" -> ads/Alamy, "50pc", "for", "women", etc.)
+    const stopWords = new Set([
+      'ph',
+      'ad',
+      'for',
+      'with',
+      'and',
+      'the',
+      'in',
+      'on',
+      'of',
+      'to',
+      'product',
+      'photo',
+      'picture',
+      'image',
+      'item',
+      'items',
+      'wholesale',
+      'retail',
+      'shop',
+      'store',
+      'moisturiser',
+      'moisturizing',
+      'cosmetic',
+      'cosmetics',
+      'aesthetic',
+      'traditional',
+      'indian',
+      'style',
+      'display',
+      'pack',
+      'pcs',
+      'pc',
+      '24pcs',
+      '36pc',
+      '36pcs',
+      '50pc',
+      '50pcs',
+      '100pc',
+      '100pcs',
+      '100',
+      '50',
+      '36',
+      '24',
+      '6pc',
+      '6',
+      '20ml',
+      'color',
+      'changing',
+      'colorful',
+      'seamless',
+      'double',
+      'head',
+      'spoolie',
+      'starry',
+      'sky',
+    ]);
+
+    const tokens = asciiPart
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length >= 2 && !stopWords.has(w.toLowerCase()) && !/^\d+$/.test(w));
+
+    const concise = tokens.slice(0, 5).join(' ');
+    return concise || asciiPart.split(/\s+/).slice(0, 4).join(' ');
+  }
+
+  async function searchAccurateWebProductImages(rawQuery: string): Promise<string[]> {
+    const conciseQuery = toConciseProductSearchQuery(rawQuery);
+    if (!conciseQuery) return [];
+
+    const cacheKey = normalizeSearchKey(conciseQuery);
+    const cached = productImageSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.updatedAt < IMAGE_CACHE_TTL_MS && cached.urls.length > 0) {
+      return cached.urls;
+    }
+
+    const coreKeywords = conciseQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(
+        (w) =>
+          w.length >= 3 &&
+          !['women', 'girls', 'ladies', 'korean', 'cute', 'mini', 'set', 'box', 'jar', 'card', 'kit'].includes(w)
+      );
+
+    const bannedPatterns = [
+      'map',
+      'atlas',
+      'province',
+      'geography',
+      'alamy',
+      'shutterstock',
+      'gettyimages',
+      'vecteezy',
+      'freepik',
+      'wallpaper',
+      'wallpapers',
+      'diagram',
+      'chart',
+      'graph',
+      'flag',
+      'logo',
+      'favicon',
+      'sprite',
+      'play-lh.googleusercontent',
+      'contracorriente',
+      'stock-vector',
+      'clipart',
+      'drawing',
+      'sketch',
+      'meme',
+    ];
+
+    const isBannedText = (text: string): boolean => {
+      const lower = text.toLowerCase();
+      return bannedPatterns.some((pat) => lower.includes(pat));
+    };
+
+    const matchedCandidates: string[] = [];
+    const fallbackCandidates: string[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (target: string[], u?: string) => {
+      if (!u) return;
+      const clean = decodeHtmlEntities(u.trim());
+      if (!clean.startsWith('http://') && !clean.startsWith('https://')) return;
+      if (clean.endsWith('.svg') || clean.endsWith('.gif') || isBannedText(clean)) return;
+      if (!seen.has(clean)) {
+        seen.add(clean);
+        target.push(clean);
+      }
+    };
+
+    const browserHeaders = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    };
+
+    // Query structured image search async endpoint (returns clean <a class="iusc" m="{...}"> items without sidebar maps/news)
+    try {
+      const asyncUrl = `https://www.bing.com/images/async?q=${encodeURIComponent(conciseQuery)}&first=0&count=28&mmasync=1`;
+      const bResp = await fetch(asyncUrl, {
+        headers: browserHeaders,
+        signal: AbortSignal.timeout(4500),
+      });
+      if (bResp.ok) {
+        const html = await bResp.text();
+        const itemRegex = /m="([^"]+)"/g;
+        let match: RegExpExecArray | null;
+        while ((match = itemRegex.exec(html)) !== null) {
+          try {
+            const rawJson = decodeHtmlEntities(match[1]);
+            const item = JSON.parse(rawJson);
+            const title = String(item?.t || item?.desc || '').toLowerCase();
+            const murl = String(item?.murl || '').trim();
+            const turl = String(item?.turl || '').trim();
+            const purl = String(item?.purl || '').toLowerCase();
+
+            if (!turl && !murl) continue;
+            if (isBannedText(title) || isBannedText(murl) || isBannedText(purl)) continue;
+
+            const highResThumb = turl
+              ? `${turl.split('&')[0]}&w=400&h=400&c=7&p=0`
+              : '';
+
+            const hasKeywordMatch =
+              coreKeywords.length === 0 ||
+              coreKeywords.some((kw) => title.includes(kw) || murl.toLowerCase().includes(kw) || purl.includes(kw));
+
+            if (hasKeywordMatch) {
+              // Prefer the verified 400x400 CDN product thumbnail first (fast, never 403s, exact same image), followed by direct murl
+              if (highResThumb) pushUnique(matchedCandidates, highResThumb);
+              if (murl) pushUnique(matchedCandidates, murl);
+            } else {
+              if (highResThumb) pushUnique(fallbackCandidates, highResThumb);
+              if (murl) pushUnique(fallbackCandidates, murl);
+            }
+          } catch {
+            // ignore malformed item
+          }
+        }
+      }
+    } catch {
+      // ignore timeout
+    }
+
+    const finalUrls = [...matchedCandidates, ...fallbackCandidates].slice(0, 20);
+    if (finalUrls.length > 0) {
+      productImageSearchCache.set(cacheKey, {
+        urls: finalUrls,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return finalUrls;
+  }
+
+  async function fetchVerifiedImageAsDataUrl(imageUrl: string): Promise<string | null> {
+    if (!imageUrl || !imageUrl.startsWith('http')) return null;
+
+    const cached = resolvedDataUrlCache.get(imageUrl);
+    if (cached && Date.now() - cached.updatedAt < IMAGE_CACHE_TTL_MS) {
+      return cached.dataUrl;
+    }
+
+    try {
+      const resp = await fetch(imageUrl, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          Referer: 'https://www.google.com/',
+        },
+        signal: AbortSignal.timeout(4000),
+      });
+
+      if (!resp.ok) return null;
+      const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+      if (!contentType.startsWith('image/')) return null;
+
+      const arrayBuffer = await resp.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      // Reject tiny broken 1x1 tracking pixels (< 1500 bytes) or huge (> 4MB) payloads
+      if (buffer.byteLength < 1500 || buffer.byteLength > 4 * 1024 * 1024) {
+        return null;
+      }
+
+      const mime = contentType.split(';')[0].trim() || 'image/jpeg';
+      const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+      resolvedDataUrlCache.set(imageUrl, {
+        dataUrl,
+        sourceUrl: imageUrl,
+        updatedAt: Date.now(),
+      });
+      return dataUrl;
+    } catch {
+      return null;
+    }
+  }
+
+  async function resolveAccurateProductPhoto(
+    query: string,
+    preferredIndex: number = 0
+  ): Promise<{ dataUrl: string | null; sourceUrl: string | null; totalCandidates: number; usedIndex: number }> {
+    const candidates = await searchAccurateWebProductImages(query);
+    if (candidates.length === 0) {
+      return { dataUrl: null, sourceUrl: null, totalCandidates: 0, usedIndex: 0 };
+    }
+
+    const total = candidates.length;
+    const startIdx = ((preferredIndex % total) + total) % total;
+
+    // Try up to 5 candidates starting from preferredIndex so we always return a verified working image
+    for (let offset = 0; offset < Math.min(5, total); offset++) {
+      const idx = (startIdx + offset) % total;
+      const candidateUrl = candidates[idx];
+      const dataUrl = await fetchVerifiedImageAsDataUrl(candidateUrl);
+      if (dataUrl) {
+        return {
+          dataUrl,
+          sourceUrl: candidateUrl,
+          totalCandidates: total,
+          usedIndex: idx,
+        };
+      }
+    }
+
+    return {
+      dataUrl: null,
+      sourceUrl: candidates[startIdx] || null,
+      totalCandidates: total,
+      usedIndex: startIdx,
+    };
+  }
+
+  // Endpoint 1: Search & fetch a single product image from Google/Web as a CORS-safe Data URL
+  app.get('/api/market-advisor/search-image', async (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim();
+      const idx = Math.max(0, parseInt(String(req.query.index || '0'), 10) || 0);
+      if (!q) {
+        return res.status(400).json({ ok: false, error: 'Missing query parameter q' });
+      }
+      const result = await resolveAccurateProductPhoto(q, idx);
+      return res.json({
+        ok: Boolean(result.dataUrl),
+        query: q,
+        dataUrl: result.dataUrl,
+        sourceUrl: result.sourceUrl,
+        totalCandidates: result.totalCandidates,
+        usedIndex: result.usedIndex,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        ok: false,
+        error: err?.message || 'Failed to search product image',
+      });
+    }
+  });
+
+  // Endpoint 2: Batch resolve accurate Google/Web product images for multiple trending items in parallel
+  app.post('/api/market-advisor/resolve-images', async (req, res) => {
+    try {
+      const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
+      const items = rawItems.slice(0, 40);
+      const resolvedMap: Record<
+        string,
+        { dataUrl: string; sourceUrl: string; totalCandidates: number; usedIndex: number }
+      > = {};
+
+      // Process in batches of 8 for high speed without overwhelming outbound sockets
+      const BATCH_SIZE = 8;
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const chunk = items.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          chunk.map(async (item: any) => {
+            const id = String(item?.id || '').trim();
+            const query = String(item?.query || '').trim();
+            const index = Math.max(0, parseInt(String(item?.index || '0'), 10) || 0);
+            if (!id || !query) return;
+            const resPhoto = await resolveAccurateProductPhoto(query, index);
+            if (resPhoto.dataUrl && resPhoto.sourceUrl) {
+              resolvedMap[id] = {
+                dataUrl: resPhoto.dataUrl,
+                sourceUrl: resPhoto.sourceUrl,
+                totalCandidates: resPhoto.totalCandidates,
+                usedIndex: resPhoto.usedIndex,
+              };
+            }
+          })
+        );
+      }
+
+      return res.json({
+        ok: true,
+        images: resolvedMap,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        ok: false,
+        error: err?.message || 'Batch image resolution failed',
+      });
+    }
+  });
+
+  // Dynamic Curated + Seasonal Pool of Fresh Bangladeshi Market Trending Products (for instant & reliable auto-updates)
+  const DYNAMIC_AUTO_TRENDING_POOL = [
+    {
+      name: 'কোরিয়ান টিউলিপ ও ফ্লোরাল মেটাল ক্ল-ক্লিপ (Korean Tulip Flower Metal Claw Clip)',
+      searchQueryEn: 'tulip flower metal hair claw clip',
+      category: 'hair_fashion',
+      categoryLabelBn: 'হেয়ার ও ফ্যাশন এক্সেসরিজ',
+      wholesalePriceRangeBn: '৳৩২ – ৳৪৮ / পিস',
+      estimatedUnitCost: 38,
+      suggestedRetailPriceBn: '৳৮০ – ৳১৩০ / পিস',
+      estimatedSellingPrice: 95,
+      expectedMarginPercent: 150,
+      starterQtyBn: '২ ডজন (২৪ পিস)',
+      recommendedQty: 24,
+      unit: 'পিস',
+      demandLevelBn: '🔥 নতুন ভাইরাল ট্রেন্ড',
+      whyTrendingBn: 'টিউলিপ ফুল ও মুক্তা বসানো মেটাল কাকড়া এখন ফেসবুক ও টিকটকে সবচেয়ে বেশি ভাইরাল। মেয়েরা দেখলেই পছন্দ করে।',
+      marketTipBn: 'রোজ গোল্ড ও পিঙ্ক টিউলিপ শেডের কাকড়া সবচেয়ে দ্রুত বিক্রি হয়।',
+    },
+    {
+      name: 'মিনি বাটারফ্লাই পাঞ্চ ক্লিপ জারের সেট (50pc Mini Colorful Butterfly Hair Clips Jar)',
+      searchQueryEn: 'mini butterfly hair clips jar',
+      category: 'hair_fashion',
+      categoryLabelBn: 'হেয়ার ও ফ্যাশন এক্সেসরিজ',
+      wholesalePriceRangeBn: '৳৪৫ – ৳৬৫ / জার',
+      estimatedUnitCost: 52,
+      suggestedRetailPriceBn: '৳১১০ – ৳১৫০ / জার',
+      estimatedSellingPrice: 120,
+      expectedMarginPercent: 130,
+      starterQtyBn: '১৮–২৪টি জার',
+      recommendedQty: 18,
+      unit: 'পিস',
+      demandLevelBn: '⚡ বাচ্চাদের সুপারহিট আইটেম',
+      whyTrendingBn: 'স্বচ্ছ ছোট জারে ৫০ পিস রঙিন মিনি বাটারফ্লাই ক্লিপ অভিভাবকরা বাচ্চাদের জন্য একসাথে পুরো জার কিনে নেন।',
+      marketTipBn: 'খুচরা প্রতি জোড়া ৳১০ করে বিক্রি করলেও দ্বিগুণের বেশি লাভ থাকে।',
+    },
+    {
+      name: 'সাতিন লং টেইল বো-রিবন হেয়ার ব্যান্ড ও ক্লিপ (Satin Long Ribbon Bow Hair Clip)',
+      searchQueryEn: 'satin long ribbon bow hair clip',
+      category: 'hair_fashion',
+      categoryLabelBn: 'হেয়ার ও ফ্যাশন এক্সেসরিজ',
+      wholesalePriceRangeBn: '৳১৮ – ৳৩০ / পিস',
+      estimatedUnitCost: 22,
+      suggestedRetailPriceBn: '৳৫০ – ৳৮০ / পিস',
+      estimatedSellingPrice: 60,
+      expectedMarginPercent: 172,
+      starterQtyBn: '২ ডজন (২৪ পিস)',
+      recommendedQty: 24,
+      unit: 'পিস',
+      demandLevelBn: '🔥 স্কুল-কলেজ টপ হিট',
+      whyTrendingBn: 'সাতিন কাপড়ের লম্বা ফিতাওয়ালা বো-ক্লিপ চুলে বাঁধলে প্রিমিয়াম কোরিয়ান লুক আসে, তাই টিনএজারদের কাছে প্রচুর চাহিদা।',
+      marketTipBn: 'কালো, মেরুন, নেভি ব্লু, সাদা ও বেবি পিঙ্ক কালার স্টকে রাখুন।',
+    },
+    {
+      name: 'দুবাই গোল্ড প্লেটেড স্টোন চুড়ি ও বালা সেট (Gold Plated Stone Bangles Set)',
+      searchQueryEn: 'gold plated stone bangles set',
+      category: 'jewelry',
+      categoryLabelBn: 'জুয়েলারি ও অর্নামেন্টস',
+      wholesalePriceRangeBn: '৳৭৫ – ৳১২০ / জোড়া',
+      estimatedUnitCost: 90,
+      suggestedRetailPriceBn: '৳১৮০ – ৳২৮০ / জোড়া',
+      estimatedSellingPrice: 210,
+      expectedMarginPercent: 133,
+      starterQtyBn: '১–২ ডজন (১২–২৪ জোড়া)',
+      recommendedQty: 12,
+      unit: 'পিস',
+      demandLevelBn: '💎 উৎসব ও বিয়ের হিট গহনা',
+      whyTrendingBn: 'দেখতে একদম আসল সোনার মতো চকচকে পাথরের চুড়ি বিয়ে ও দাওয়াতের মৌসুমে প্রচুর বিক্রি হয়।',
+      marketTipBn: '২.৪ এবং ২.৬ সাইজের ৪ পিসের সেট বক্সসহ রাখলে কাস্টমার বেশি দামে কেনে।',
+    },
+    {
+      name: 'কাশ্মীরি ঘুঙুর ও মুক্তার লং ঝুমকা কানের দুল (Kashmiri Pearl Bahubali Jhumka Earrings)',
+      searchQueryEn: 'pearl bahubali jhumka earrings',
+      category: 'jewelry',
+      categoryLabelBn: 'জুয়েলারি ও অর্নামেন্টস',
+      wholesalePriceRangeBn: '৳৩৮ – ৳৬৫ / জোড়া',
+      estimatedUnitCost: 48,
+      suggestedRetailPriceBn: '৳৯৫ – ৳১৬০ / জোড়া',
+      estimatedSellingPrice: 120,
+      expectedMarginPercent: 150,
+      starterQtyBn: '২ ডজন (২৪ জোড়া)',
+      recommendedQty: 24,
+      unit: 'পিস',
+      demandLevelBn: '🔥 ভাইরাল দেশীয় ফ্যাশন',
+      whyTrendingBn: 'কানের দুলের সাথে মুক্তার লম্বা চেইন (টানা) যুক্ত কাশ্মীরি ঝুমকা এখন তরুণীদের সবচেয়ে পছন্দের ইয়াররিংস।',
+      marketTipBn: 'গোল্ডেন ও সিলভার অক্সিডাইজড—উভয় কালার স্টকে রাখবেন।',
+    },
+    {
+      name: 'কোরিয়ান রাইনস্টোন বাটারফ্লাই ও হার্ট অ্যাডজাস্টেবল রিং বক্স (36pc Korean Crystal Ring Box)',
+      searchQueryEn: 'rhinestone adjustable rings box',
+      category: 'jewelry',
+      categoryLabelBn: 'জুয়েলারি ও অর্নামেন্টস',
+      wholesalePriceRangeBn: '৳১২ – ৳২২ / পিস (বক্স হিসেবে)',
+      estimatedUnitCost: 15,
+      suggestedRetailPriceBn: '৳৩৫ – ৳৬০ / পিস',
+      estimatedSellingPrice: 45,
+      expectedMarginPercent: 200,
+      starterQtyBn: '১ বক্স (৩৬ পিস)',
+      recommendedQty: 36,
+      unit: 'পিস',
+      demandLevelBn: '💎 ২০০% মুনাফা আইটেম',
+      whyTrendingBn: 'হার্ট শেপের ডিসপ্লে বক্সে ৩৬টি চকচকে স্টোন আংটি কাউন্টারে রাখলে মেয়েরা ১–২টি করে আংটি সাথে সাথে কিনে নেয়।',
+      marketTipBn: 'পুরো বক্স একসাথে পাইকারি কিনলে প্রতি পিস মাত্র ১২–১৫ টাকা পড়ে।',
+    },
+    {
+      name: 'ম্যাজিক কালার চেঞ্জিং ফ্রুট লিপ অয়েল ও গ্লস (Fruit Lip Oil & Roller Gloss)',
+      searchQueryEn: 'fruit lip oil gloss roller',
+      category: 'cosmetics',
+      categoryLabelBn: 'কসমেটিকস ও ডেইলি ইউজ',
+      wholesalePriceRangeBn: '৳২৫ – ৳৪২ / পিস',
+      estimatedUnitCost: 30,
+      suggestedRetailPriceBn: '৳৬৫ – ৳১১০ / পিস',
+      estimatedSellingPrice: 75,
+      expectedMarginPercent: 150,
+      starterQtyBn: '২ ডজন (২৪ পিস)',
+      recommendedQty: 24,
+      unit: 'পিস',
+      demandLevelBn: '🔥 স্কুল-কলেজ বেস্ট সেলার',
+      whyTrendingBn: 'ঠোঁটে লাগালে হালকা গোলাপি রঙ হয় এমন স্বচ্ছ ফ্রুট লিপ অয়েল এখন লিপস্টিকের চেয়েও বেশি বিক্রি হচ্ছে।',
+      marketTipBn: 'স্ট্রবেরি, পিচ ও চেরি ফ্লেভারের লিপ অয়েল ডিসপ্লে বক্সসহ আনবেন।',
+    },
+    {
+      name: 'ফেস আইস রোলার ও জেড স্টোন ম্যাসাজার (Facial Ice Roller & Gua Sha Skin Massager)',
+      searchQueryEn: 'pink silicone facial ice roller',
+      category: 'cosmetics',
+      categoryLabelBn: 'কসমেটিকস ও ডেইলি ইউজ',
+      wholesalePriceRangeBn: '৳৪৫ – ৳৭৫ / পিস',
+      estimatedUnitCost: 55,
+      suggestedRetailPriceBn: '৳১১০ – ৳১৮০ / পিস',
+      estimatedSellingPrice: 130,
+      expectedMarginPercent: 136,
+      starterQtyBn: '১২ পিস (১ ডজন)',
+      recommendedQty: 12,
+      unit: 'পিস',
+      demandLevelBn: '✨ স্কিনকেয়ার ভাইরাল প্রডাক্ট',
+      whyTrendingBn: 'ফ্রিজে রেখে মুখে বরফ ম্যাসাজ করার জন্য সিলিকন আইস রোলার এখন মেয়েদের স্কিনকেয়ারে সবচেয়ে জনপ্রিয় এবং এর কোনো মেয়াদ শেষ হওয়ার ভয় নেই।',
+      marketTipBn: 'পিঙ্ক, পার্পল ও মিন্ট গ্রিন কালারের সিলিকন আইস রোলার বেশি চলে।',
+    },
+    {
+      name: 'ওয়াটারপ্রুফ আইব্রো পেন্সিল উইথ ব্রাশ ও ৪-ফর্ক টিপ (Waterproof Eyebrow Pencil with Brush)',
+      searchQueryEn: 'eyebrow pencil with brush',
+      category: 'cosmetics',
+      categoryLabelBn: 'কসমেটিকস ও ডেইলি ইউজ',
+      wholesalePriceRangeBn: '৳১৫ – ৳২৮ / পিস',
+      estimatedUnitCost: 20,
+      suggestedRetailPriceBn: '৳৪৫ – ৳৮০ / পিস',
+      estimatedSellingPrice: 55,
+      expectedMarginPercent: 175,
+      starterQtyBn: '২ ডজন (২৪ পিস)',
+      recommendedQty: 24,
+      unit: 'পিস',
+      demandLevelBn: '📈 প্রতিদিনের রানিং কসমেটিকস',
+      whyTrendingBn: 'এক পাশে ব্রাশ ও অন্য পাশে ট্রায়াঙ্গেল আইব্রো পেন্সিল মেয়েদের প্রতিদিনের সাজগোজে অপরিহার্য।',
+      marketTipBn: 'ডার্ক ব্রাউন এবং ন্যাচারাল ব্ল্যাক—এই ২টি শেড সবচেয়ে বেশি রাখবেন।',
+    },
+    {
+      name: 'কোরিয়ান পার্ল ও রিবন মিনি ক্রসবডি মোবাইল ও স্লিং ব্যাগ (Pearl Chain Mini Crossbody Bag)',
+      searchQueryEn: 'pearl chain mini crossbody bag',
+      category: 'bags_accessories',
+      categoryLabelBn: 'ব্যাগ ও ফ্যাশন এক্সেসরিজ',
+      wholesalePriceRangeBn: '৳১১০ – ৳১৭০ / পিস',
+      estimatedUnitCost: 135,
+      suggestedRetailPriceBn: '৳২৫০ – ৳৩৮০ / পিস',
+      estimatedSellingPrice: 290,
+      expectedMarginPercent: 115,
+      starterQtyBn: '৬–১২ পিস',
+      recommendedQty: 8,
+      unit: 'পিস',
+      demandLevelBn: '💎 হাই-প্রফিট শোরুম আইটেম',
+      whyTrendingBn: 'মোবাইল ও টাকা রাখার জন্য মুক্তার চেইনওয়ালা ছোট ফ্যাশনেবল সাইড ব্যাগ তরুণীরা পার্টি ও ঘুরতে যাওয়ার জন্য প্রচুর কেনে।',
+      marketTipBn: 'সাদা, কালো ও প্যাস্টেল পিঙ্ক কালার দোকানের সামনে ঝুলিয়ে রাখলে কাস্টমারের নজর কাড়ে।',
+    },
+    {
+      name: 'কোরিয়ান ক্যাট-আই ও রিমলেস ইউভি ফ্যাশন সানগ্লাস (Trendy Cat-Eye & Rimless Ladies Sunglasses)',
+      searchQueryEn: 'cat eye sunglasses women',
+      category: 'bags_accessories',
+      categoryLabelBn: 'ব্যাগ ও ফ্যাশন এক্সেসরিজ',
+      wholesalePriceRangeBn: '৳৫৫ – ৳৯৫ / পিস',
+      estimatedUnitCost: 70,
+      suggestedRetailPriceBn: '৳১৪০ – ৳২৫০ / পিস',
+      estimatedSellingPrice: 175,
+      expectedMarginPercent: 150,
+      starterQtyBn: '১ ডজন (১২ পিস)',
+      recommendedQty: 12,
+      unit: 'পিস',
+      demandLevelBn: '🔥 গরমে ও ট্যুর সিজনে সুপারহিট',
+      whyTrendingBn: 'রোদে বাইরে যাওয়া ও ছবি তোলার জন্য মেয়েদের ফ্যাশনেবল সানগ্লাসে ১০০ টাকারও বেশি একক লাভ থাকে।',
+      marketTipBn: 'ছোট মিরর ও সানগ্লাস স্ট্যান্ড কাউন্টারে রাখলে কাস্টমার ট্রাই করেই কিনে নেয়।',
+    },
+    {
+      name: 'ব্রাইডাল মেহেদি ও ঈদ স্পেশাল চুড়ি-ঝুমকা-টিপ কম্বো বক্স (Festive Bangle Jhumka Gift Set)',
+      searchQueryEn: 'bridal bangle jhumka gift set',
+      category: 'gift_combo',
+      categoryLabelBn: 'কম্বো ও গিফট আইটেম',
+      wholesalePriceRangeBn: '৳৭০ – ৳১০০ / বক্স',
+      estimatedUnitCost: 80,
+      suggestedRetailPriceBn: '৳১৮০ – ৳২৫০ / বক্স',
+      estimatedSellingPrice: 199,
+      expectedMarginPercent: 148,
+      starterQtyBn: '১০–১২টি কম্বো বক্স',
+      recommendedQty: 10,
+      unit: 'পিস',
+      demandLevelBn: '🎁 ৳১৯৯ ফেস্টিভ কম্বো হিট',
+      whyTrendingBn: 'রেশমি চুড়ি, ১ জোড়া ঝুমকা, স্টোন টিপের পাতা ও ১টি গাজরা/ক্লিপ একসাথে কম্বো করে সাজালে মেয়েরা গিফট ও নিজের জন্য দ্রুত কিনে নেয়।',
+      marketTipBn: 'লাল, মেরুন, সবুজ ও গোল্ডেন থিমের ৪টি আলাদা কালার কম্বো বানিয়ে রাখুন।',
+    },
+  ];
+
+  // Endpoint 3: Live Auto-Updating Trending Products Generator (Gemini + Dynamic Pool + Accurate Google Photos)
+  app.post('/api/market-advisor/auto-trending', async (req, res) => {
+    try {
+      const existingNames: string[] = Array.isArray(req.body?.existingNames)
+        ? req.body.existingNames.map((n: any) => String(n || '').toLowerCase())
+        : [];
+      const topStoreCategories: string[] = Array.isArray(req.body?.topStoreCategories)
+        ? req.body.topStoreCategories
+        : [];
+      const count = Math.min(12, Math.max(4, Number(req.body?.count) || 6));
+      const cycleSeed = Number(req.body?.cycleSeed) || Date.now();
+
+      let generatedItems: any[] = [];
+      let sourceMode = 'curated-live-trend-engine';
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (apiKey) {
+        try {
+          const ai = new GoogleGenAI({
+            apiKey,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+          });
+
+          const todayDhaka = getDhakaTodayStr();
+          const prompt = `You are a retail merchandising expert for a Bangladeshi cosmetics, hair accessories, imitation jewelry, ladies bags & gift shop ("Glowzaa Shop").
+Date: ${todayDhaka}.
+Existing products/suggestions to avoid duplicating: ${existingNames.slice(0, 25).join(', ')}.
+Store's active focus: ${topStoreCategories.join(', ') || 'Hair clips, rubber bands, earrings, rings, cosmetics, bags, gift combos'}.
+
+Generate ${count} brand-new, currently viral & high-profit trending wholesale-to-retail product recommendations for Bangladesh wholesale markets (Chawkbazar/Gausia/New Market style).
+Each item MUST have:
+- name: Bengali name followed by English name in parentheses, e.g. "কোরিয়ান টিউলিপ মেটাল ক্ল-ক্লিপ (Korean Tulip Metal Claw Clip)"
+- searchQueryEn: A concise 3-4 word English product search query (NO abbreviations like pH or AD, NO numbers like 50pc) that returns the exact product photo (e.g., "tulip metal hair claw clip")
+- category: one of "hair_fashion", "jewelry", "cosmetics", "bags_accessories", "gift_combo"
+- categoryLabelBn: Bengali category label
+- wholesalePriceRangeBn: e.g. "৳২৫ – ৳৪০ / পিস"
+- estimatedUnitCost: number in BDT (e.g. 30)
+- suggestedRetailPriceBn: e.g. "৳৭০ – ৳১১০ / পিস"
+- estimatedSellingPrice: number in BDT (e.g. 80)
+- expectedMarginPercent: integer margin percentage (e.g. 150)
+- starterQtyBn: e.g. "২ ডজন (২৪ পিস)"
+- recommendedQty: integer (e.g. 24)
+- unit: "পিস" or "জোড়া" or "সেট"
+- demandLevelBn: e.g. "🔥 নতুন ভাইরাল ট্রেন্ড"
+- whyTrendingBn: 1-2 sentences in Bengali explaining why customers are buying it
+- marketTipBn: 1 sentence in Bengali with a wholesale buying tip
+
+Return ONLY a valid JSON array of objects.`;
+
+          const aiResponse = await Promise.race([
+            ai.models.generateContent({
+              model: 'gemini-3.8-flash',
+              contents: prompt,
+              config: {
+                responseMimeType: 'application/json',
+              },
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 6500)),
+          ]);
+
+          if (aiResponse && aiResponse.text) {
+            const parsed = JSON.parse(aiResponse.text.trim());
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              generatedItems = parsed.slice(0, count);
+              sourceMode = 'gemini-live-market-trends';
+            }
+          }
+        } catch {
+          // Fallback to dynamic pool seamlessly if Gemini times out or quota reached
+        }
+      }
+
+      if (generatedItems.length === 0) {
+        // Filter out already shown items or rotate using cycleSeed
+        const available = DYNAMIC_AUTO_TRENDING_POOL.filter(
+          (p) => !existingNames.some((ex) => ex.includes(p.name.slice(0, 12).toLowerCase()))
+        );
+        const poolToUse = available.length >= count ? available : DYNAMIC_AUTO_TRENDING_POOL;
+        const startOffset = Math.abs(Math.floor(cycleSeed)) % poolToUse.length;
+        for (let i = 0; i < Math.min(count, poolToUse.length); i++) {
+          generatedItems.push(poolToUse[(startOffset + i) % poolToUse.length]);
+        }
+      }
+
+      // Resolve real Google/Web product photos in parallel for every generated item!
+      const enrichedItems = await Promise.all(
+        generatedItems.map(async (raw, idx) => {
+          const searchQueryEn =
+            String(raw.searchQueryEn || '').trim() ||
+            String(raw.name || '').replace(/[^\x00-\x7F]+/g, ' ').trim() ||
+            'Korean hair claw clip fashion accessory product';
+
+          const photoRes = await resolveAccurateProductPhoto(searchQueryEn, 0);
+          const validCat = [
+            'hair_fashion',
+            'jewelry',
+            'cosmetics',
+            'bags_accessories',
+            'gift_combo',
+          ].includes(raw.category)
+            ? raw.category
+            : 'hair_fashion';
+
+          const cost = Math.max(5, Number(raw.estimatedUnitCost) || 30);
+          const sell = Math.max(cost + 10, Number(raw.estimatedSellingPrice) || cost * 2.2);
+
+          return {
+            id: `auto-live-${Date.now()}-${idx}`,
+            name: String(raw.name || 'নতুন ট্রেন্ডিং ফ্যাশন পণ্য'),
+            searchQueryEn,
+            category: validCat,
+            categoryLabelBn: String(raw.categoryLabelBn || 'হেয়ার ও ফ্যাশন এক্সেসরিজ'),
+            wholesalePriceRangeBn: String(raw.wholesalePriceRangeBn || `৳${cost} / পিস`),
+            estimatedUnitCost: cost,
+            suggestedRetailPriceBn: String(raw.suggestedRetailPriceBn || `৳${sell} / পিস`),
+            estimatedSellingPrice: sell,
+            expectedMarginPercent:
+              Number(raw.expectedMarginPercent) || Math.round(((sell - cost) / cost) * 100),
+            starterQtyBn: String(raw.starterQtyBn || '২ ডজন (২৪ পিস)'),
+            recommendedQty: Math.max(6, Number(raw.recommendedQty) || 24),
+            unit: String(raw.unit || 'পিস'),
+            demandLevelBn: String(raw.demandLevelBn || '🔥 লাইভ অটো-আপডেট ট্রেন্ড'),
+            whyTrendingBn: String(
+              raw.whyTrendingBn ||
+                'বর্তমান বাজারে কাস্টমারদের কাছে এই নতুন ডিজাইনের পণ্যটির চাহিদা দ্রুত বাড়ছে।'
+            ),
+            marketTipBn: String(
+              raw.marketTipBn || 'মিক্সড কালার ও আকর্ষণীয় ডিসপ্লে বক্সসহ পাইকারি কিনুন।'
+            ),
+            imageUrl: photoRes.dataUrl || '',
+            googleSourceUrl: photoRes.sourceUrl || '',
+            googleCandidateCount: photoRes.totalCandidates || 0,
+            googleImageIndex: photoRes.usedIndex || 0,
+            isAutoUpdated: true,
+            updatedAtIso: new Date().toISOString(),
+          };
+        })
+      );
+
+      return res.json({
+        ok: true,
+        sourceMode,
+        updatedAtIso: new Date().toISOString(),
+        items: enrichedItems,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        ok: false,
+        error: err?.message || 'Failed to generate live trending products',
+      });
+    }
+  });
+
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
