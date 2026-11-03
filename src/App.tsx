@@ -130,9 +130,21 @@ import StockCatalogAndMarketAdvisorModal, {
   downloadFullStockCatalogWithPhotosPdf,
 } from './components/StockCatalogAndMarketAdvisorModal';
 import QrCodeAutoSaleModal from './components/QrCodeAutoSaleModal';
-import TrayStockRefillModal from './components/TrayStockRefillModal';
+import TrayStockRefillModal, {
+  loadPersistedTrayLogs,
+  TRAY_LOGS_UPDATED_EVENT,
+} from './components/TrayStockRefillModal';
 import TrayManagementDashboard from './components/TrayManagementDashboard';
 import ScannerSoundSettingsCard from './components/ScannerSoundSettingsCard';
+import AntiFraudSecurityCenter, {
+  loadAntiFraudSettings,
+  loadBlindCashRecords,
+  loadShiftHandoverRecords,
+  computeSuspiciousActivities,
+  computeTrayDiscrepancies,
+  ANTI_FRAUD_UPDATED_EVENT,
+  type AntiFraudSettings,
+} from './components/AntiFraudSecurityCenter';
 import {
   money,
   moneyBn,
@@ -366,8 +378,27 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tab, setTab] = useState<
-    'dashboard' | 'ai_assistant' | 'transactions' | 'seller_sales' | 'tray_management' | 'investors' | 'inventory' | 'profit' | 'reports' | 'audit' | 'settings' | 'profile' | 'terms'
+    | 'dashboard'
+    | 'ai_assistant'
+    | 'transactions'
+    | 'seller_sales'
+    | 'tray_management'
+    | 'investors'
+    | 'inventory'
+    | 'profit'
+    | 'reports'
+    | 'audit'
+    | 'anti_fraud'
+    | 'settings'
+    | 'profile'
+    | 'terms'
   >('dashboard');
+  const [showBlindCashModal, setShowBlindCashModal] = useState(false);
+  const [showShiftHandoverModal, setShowShiftHandoverModal] = useState(false);
+  const [antiFraudSettings, setAntiFraudSettings] = useState<AntiFraudSettings>(() =>
+    loadAntiFraudSettings()
+  );
+  const [antiFraudTick, setAntiFraudTick] = useState(0);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -443,7 +474,24 @@ export default function App() {
   const [investorReason, setInvestorReason] = useState('');
 
   // Entry Form state
-  const [entryForm, setEntryForm] = useState({
+  const [entryForm, setEntryForm] = useState<{
+    type: RecordType;
+    seller: 'Rakib' | 'Limon' | string | undefined;
+    title: string;
+    amount: string;
+    profit: string;
+    cost: string;
+    date: string;
+    status: EntryStatus;
+    investorId: string;
+    productId: string;
+    quantity: string;
+    unitPrice: string;
+    unitCost: string;
+    category: string;
+    notes: string;
+    receiptImageUrl?: string;
+  }>({
     type: 'sale' as RecordType,
     seller: 'Rakib' as 'Rakib' | 'Limon' | string | undefined,
     title: '',
@@ -459,6 +507,7 @@ export default function App() {
     unitCost: '',
     category: '',
     notes: '',
+    receiptImageUrl: '',
   });
 
   // Investor Form
@@ -756,6 +805,9 @@ export default function App() {
   // - canEnterData: True for both Admins and Employees (allows adding sales, purchases, expenses, stock, and tray entries)
   const isEmployee = currentAdmin?.role === 'employee';
   const isFullAdmin = Boolean(currentAdmin && currentAdmin.role === 'admin');
+  const isRakib = Boolean(
+    currentAdmin && currentAdmin.role === 'admin' && currentAdmin.username === 'Rakib'
+  );
   const admin =
     !isEmployee &&
     (isFullAdmin ||
@@ -763,8 +815,25 @@ export default function App() {
         (role === 'admin' || user?.email === 'glowzaabd.shop@gmail.com' || Boolean(user))));
   const canEnterData = Boolean(currentAdmin) || admin;
 
-  // Block employees from accessing any admin-only tabs
   useEffect(() => {
+    const syncAf = () => {
+      setAntiFraudSettings(loadAntiFraudSettings());
+      setAntiFraudTick((t) => t + 1);
+    };
+    window.addEventListener(ANTI_FRAUD_UPDATED_EVENT, syncAf);
+    window.addEventListener(TRAY_LOGS_UPDATED_EVENT, syncAf);
+    return () => {
+      window.removeEventListener(ANTI_FRAUD_UPDATED_EVENT, syncAf);
+      window.removeEventListener(TRAY_LOGS_UPDATED_EVENT, syncAf);
+    };
+  }, []);
+
+  // Block employees from accessing any admin-only tabs, and block non-Rakib from anti_fraud tab
+  useEffect(() => {
+    if (tab === 'anti_fraud' && !isRakib) {
+      setTab('dashboard');
+      return;
+    }
     if (!isEmployee) return;
     const adminOnlyTabs = [
       'ai_assistant',
@@ -773,13 +842,41 @@ export default function App() {
       'profit',
       'reports',
       'audit',
+      'anti_fraud',
       'settings',
       'terms',
     ];
     if (adminOnlyTabs.includes(tab)) {
       setTab('dashboard');
     }
-  }, [isEmployee, tab]);
+  }, [isEmployee, isRakib, tab]);
+
+  // Rakib-Only Live Anti-Fraud Alert Counter
+  const rakibSecurityAlertSummary = useMemo(() => {
+    if (!isRakib) {
+      return { totalAlerts: 0, suspiciousCount: 0, trayMismatchCount: 0, cashShortageCount: 0 };
+    }
+    const tLogs = loadPersistedTrayLogs();
+    const bLogs = loadBlindCashRecords();
+    const sLogs = loadShiftHandoverRecords();
+    const trayMismatches = computeTrayDiscrepancies(products, entries, tLogs, antiFraudSettings);
+    const flags = computeSuspiciousActivities(
+      entries,
+      products,
+      auditLogs,
+      tLogs,
+      bLogs,
+      sLogs,
+      antiFraudSettings
+    );
+    const cashShortages = bLogs.filter((b) => b.difference < 0).length;
+    return {
+      totalAlerts: flags.length + trayMismatches.length,
+      suspiciousCount: flags.length,
+      trayMismatchCount: trayMismatches.length,
+      cashShortageCount: cashShortages,
+    };
+  }, [isRakib, products, entries, auditLogs, antiFraudSettings, antiFraudTick]);
 
   // Accounting Computations & New Feature Summaries
   const stats = useMemo(() => summary(entries, products), [entries, products]);
@@ -1445,6 +1542,7 @@ export default function App() {
       unitCost: entry.unitCost ? String(entry.unitCost) : '',
       category: entry.category || '',
       notes: entry.notes || '',
+      receiptImageUrl: entry.receiptImageUrl || '',
     });
     setShowEntryModal(true);
   }
@@ -1746,6 +1844,34 @@ export default function App() {
         );
       }
 
+      // ANTI-FRAUD FEATURE #3: Backdated Entry Lock (পুরনো তারিখের এন্ট্রি লক)
+      const currentAntiFraud = loadAntiFraudSettings();
+      const todayDateStr = today();
+      if (
+        !isRakib &&
+        currentAntiFraud.backdatedEntryLockEnabled &&
+        entryForm.date &&
+        entryForm.date !== todayDateStr
+      ) {
+        throw new Error(
+          `🔒 পুরনো বা ভবিষ্যৎ তারিখের এন্ট্রি লক করা আছে! আপনি শুধুমাত্র আজকের তারিখে (${dateLabel(todayDateStr)}) এন্ট্রি দিতে পারবেন।`
+        );
+      }
+
+      // ANTI-FRAUD FEATURE #4: Mandatory Expense Photo Proof (খরচের ভাউচার/রশিদের ছবি বাধ্যতামূলক)
+      const photoThreshold = Number(currentAntiFraud.mandatoryExpensePhotoThreshold) || 100;
+      if (
+        !isRakib &&
+        currentAntiFraud.mandatoryExpensePhotoEnabled &&
+        entryForm.type === 'expense' &&
+        (isEmployee || amount >= photoThreshold) &&
+        !(entryForm as any).receiptImageUrl
+      ) {
+        throw new Error(
+          `📸 খরচের ভাউচার/রশিদের ছবি বাধ্যতামূলক! ${money(photoThreshold)} বা তার বেশি খরচের ক্ষেত্রে রশিদ বা বিলের ছবি আপলোড করা ছাড়া এন্ট্রি সেভ হবে না।`
+        );
+      }
+
       const entryPayload = {
         type: entryForm.type,
         seller: (entryForm.type === 'sale'
@@ -1753,7 +1879,7 @@ export default function App() {
           : undefined) as 'Rakib' | 'Limon' | string | undefined,
         title: entryForm.title.trim(),
         amount,
-        date: entryForm.date || today(),
+        date: !isRakib && currentAntiFraud.backdatedEntryLockEnabled ? todayDateStr : entryForm.date || todayDateStr,
         status: entryForm.status,
         investorId: entryForm.investorId || undefined,
         productId: entryForm.productId || undefined,
@@ -1765,6 +1891,7 @@ export default function App() {
         profit: grossProfit,
         category: entryForm.category.trim() || undefined,
         notes: entryForm.notes.trim() || undefined,
+        receiptImageUrl: (entryForm as any).receiptImageUrl || undefined,
         demo: false,
       };
 
@@ -1829,6 +1956,7 @@ export default function App() {
         unitCost: '',
         category: '',
         notes: '',
+        receiptImageUrl: '',
       });
       setShowEntryModal(false);
     } catch (err: any) {
@@ -3929,6 +4057,39 @@ export default function App() {
               >
                 <History /> অডিট লগ (Delete History)
               </button>
+              {isRakib && (
+                <button
+                  type="button"
+                  className={tab === 'anti_fraud' ? 'nav active' : 'nav'}
+                  onClick={() => { setTab('anti_fraud'); setIsMobileMenuOpen(false); }}
+                  style={
+                    tab === 'anti_fraud'
+                      ? undefined
+                      : {
+                          background: 'rgba(239, 68, 68, 0.14)',
+                          border: '1px solid rgba(248, 113, 113, 0.4)',
+                          color: '#fecaca',
+                        }
+                  }
+                >
+                  <ShieldAlert /> 🛡️ জালিয়াতি রোধ ও অডিট
+                  {rakibSecurityAlertSummary.totalAlerts > 0 && (
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        background: '#ef4444',
+                        color: '#ffffff',
+                        fontSize: '10.5px',
+                        fontWeight: 800,
+                        padding: '1px 7px',
+                        borderRadius: '999px',
+                      }}
+                    >
+                      {toBengaliNumerals(rakibSecurityAlertSummary.totalAlerts)}
+                    </span>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 className={tab === 'settings' ? 'nav active' : 'nav'}
@@ -4145,6 +4306,21 @@ export default function App() {
               >
                 <History size={14} /> অডিট লগ
               </button>
+              {isRakib && (
+                <button
+                  type="button"
+                  className={`mobile-strip-pill ${tab === 'anti_fraud' ? 'active' : ''}`}
+                  onClick={() => setTab('anti_fraud')}
+                  style={
+                    tab === 'anti_fraud'
+                      ? undefined
+                      : { borderColor: '#f87171', background: '#fef2f2', color: '#b91c1c' }
+                  }
+                >
+                  <ShieldAlert size={14} /> 🛡️ জালিয়াতি রোধ (
+                  {toBengaliNumerals(rakibSecurityAlertSummary.totalAlerts)})
+                </button>
+              )}
               <button
                 type="button"
                 className={`mobile-strip-pill ${tab === 'terms' ? 'active' : ''}`}
@@ -4370,162 +4546,115 @@ export default function App() {
                 return (
                   <>
                     {/* EMPLOYEE OPERATIONS & DAILY WORK BANNER */}
-                    <div
-                      style={{
-                        background: 'linear-gradient(135deg, #0f172a 0%, #0f766e 100%)',
-                        borderRadius: '18px',
-                        padding: '18px 20px',
-                        color: '#ffffff',
-                        marginBottom: '16px',
-                        boxShadow: '0 10px 26px rgba(15, 118, 110, 0.22)',
-                        border: '1px solid rgba(94, 234, 212, 0.28)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          flexWrap: 'wrap',
-                          gap: '12px',
-                          marginBottom: '14px',
-                        }}
-                      >
+                    <div className="emp-ops-hero">
+                      <div className="emp-ops-top">
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <span
-                              style={{
-                                background: 'rgba(45, 212, 191, 0.2)',
-                                border: '1px solid rgba(94, 234, 212, 0.45)',
-                                color: '#99f6e4',
-                                fontSize: '11.5px',
-                                fontWeight: 800,
-                                padding: '3px 10px',
-                                borderRadius: '999px',
-                              }}
-                            >
+                          <div className="emp-ops-badge-row">
+                            <span className="emp-ops-role-pill">
                               👷 কর্মচারী অপারেশন ড্যাশবোর্ড
                             </span>
-                            <span style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 600 }}>
+                            <span className="emp-ops-date-pill">
                               📅 {dateLabel(todayStr)}
                             </span>
                           </div>
-                          <h2 style={{ margin: '6px 0 2px', fontSize: '19px', fontWeight: 900, color: '#ffffff' }}>
+                          <h2 className="emp-ops-title">
                             স্বাগতম, {currentAdmin?.displayName || currentAdmin?.username}
                           </h2>
-                          <p style={{ margin: 0, fontSize: '12.5px', color: '#cbd5e1' }}>
-                            দৈনন্দিন বিক্রয় এন্ট্রি, QR স্ক্যান সেল, মেলার ট্রে রিফিল এবং স্টক ব্যবস্থাপনা প্যানেল
+                          <p className="emp-ops-sub">
+                            দৈনন্দিন বিক্রয় এন্ট্রি, QR স্ক্যান সেল, মেলার ট্রে রিফিল এবং ব্লাইন্ড ক্যাশ ক্লোজিং প্যানেল
                           </p>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            className="primary"
-                            style={{
-                              background: '#14b8a6',
-                              borderColor: '#0d9488',
-                              color: '#ffffff',
-                              fontWeight: 800,
-                            }}
-                            onClick={() => {
-                              setEditingEntry(null);
-                              setEntryForm({
-                                type: 'sale',
-                                seller: currentAdmin?.username || 'Rakib',
-                                title: '',
-                                amount: '',
-                                profit: '',
-                                cost: '',
-                                date: today(),
-                                status: 'posted',
-                                investorId: '',
-                                productId: '',
-                                quantity: '',
-                                unitPrice: '',
-                                unitCost: '',
-                                category: '',
-                                notes: '',
-                              });
-                              setShowEntryModal(true);
-                            }}
-                          >
-                            <Plus size={16} /> + নতুন বিক্রয় / খরচ এন্ট্রি
-                          </button>
-
-                          {settings.enableQrCodeAutoSale !== false && (
-                            <button
-                              type="button"
-                              className="primary"
-                              style={{
-                                background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                                borderColor: '#6366f1',
-                                fontWeight: 800,
-                              }}
-                              onClick={() => {
-                                setQrModalInitialTab('scanner');
-                                setShowQrCodeSaleModal(true);
-                              }}
-                            >
-                              <QrCode size={16} /> ⚡ QR স্ক্যান অটো-সেল
-                            </button>
-                          )}
-
-                          {settings.enableCameraScan !== false && (
-                            <button
-                              type="button"
-                              className="primary"
-                              style={{
-                                background: 'linear-gradient(135deg, #0284c7, #0369a1)',
-                                borderColor: '#0284c7',
-                                fontWeight: 800,
-                              }}
-                              onClick={() => setShowCameraSaleModal(true)}
-                            >
-                              <Camera size={16} /> 📷 ক্যামেরা অটো-সেল
-                            </button>
-                          )}
-
-                          {settings.enableTrayRefillFeature !== false && (
-                            <button
-                              type="button"
-                              className="primary"
-                              style={{
-                                background: 'linear-gradient(135deg, #d97706, #ea580c)',
-                                borderColor: '#d97706',
-                                fontWeight: 800,
-                              }}
-                              onClick={() => {
-                                setTrayModalInitialTab('scan_refill');
-                                setShowTrayRefillModal(true);
-                              }}
-                            >
-                              <Boxes size={16} /> 🍱 ট্রে স্ক্যান রিফিল
-                            </button>
-                          )}
                         </div>
                       </div>
 
-                      {/* 4 EMPLOYEE OPERATIONAL SNAPSHOT CARDS (NO ADMIN PROFIT / NO CAPITAL / NO BALANCE) */}
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                          gap: '12px',
-                        }}
-                      >
-                        <div
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.1)',
-                            border: '1px solid rgba(255, 255, 255, 0.18)',
-                            borderRadius: '14px',
-                            padding: '12px 14px',
+                      <div className="emp-ops-action-grid">
+                        <button
+                          type="button"
+                          className="emp-ops-action-btn teal"
+                          onClick={() => {
+                            setEditingEntry(null);
+                            setEntryForm({
+                              type: 'sale',
+                              seller: currentAdmin?.username || 'Rakib',
+                              title: '',
+                              amount: '',
+                              profit: '',
+                              cost: '',
+                              date: today(),
+                              status: 'posted',
+                              investorId: '',
+                              productId: '',
+                              quantity: '',
+                              unitPrice: '',
+                              unitCost: '',
+                              category: '',
+                              notes: '',
+                            });
+                            setShowEntryModal(true);
                           }}
                         >
+                          <Plus size={15} /> বিক্রয় / খরচ এন্ট্রি
+                        </button>
+
+                        {settings.enableQrCodeAutoSale !== false && (
+                          <button
+                            type="button"
+                            className="emp-ops-action-btn indigo"
+                            onClick={() => {
+                              setQrModalInitialTab('scanner');
+                              setShowQrCodeSaleModal(true);
+                            }}
+                          >
+                            <QrCode size={15} /> QR স্ক্যান সেল
+                          </button>
+                        )}
+
+                        {settings.enableCameraScan !== false && (
+                          <button
+                            type="button"
+                            className="emp-ops-action-btn sky"
+                            onClick={() => setShowCameraSaleModal(true)}
+                          >
+                            <Camera size={15} /> ক্যামেরা অটো-সেল
+                          </button>
+                        )}
+
+                        {settings.enableTrayRefillFeature !== false && (
+                          <button
+                            type="button"
+                            className="emp-ops-action-btn amber"
+                            onClick={() => {
+                              setTrayModalInitialTab('scan_refill');
+                              setShowTrayRefillModal(true);
+                            }}
+                          >
+                            <Boxes size={15} /> ট্রে স্ক্যান রিফিল
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          className="emp-ops-action-btn emerald"
+                          onClick={() => setShowBlindCashModal(true)}
+                        >
+                          <Lock size={15} /> ব্লাইন্ড ক্যাশ কাউন্ট
+                        </button>
+
+                        <button
+                          type="button"
+                          className="emp-ops-action-btn violet"
+                          onClick={() => setShowShiftHandoverModal(true)}
+                        >
+                          <Users size={15} /> শিফট হ্যান্ডওভার লক
+                        </button>
+                      </div>
+
+                      {/* 4 EMPLOYEE OPERATIONAL SNAPSHOT CARDS (NO ADMIN PROFIT / NO CAPITAL / NO BALANCE) */}
+                      <div className="emp-ops-kpi-grid">
+                        <div className="emp-ops-kpi-card">
                           <span style={{ fontSize: '11.5px', color: '#99f6e4', fontWeight: 700, display: 'block' }}>
                             👤 আমার আজকের বিক্রয় ও এন্ট্রি
                           </span>
-                          <strong style={{ fontSize: '20px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
+                          <strong className="af-num" style={{ fontSize: '19px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
                             {toBengaliNumerals(todayMySales.length)}টি বিক্রয় • {money(todayMySalesTotal)}
                           </strong>
                           <span style={{ fontSize: '11px', color: '#cbd5e1' }}>
@@ -4533,18 +4662,11 @@ export default function App() {
                           </span>
                         </div>
 
-                        <div
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.1)',
-                            border: '1px solid rgba(255, 255, 255, 0.18)',
-                            borderRadius: '14px',
-                            padding: '12px 14px',
-                          }}
-                        >
+                        <div className="emp-ops-kpi-card">
                           <span style={{ fontSize: '11.5px', color: '#bae6fd', fontWeight: 700, display: 'block' }}>
                             🛒 দোকানের আজকের মোট বিক্রয়
                           </span>
-                          <strong style={{ fontSize: '20px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
+                          <strong className="af-num" style={{ fontSize: '19px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
                             {toBengaliNumerals(todayBreakdown.salesCount)}টি • {money(todayBreakdown.sales)}
                           </strong>
                           <span style={{ fontSize: '11px', color: '#cbd5e1' }}>
@@ -4554,11 +4676,10 @@ export default function App() {
 
                         <div
                           onClick={() => setTab('tray_management')}
+                          className="emp-ops-kpi-card"
                           style={{
                             background: 'rgba(245, 158, 11, 0.16)',
                             border: '1px solid rgba(251, 191, 36, 0.38)',
-                            borderRadius: '14px',
-                            padding: '12px 14px',
                             cursor: 'pointer',
                           }}
                           title="মেলার ট্রে ও বিক্রয় হিসাব পেজে যান"
@@ -4566,7 +4687,7 @@ export default function App() {
                           <span style={{ fontSize: '11.5px', color: '#fde68a', fontWeight: 700, display: 'block' }}>
                             🍱 মেলার ট্রে বর্তমান অবস্থা →
                           </span>
-                          <strong style={{ fontSize: '20px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
+                          <strong className="af-num" style={{ fontSize: '19px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
                             {toBengaliNumerals(activeTraysCount)}টি সচল ট্রে • {toBengaliNumerals(totalTrayPieces)} পিস
                           </strong>
                           <span style={{ fontSize: '11px', color: '#fef3c7' }}>
@@ -4576,11 +4697,10 @@ export default function App() {
 
                         <div
                           onClick={() => setTab('inventory')}
+                          className="emp-ops-kpi-card"
                           style={{
                             background: 'rgba(139, 92, 246, 0.16)',
                             border: '1px solid rgba(196, 181, 253, 0.35)',
-                            borderRadius: '14px',
-                            padding: '12px 14px',
                             cursor: 'pointer',
                           }}
                           title="মজুদ পণ্য ও স্টক পেজে যান"
@@ -4588,7 +4708,7 @@ export default function App() {
                           <span style={{ fontSize: '11.5px', color: '#ddd6fe', fontWeight: 700, display: 'block' }}>
                             📦 মূল স্টক ও পণ্য সতর্কতা →
                           </span>
-                          <strong style={{ fontSize: '20px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
+                          <strong className="af-num" style={{ fontSize: '19px', fontWeight: 900, color: '#ffffff', display: 'block', marginTop: '3px' }}>
                             {toBengaliNumerals(products.length)}টি পণ্য • {toBengaliNumerals(totalMainStockPieces)} পিস
                           </strong>
                           <span style={{ fontSize: '11px', color: '#ede9fe' }}>
@@ -4602,11 +4722,12 @@ export default function App() {
               })()
             ) : (
               <>
-                <div className="welcome">
-                  <div className="welcome-actions">
+                <div className="dash-command-bar">
+                  <div className="dash-compact-grid">
                     {canEnterData && (
                       <button
-                        className="primary"
+                        type="button"
+                        className="dash-cmd-btn primary-teal"
                         onClick={() => {
                           setEditingEntry(null);
                           setEntryForm({
@@ -4629,40 +4750,55 @@ export default function App() {
                           setShowEntryModal(true);
                         }}
                       >
-                        <Plus size={17} /> নতুন হিসাব যোগ
+                        <Plus size={15} /> নতুন হিসাব যোগ
                       </button>
                     )}
+
                     <button
                       type="button"
-                      className="secondary"
-                      onClick={() => setShowProfitabilityModal(true)}
-                      style={{
-                        borderColor: '#0d9488',
-                        color: '#0f766e',
-                        background: '#f0fdfa',
-                      }}
+                      className="dash-cmd-btn outline-slate"
+                      onClick={handleDownloadPdf}
+                      disabled={isPdfLoading}
                     >
-                      <PieChart size={17} /> পণ্যভিত্তিক লাভ ও স্টক রিপোর্ট
+                      <Download size={15} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
                     </button>
-                    <button className="secondary" onClick={handleDownloadPdf} disabled={isPdfLoading}>
-                      <Download size={17} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
+
+                    <button
+                      type="button"
+                      className="dash-cmd-btn tint-teal"
+                      onClick={() => setShowProfitabilityModal(true)}
+                    >
+                      <PieChart size={15} /> লাভ ও স্টক রিপোর্ট
                     </button>
+
                     {settings.enableTrayRefillFeature !== false && (
                       <button
                         type="button"
-                        className="primary"
-                        style={{
-                          background: 'linear-gradient(135deg, #d97706, #0f766e)',
-                          borderColor: '#d97706',
-                        }}
+                        className="dash-cmd-btn primary-amber"
                         onClick={() => {
                           setTrayModalInitialTab('scan_refill');
                           setShowTrayRefillModal(true);
                         }}
                       >
-                        <Boxes size={17} /> 🍱 মেলার ট্রে ও স্ক্যান রিফিল
+                        <Boxes size={15} /> মেলার ট্রে ও রিফিল
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      className="dash-cmd-btn tint-emerald"
+                      onClick={() => setShowBlindCashModal(true)}
+                    >
+                      <Lock size={15} /> ব্লাইন্ড ক্যাশ কাউন্ট
+                    </button>
+
+                    <button
+                      type="button"
+                      className="dash-cmd-btn tint-indigo"
+                      onClick={() => setShowShiftHandoverModal(true)}
+                    >
+                      <Users size={15} /> শিফট হ্যান্ডওভার লক
+                    </button>
                   </div>
                 </div>
 
@@ -8281,16 +8417,16 @@ export default function App() {
               </div>
 
               {/* AUDIT LOG SEARCH, FILTER & SORTING TOOLBAR */}
-              <div className="inventory-search-filter-shell" style={{ marginBottom: '16px' }}>
-                {/* Row 1: Search Box + Quick Category Scope Pills */}
+              <div className="inventory-search-filter-shell audit-filter-shell">
+                {/* Row 1: Full-Width Search Input + Quick Reset */}
                 <div className="inventory-search-top-row">
                   <div className="inventory-search-input-wrap">
-                    <Search size={18} className="inventory-search-icon" />
+                    <Search size={15} className="inventory-search-icon" />
                     <input
                       type="text"
                       value={auditSearchQuery}
                       onChange={(e) => setAuditSearchQuery(e.target.value)}
-                      placeholder="অ্যাকশন (delete_entry), কারণ, পণ্যের নাম, তারিখ বা ইউজার (Rakib/Limon) লিখে সার্চ করুন..."
+                      placeholder="অ্যাকশন, কারণ, পণ্যের নাম, তারিখ বা ইউজার (Rakib/Limon) সার্চ করুন..."
                       className="inventory-search-input"
                     />
                     {auditSearchQuery && (
@@ -8300,43 +8436,55 @@ export default function App() {
                         onClick={() => setAuditSearchQuery('')}
                         title="সার্চ মুছুন"
                       >
-                        <X size={15} />
+                        <X size={14} />
                       </button>
                     )}
                   </div>
 
-                  {/* Quick Category Filter Pills */}
-                  <div className="inventory-search-scope-pills" role="group" aria-label="অডিট ক্যাটাগরি ফিল্টার">
-                    {(
-                      [
-                        { id: 'all', label: `🔍 সব লগ (${toBengaliNumerals(enrichedLogs.length)})` },
-                        { id: 'delete', label: `🗑️ ডিলিট ও বাতিল (${toBengaliNumerals(deleteCount)})` },
-                        { id: 'email', label: `📧 ইমেইল সামারি (${toBengaliNumerals(emailCount)})` },
-                        { id: 'approval', label: `🛡️ দ্বৈত অনুমোদন (${toBengaliNumerals(approvalCount)})` },
-                        { id: 'edit', label: `✏️ এডিট ও অন্যান্য (${toBengaliNumerals(editCount)})` },
-                      ] as const
-                    ).map((pill) => (
-                      <button
-                        key={pill.id}
-                        type="button"
-                        className={`inv-scope-pill ${auditCategoryFilter === pill.id ? 'active' : ''}`}
-                        onClick={() => {
-                          setAuditCategoryFilter(pill.id);
-                          setAuditActionFilter('all');
-                        }}
-                      >
-                        {pill.label}
-                      </button>
-                    ))}
-                  </div>
+                  {hasActiveAuditFilters && (
+                    <button
+                      type="button"
+                      className="inv-reset-filter-btn"
+                      onClick={resetAuditFilters}
+                      title="ফিল্টার ও সার্চ রিসেট করুন"
+                    >
+                      <RotateCcw size={12} />
+                      <span>রিসেট</span>
+                    </button>
+                  )}
                 </div>
 
-                {/* Row 2: Action Dropdown, Maker Filter, Audit Type/Approver Filter, Date Filter & Sort */}
-                <div className="inventory-filter-controls-grid">
+                {/* Row 2: Compact Category Filter Pills */}
+                <div className="inventory-search-scope-pills" role="group" aria-label="অডিট ক্যাটাগরি ফিল্টার">
+                  {(
+                    [
+                      { id: 'all', label: `🔍 সব লগ (${toBengaliNumerals(enrichedLogs.length)})` },
+                      { id: 'delete', label: `🗑️ ডিলিট ও বাতিল (${toBengaliNumerals(deleteCount)})` },
+                      { id: 'email', label: `📧 ইমেইল সামারি (${toBengaliNumerals(emailCount)})` },
+                      { id: 'approval', label: `🛡️ দ্বৈত অনুমোদন (${toBengaliNumerals(approvalCount)})` },
+                      { id: 'edit', label: `✏️ এডিট ও অন্যান্য (${toBengaliNumerals(editCount)})` },
+                    ] as const
+                  ).map((pill) => (
+                    <button
+                      key={pill.id}
+                      type="button"
+                      className={`inv-scope-pill ${auditCategoryFilter === pill.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setAuditCategoryFilter(pill.id);
+                        setAuditActionFilter('all');
+                      }}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Row 3: Compact Filter Dropdowns Grid */}
+                <div className="inventory-filter-controls-grid audit-controls-grid">
                   {/* Exact Action Select */}
                   <div className="inv-filter-group">
                     <label className="inv-filter-label">
-                      <Tag size={13} />
+                      <Tag size={12} />
                       <span>নির্দিষ্ট অ্যাকশন (Action):</span>
                     </label>
                     <select
@@ -8358,7 +8506,7 @@ export default function App() {
                   {/* Maker / Actor Filter */}
                   <div className="inv-filter-group">
                     <label className="inv-filter-label">
-                      <UserIcon size={13} />
+                      <UserIcon size={12} />
                       <span>অনুরোধকারী (Maker):</span>
                     </label>
                     <select
@@ -8375,7 +8523,7 @@ export default function App() {
                   {/* Audit Type & Approver Filter */}
                   <div className="inv-filter-group">
                     <label className="inv-filter-label">
-                      <ShieldCheck size={13} />
+                      <ShieldCheck size={12} />
                       <span>লগের ধরন ও অনুমোদনকারী:</span>
                     </label>
                     <select
@@ -8394,7 +8542,7 @@ export default function App() {
                   {/* Date Range Filter */}
                   <div className="inv-filter-group">
                     <label className="inv-filter-label">
-                      <Calendar size={13} />
+                      <Calendar size={12} />
                       <span>সময়সীমা / তারিখ ফিল্টার:</span>
                     </label>
                     <select
@@ -8412,9 +8560,9 @@ export default function App() {
                   </div>
 
                   {/* Sort Order */}
-                  <div className="inv-filter-group">
+                  <div className="inv-filter-group inv-filter-group-span">
                     <label className="inv-filter-label">
-                      <Filter size={13} />
+                      <Filter size={12} />
                       <span>শর্টিং / ক্রম সাজান:</span>
                     </label>
                     <select
@@ -8433,44 +8581,30 @@ export default function App() {
 
                 {/* Custom Date Inputs when 'custom' date preset is selected */}
                 {auditDatePreset === 'custom' && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                      gap: '10px',
-                      marginTop: '10px',
-                      padding: '10px 12px',
-                      background: '#f8fafc',
-                      borderRadius: '10px',
-                      border: '1px solid #cbd5e1',
-                    }}
-                  >
-                    <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#0f172a' }}>
-                      📅 তারিখ রেঞ্জ নির্বাচন করুন:
+                  <div className="audit-custom-date-bar">
+                    <span className="audit-custom-date-title">
+                      📅 তারিখ রেঞ্জ:
                     </span>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', margin: 0 }}>
+                    <label className="audit-custom-date-field">
                       <span>শুরু:</span>
                       <input
                         type="date"
                         value={auditStartDate}
                         onChange={(e) => setAuditStartDate(e.target.value)}
-                        style={{ padding: '5px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
                       />
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', margin: 0 }}>
+                    <label className="audit-custom-date-field">
                       <span>শেষ:</span>
                       <input
                         type="date"
                         value={auditEndDate}
                         onChange={(e) => setAuditEndDate(e.target.value)}
-                        style={{ padding: '5px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
                       />
                     </label>
                   </div>
                 )}
 
-                {/* Row 3: Live Status Summary & Reset Filter Button */}
+                {/* Row 4: Live Status Summary */}
                 <div className="inventory-search-status-bar">
                   <div className="inventory-status-metrics">
                     <span className="inv-metric-badge primary">
@@ -8501,17 +8635,6 @@ export default function App() {
                       </span>
                     )}
                   </div>
-
-                  {hasActiveAuditFilters && (
-                    <button
-                      type="button"
-                      className="inv-reset-filter-btn"
-                      onClick={resetAuditFilters}
-                    >
-                      <RotateCcw size={13} />
-                      <span>ফিল্টার ও সার্চ রিসেট করুন</span>
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -9602,7 +9725,67 @@ export default function App() {
             }}
           />
         )}
+
+        {/* TAB: RAKIB-ONLY ANTI-FRAUD & SECURITY CENTER */}
+        {tab === 'anti_fraud' && isRakib && currentAdmin && (
+          <AntiFraudSecurityCenter
+            mode="full_center"
+            isRakib={isRakib}
+            currentAdmin={currentAdmin}
+            entries={entries}
+            products={products}
+            auditLogs={auditLogs}
+            employees={employees}
+            availableBusinessCash={cashSummary.availableCash}
+            todayNetCash={todayBreakdown.sales - todayBreakdown.expenses}
+            todaySalesAmount={todayBreakdown.sales}
+            todaySalesCount={todayBreakdown.salesCount}
+            todayExpensesAmount={todayBreakdown.expenses}
+            onViewEntry={(entry) => setViewRecordModal(entry)}
+            onNotifyMessage={(msg) => setMessage(msg)}
+          />
+        )}
       </main>
+
+      {/* BLIND CASH CLOSING MODAL (Operational for Employees & Admins) */}
+      {showBlindCashModal && currentAdmin && (
+        <AntiFraudSecurityCenter
+          mode="blind_cash_modal"
+          isRakib={isRakib}
+          currentAdmin={currentAdmin}
+          entries={entries}
+          products={products}
+          auditLogs={auditLogs}
+          employees={employees}
+          availableBusinessCash={cashSummary.availableCash}
+          todayNetCash={todayBreakdown.sales - todayBreakdown.expenses}
+          todaySalesAmount={todayBreakdown.sales}
+          todaySalesCount={todayBreakdown.salesCount}
+          todayExpensesAmount={todayBreakdown.expenses}
+          onCloseModal={() => setShowBlindCashModal(false)}
+          onNotifyMessage={(msg) => setMessage(msg)}
+        />
+      )}
+
+      {/* SHIFT HANDOVER SIGN-OFF MODAL (Operational for Employees & Admins) */}
+      {showShiftHandoverModal && currentAdmin && (
+        <AntiFraudSecurityCenter
+          mode="shift_handover_modal"
+          isRakib={isRakib}
+          currentAdmin={currentAdmin}
+          entries={entries}
+          products={products}
+          auditLogs={auditLogs}
+          employees={employees}
+          availableBusinessCash={cashSummary.availableCash}
+          todayNetCash={todayBreakdown.sales - todayBreakdown.expenses}
+          todaySalesAmount={todayBreakdown.sales}
+          todaySalesCount={todayBreakdown.salesCount}
+          todayExpensesAmount={todayBreakdown.expenses}
+          onCloseModal={() => setShowShiftHandoverModal(false)}
+          onNotifyMessage={(msg) => setMessage(msg)}
+        />
+      )}
 
       {/* MOBILE FIXED BOTTOM NAVIGATION BAR (Ergonomic Thumb Zone) */}
       <nav className="mobile-bottom-nav" aria-label="মোবাইল বটম নেভিগেশন">
@@ -10075,12 +10258,37 @@ export default function App() {
             )}
 
             <label>
-              তারিখ
+              <span className="af-date-lock-label-row">
+                <span>তারিখ</span>
+                {!isRakib && antiFraudSettings.backdatedEntryLockEnabled && (
+                  <span className="af-date-lock-pill">
+                    🔒 পুরনো তারিখ লক (শুধু আজ)
+                  </span>
+                )}
+              </span>
               <input
                 required
                 type="date"
-                value={entryForm.date}
-                onChange={(e) => setEntryForm({ ...entryForm, date: e.target.value })}
+                value={
+                  !isRakib && antiFraudSettings.backdatedEntryLockEnabled
+                    ? today()
+                    : entryForm.date
+                }
+                min={
+                  !isRakib && antiFraudSettings.backdatedEntryLockEnabled
+                    ? today()
+                    : undefined
+                }
+                max={
+                  !isRakib && antiFraudSettings.backdatedEntryLockEnabled
+                    ? today()
+                    : undefined
+                }
+                readOnly={!isRakib && antiFraudSettings.backdatedEntryLockEnabled}
+                onChange={(e) => {
+                  if (!isRakib && antiFraudSettings.backdatedEntryLockEnabled) return;
+                  setEntryForm({ ...entryForm, date: e.target.value });
+                }}
               />
             </label>
 
@@ -10156,6 +10364,86 @@ export default function App() {
                 onChange={(e) => setEntryForm({ ...entryForm, notes: e.target.value })}
               />
             </label>
+
+            {/* ANTI-FRAUD FEATURE #4: MANDATORY EXPENSE PHOTO PROOF (খরচের ভাউচার/রশিদের ছবি) */}
+            {(entryForm.type === 'expense' || entryForm.type === 'purchase') && (
+              <div
+                className={`full af-receipt-upload-zone ${
+                  (entryForm as any).receiptImageUrl
+                    ? 'uploaded'
+                    : entryForm.type === 'expense' && antiFraudSettings.mandatoryExpensePhotoEnabled
+                      ? 'required-missing'
+                      : ''
+                }`}
+              >
+                <div className="af-receipt-upload-head">
+                  <strong style={{ fontSize: '13px', color: '#0f172a' }}>
+                    📸 খরচের ভাউচার / রশিদের ছবি সংযুক্ত করুন{' '}
+                    {entryForm.type === 'expense' &&
+                    antiFraudSettings.mandatoryExpensePhotoEnabled ? (
+                      <span style={{ color: '#dc2626' }}>
+                        (বাধ্যতামূলক — ৳{toBengaliNumerals(antiFraudSettings.mandatoryExpensePhotoThreshold || 100)}+ খরচে)
+                      </span>
+                    ) : (
+                      '(ঐচ্ছিক)'
+                    )}
+                  </strong>
+                  {(entryForm as any).receiptImageUrl && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      style={{ padding: '4px 10px', fontSize: '11.5px', color: '#dc2626', fontWeight: 700 }}
+                      onClick={() =>
+                        setEntryForm((prev) => ({ ...prev, receiptImageUrl: '' }))
+                      }
+                    >
+                      ছবি মুছুন
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <label className="af-receipt-upload-btn">
+                    <Camera size={15} /> রশিদ/ভাউচারের ছবি তুলুন বা আপলোড করুন
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      style={{ display: 'none' }}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const compressed = await compressImage(file);
+                          setEntryForm((prev) => ({ ...prev, receiptImageUrl: compressed }));
+                        } catch {
+                          setError('ভাউচারের ছবি প্রসেস করা যায়নি');
+                        }
+                      }}
+                    />
+                  </label>
+
+                  {(entryForm as any).receiptImageUrl && (
+                    <div className="af-receipt-preview-chip">
+                      <img
+                        src={(entryForm as any).receiptImageUrl}
+                        alt="Receipt preview"
+                        style={{
+                          width: '54px',
+                          height: '54px',
+                          objectFit: 'cover',
+                          borderRadius: '8px',
+                          border: '2px solid #16a34a',
+                        }}
+                      />
+                      <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 800 }}>
+                        ✅ ভাউচারের ছবি যুক্ত হয়েছে
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {currentAdmin && needsPartnerApproval && (
               <div className="full" style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '10px 12px' }}>
@@ -11774,6 +12062,34 @@ export default function App() {
               {viewRecordModal.notes && (
                 <div style={{ marginTop: '12px', fontSize: '12.5px', color: '#475569', background: '#ffffff', padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                   <b>মন্তব্য:</b> {viewRecordModal.notes}
+                </div>
+              )}
+
+              {viewRecordModal.receiptImageUrl && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    background: '#f8fafc',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                  }}
+                >
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a', marginBottom: '6px' }}>
+                    🧾 সংযুক্ত ভাউচার / রশিদের ছবি:
+                  </div>
+                  <img
+                    src={viewRecordModal.receiptImageUrl}
+                    alt="Voucher Receipt"
+                    style={{
+                      width: '100%',
+                      maxHeight: '280px',
+                      objectFit: 'contain',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                    }}
+                  />
                 </div>
               )}
             </div>

@@ -15,6 +15,21 @@ export interface EmployeeAccount {
   updatedAt?: string;
 }
 
+export interface MelaEventRecord {
+  id: string;
+  name: string;
+  location?: string;
+  stallNumber?: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  stallRentCost?: number;
+  manualProfitOverride?: number;
+  notes?: string;
+  createdBy: 'Rakib';
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Investor {
   id: string;
   name: string;
@@ -91,6 +106,7 @@ export interface Entry {
   profit?: number; // Direct profit amount (alias for grossProfit)
   category?: string;
   notes?: string;
+  receiptImageUrl?: string; // খরচের ভাউচার বা রশিদের ছবি (Mandatory Expense Photo Proof)
   seller?: 'Rakib' | 'Limon' | string;
   demo?: boolean;
   createdAt?: any;

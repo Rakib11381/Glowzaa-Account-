@@ -35,6 +35,7 @@ import { money, dateLabel, toBengaliNumerals, formatBengaliDateTime, type Partne
 import type { Entry, Investor, Product, ApprovalRequest, EmployeeAccount } from '../types';
 import TermsConditionsCard from './TermsConditionsCard';
 import VoiceFormAssistant from './VoiceFormAssistant';
+import MelaProfitTrackerPanel from './MelaProfitTrackerPanel';
 
 interface AdminProfileProps {
   adminUser: {
@@ -143,6 +144,7 @@ export default function AdminProfile({
   onUpdateAvatar,
   investors,
   entries,
+  products,
   partnerAccounts,
   availableBusinessCash,
   onSubmitWithdrawal,
@@ -163,9 +165,9 @@ export default function AdminProfile({
   const isRakibAdmin = adminUser.role === 'admin' && adminUser.username === 'Rakib';
   const isEmployeeUser = adminUser.role === 'employee';
 
-  // Active section filter ('all' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms')
+  // Active section filter ('all' | 'mela_tracker' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms')
   const [activeSection, setActiveSection] = useState<
-    'all' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms'
+    'all' | 'mela_tracker' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms'
   >('all');
 
   // Employee Account Creation & Management states (Exclusively for Rakib)
@@ -1218,6 +1220,20 @@ export default function AdminProfile({
         {isRakibAdmin && (
           <button
             type="button"
+            className={`profile-sec-btn ${activeSection === 'mela_tracker' ? 'active' : ''}`}
+            onClick={() => setActiveSection('mela_tracker')}
+            style={
+              activeSection === 'mela_tracker'
+                ? undefined
+                : { borderColor: '#f59e0b', background: '#fffbeb', color: '#b45309', fontWeight: 800 }
+            }
+          >
+            🎪 কোন মেলায় কত লাভ ও সময়কাল
+          </button>
+        )}
+        {isRakibAdmin && (
+          <button
+            type="button"
             className={`profile-sec-btn ${activeSection === 'employees' ? 'active' : ''}`}
             onClick={() => setActiveSection('employees')}
             style={
@@ -1264,6 +1280,15 @@ export default function AdminProfile({
           পাসওয়ার্ড পরিবর্তন
         </button>
       </div>
+
+      {/* 3.2 EXCLUSIVE MELA PROFIT & DURATION TRACKER (RAKIB ONLY) */}
+      {isRakibAdmin && (activeSection === 'all' || activeSection === 'mela_tracker') && (
+        <MelaProfitTrackerPanel
+          isRakibAdmin={isRakibAdmin}
+          entries={entries}
+          products={products}
+        />
+      )}
 
       {/* 3.5 EXCLUSIVE EMPLOYEE ACCOUNT CREATION & MANAGEMENT (RAKIB ONLY) */}
       {isRakibAdmin && (activeSection === 'all' || activeSection === 'employees') && (() => {

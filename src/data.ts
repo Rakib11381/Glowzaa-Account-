@@ -28,6 +28,7 @@ import type {
   EmailNotificationLog,
   AiChatSession,
   EmployeeAccount,
+  MelaEventRecord,
 } from './types';
 import { formatBengaliDateTime, calculateCashBalance } from './accounting';
 
@@ -1317,6 +1318,122 @@ export async function saveEmployeeAccounts(
   }
 
   return employees;
+}
+
+// ============================================================================
+// RAKIB-EXCLUSIVE MELA (FAIR) PROFIT & DURATION TRACKER PERSISTENCE
+// ============================================================================
+const MELA_EVENTS_STORAGE_KEY = 'glowzaa_mela_events_v1';
+
+export function getCachedMelaEvents(): MelaEventRecord[] {
+  try {
+    const raw = localStorage.getItem(MELA_EVENTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCachedMelaEvents(list: MelaEventRecord[]): void {
+  try {
+    localStorage.setItem(MELA_EVENTS_STORAGE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+export async function loadMelaEventsFromDb(): Promise<MelaEventRecord[]> {
+  const local = getCachedMelaEvents();
+  if (!db) return local;
+  try {
+    const snap = await getDoc(doc(db, 'businessSettings', 'melaEvents'));
+    if (snap.exists()) {
+      const data = snap.data();
+      const rows: MelaEventRecord[] = Array.isArray(data?.list) ? data.list : [];
+      saveCachedMelaEvents(rows);
+      return rows;
+    }
+  } catch (e) {
+    console.warn('Could not read melaEvents from Firestore, using local cache:', e);
+  }
+  return local;
+}
+
+export function watchMelaEvents(
+  cb: (rows: MelaEventRecord[]) => void,
+  onError?: (e: Error) => void
+): Unsubscribe {
+  const cached = getCachedMelaEvents();
+  cb(cached);
+
+  if (!db) {
+    return () => {};
+  }
+
+  return onSnapshot(
+    doc(db, 'businessSettings', 'melaEvents'),
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const rows: MelaEventRecord[] = Array.isArray(data?.list) ? data.list : [];
+        saveCachedMelaEvents(rows);
+        cb(rows);
+      } else {
+        cb(getCachedMelaEvents());
+      }
+    },
+    (err) => {
+      if (onError) onError(err as Error);
+      cb(getCachedMelaEvents());
+    }
+  );
+}
+
+export async function saveMelaEvents(
+  melaList: MelaEventRecord[],
+  actorUsername: string,
+  auditReason?: string
+): Promise<MelaEventRecord[]> {
+  if (actorUsername !== 'Rakib') {
+    throw new Error('অ্যাক্সেস অস্বীকৃত! শুধুমাত্র রাকিব (Rakib) মেলার হিসাব তৈরি বা পরিবর্তন করতে পারবেন।');
+  }
+
+  saveCachedMelaEvents(melaList);
+
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'businessSettings', 'melaEvents'),
+        cleanObject({
+          list: melaList,
+          updatedBy: 'Rakib',
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
+
+      if (auditReason) {
+        await addDoc(
+          collection(db, 'auditLogs'),
+          cleanObject({
+            action: 'mela_event_manage',
+            recordId: `mela_mgr_${Date.now()}`,
+            actor: 'Rakib',
+            actorEmail: 'rakib@glowzaa.shop',
+            maker: 'Rakib',
+            makerName: 'রাকিব (Rakib)',
+            formattedTime: formatBengaliDateTime(new Date()),
+            reason: auditReason,
+            createdAt: serverTimestamp(),
+          })
+        );
+      }
+    } catch (err) {
+      console.warn('Could not sync melaEvents to Firestore:', err);
+    }
+  }
+
+  return melaList;
 }
 
 // Ensure Rakib and Limon have partner records in investors collection
