@@ -1529,6 +1529,17 @@ td b {
   flex-shrink: 0;
 }
 
+@keyframes profile-avatar-float {
+  0%, 100% {
+    transform: translateY(0);
+    box-shadow: 0 6px 18px rgba(13, 148, 136, 0.24), 0 0 0 2px rgba(45, 212, 191, 0.2);
+  }
+  50% {
+    transform: translateY(-5px);
+    box-shadow: 0 13px 26px rgba(13, 148, 136, 0.38), 0 0 0 4px rgba(45, 212, 191, 0.35);
+  }
+}
+
 .profile-avatar-frame {
   width: 82px;
   height: 82px;
@@ -1539,16 +1550,19 @@ td b {
   align-items: center;
   justify-content: center;
   position: relative;
-  box-shadow: 0 6px 16px rgba(13, 148, 136, 0.22);
+  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.24);
   border: 3px solid #ffffff;
   outline: 1.5px solid #cbd5e1;
   cursor: pointer;
   overflow: visible;
-  transition: transform 0.15s ease;
+  animation: profile-avatar-float 3.6s ease-in-out infinite;
+  will-change: transform, box-shadow;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
 }
 
 .profile-avatar-frame:hover {
-  transform: scale(1.02);
+  transform: translateY(-8px) scale(1.04);
+  box-shadow: 0 16px 32px rgba(13, 148, 136, 0.45), 0 0 0 5px rgba(45, 212, 191, 0.4);
 }
 
 .profile-avatar-img {

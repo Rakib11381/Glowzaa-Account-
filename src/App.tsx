@@ -304,6 +304,7 @@ export default function App() {
     username: 'Rakib' | 'Limon' | string;
     displayName: string;
     role: 'admin' | 'employee';
+    isDashboardOnly?: boolean;
     employeeId?: string;
     designation?: string;
     phone?: string;
@@ -785,13 +786,14 @@ export default function App() {
   // - admin: True ONLY for full admins (Rakib & Limon)
   // - canEnterData: True for both Admins and Employees (allows adding sales, purchases, expenses, stock, and tray entries)
   const isEmployee = currentAdmin?.role === 'employee';
-  const isFullAdmin = Boolean(currentAdmin && currentAdmin.role === 'admin');
+  const isDashboardOnly = Boolean(currentAdmin?.isDashboardOnly);
+  const isFullAdmin = Boolean(currentAdmin && currentAdmin.role === 'admin' && !currentAdmin.isDashboardOnly);
   const isRakib = Boolean(
-    currentAdmin && currentAdmin.role === 'admin' && currentAdmin.username === 'Rakib'
+    currentAdmin && currentAdmin.role === 'admin' && currentAdmin.username === 'Rakib' && !currentAdmin.isDashboardOnly
   );
   const admin =
     !isEmployee &&
-    (isFullAdmin ||
+    (Boolean(currentAdmin && currentAdmin.role === 'admin') ||
       (!currentAdmin &&
         (role === 'admin' || user?.email === 'glowzaabd.shop@gmail.com' || Boolean(user))));
   const canEnterData = Boolean(currentAdmin) || admin;
@@ -809,8 +811,15 @@ export default function App() {
     };
   }, []);
 
-  // Block employees from accessing any admin-only tabs, and block non-Rakib from anti_fraud tab
+  // Strict tab restriction:
+  // - If isDashboardOnly: Lock exclusively to dashboard (can only view dashboard and its complete data)
+  // - If isRakib not active: Block anti_fraud
+  // - If isEmployee: Block admin-only tabs
   useEffect(() => {
+    if (isDashboardOnly && tab !== 'dashboard') {
+      setTab('dashboard');
+      return;
+    }
     if (tab === 'anti_fraud' && !isRakib) {
       setTab('dashboard');
       return;
@@ -830,7 +839,7 @@ export default function App() {
     if (adminOnlyTabs.includes(tab)) {
       setTab('dashboard');
     }
-  }, [isEmployee, isRakib, tab]);
+  }, [isDashboardOnly, isEmployee, isRakib, tab]);
 
   // Rakib-Only Live Anti-Fraud Alert Counter
   const rakibSecurityAlertSummary = useMemo(() => {
@@ -1362,6 +1371,31 @@ export default function App() {
       const rawUser = adminUsernameInput.trim();
       const isRakib = rawUser.toLowerCase() === 'rakib';
       const isLimon = rawUser.toLowerCase() === 'limon';
+
+      // 1. Dedicated Dashboard-Only Viewer Mode for Rakib (User: Rakib, Pass: 11381)
+      if (isRakib && adminPasswordInput === '11381') {
+        if (auth && !auth.currentUser) {
+          signInAnonymously(auth).catch((e) => console.warn('Anonymous signin error:', e));
+        }
+
+        const dashboardProfile = {
+          username: 'Rakib' as const,
+          displayName: 'রাকিব (ড্যাশবোর্ড)',
+          role: 'admin' as const,
+          isDashboardOnly: true,
+        };
+
+        setAdminPasswordInput('');
+        setShowAdminPass(false);
+        setCurrentAdmin(dashboardProfile);
+        setTab('dashboard');
+        localStorage.setItem('glowzaa_current_admin', JSON.stringify(dashboardProfile));
+
+        ensureAdminInvestors(auth?.currentUser?.uid || 'Rakib');
+
+        setMessage('স্বাগতম রাকিব! আপনি ড্যাশবোর্ড ভিউয়ার মোডে সফলভাবে প্রবেশ করেছেন। ড্যাশবোর্ডের সমস্ত ডেটা দেখতে পাচ্ছেন।');
+        return;
+      }
 
       if (isRakib || isLimon) {
         const canonicalName: 'Rakib' | 'Limon' = isRakib ? 'Rakib' : 'Limon';
@@ -3944,152 +3978,156 @@ export default function App() {
             className={tab === 'dashboard' ? 'nav active' : 'nav'}
             onClick={() => { setTab('dashboard'); setIsMobileMenuOpen(false); }}
           >
-            <Activity /> ড্যাশবোর্ড
+            <Activity /> {isDashboardOnly ? '📊 ড্যাশবোর্ড (ভিউয়ার)' : 'ড্যাশবোর্ড'}
           </button>
-          {!isEmployee && settings.enableAiAssistant !== false && (
-            <button
-              type="button"
-              className={tab === 'ai_assistant' ? 'nav active' : 'nav'}
-              onClick={() => { setTab('ai_assistant'); setIsMobileMenuOpen(false); }}
-              style={{
-                background: tab === 'ai_assistant' ? undefined : 'rgba(45, 212, 191, 0.08)',
-                border: tab === 'ai_assistant' ? undefined : '1px solid rgba(45, 212, 191, 0.25)',
-              }}
-            >
-              <Bot style={{ color: '#2dd4bf', flexShrink: 0 }} />
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.2, minWidth: 0 }}>
-                <span>AI Business Assistant</span>
-                <small style={{ fontSize: '10.5px', color: tab === 'ai_assistant' ? '#ccfbf1' : '#94a3b8', fontWeight: 500 }}>
-                  আপনার ব্যবসার হিসাব জিজ্ঞাসা করুন
-                </small>
-              </div>
-            </button>
-          )}
-          <button
-            type="button"
-            className={tab === 'transactions' ? 'nav active' : 'nav'}
-            onClick={() => { setTab('transactions'); setIsMobileMenuOpen(false); }}
-          >
-            <Banknote /> {isEmployee ? 'সকল লেনদেন ও এন্ট্রি' : 'সকল লেনদেন ও ডিলিট'}
-          </button>
-          {!isEmployee && (
-            <button
-              type="button"
-              className={tab === 'seller_sales' ? 'nav active' : 'nav'}
-              onClick={() => { setTab('seller_sales'); setIsMobileMenuOpen(false); }}
-            >
-              <Users /> বিক্রেতা অনুযায়ী হিসাব
-            </button>
-          )}
-          <button
-            type="button"
-            className={tab === 'tray_management' ? 'nav active' : 'nav'}
-            onClick={() => { setTab('tray_management'); setIsMobileMenuOpen(false); }}
-          >
-            <Layers /> 🍱 মেলার ট্রে ও বিক্রয় হিসাব
-          </button>
-          {!isEmployee && (
-            <button
-              type="button"
-              className={tab === 'investors' ? 'nav active' : 'nav'}
-              onClick={() => { setTab('investors'); setIsMobileMenuOpen(false); }}
-            >
-              <Users /> ইনভেস্টর ও শেয়ার
-            </button>
-          )}
-
-          <span className="nav-section-title">পণ্য ও হিসাব</span>
-          <button
-            type="button"
-            className={tab === 'inventory' ? 'nav active' : 'nav'}
-            onClick={() => { setTab('inventory'); setIsMobileMenuOpen(false); }}
-          >
-            <Boxes /> {isEmployee ? 'মজুদ পণ্য ও স্টক' : 'মজুদ পণ্য ও কস্টিং'}
-          </button>
-          {!isEmployee && (
-            <button
-              type="button"
-              className={tab === 'profit' ? 'nav active' : 'nav'}
-              onClick={() => { setTab('profit'); setIsMobileMenuOpen(false); }}
-            >
-              <Percent /> মুনাফা বণ্টন
-            </button>
-          )}
-
-          {!isEmployee && (
+          {!isDashboardOnly && (
             <>
-              <span className="nav-section-title">রিপোর্ট ও নিরাপত্তা</span>
-              <button
-                type="button"
-                className={tab === 'reports' ? 'nav active' : 'nav'}
-                onClick={() => { setTab('reports'); setIsMobileMenuOpen(false); }}
-              >
-                <Download /> রিপোর্ট ও পিডিএফ
-              </button>
-              <button
-                type="button"
-                className={tab === 'audit' ? 'nav active' : 'nav'}
-                onClick={() => { setTab('audit'); setIsMobileMenuOpen(false); }}
-              >
-                <History /> অডিট লগ (Delete History)
-              </button>
-              {isRakib && (
+              {!isEmployee && settings.enableAiAssistant !== false && (
                 <button
                   type="button"
-                  className={tab === 'anti_fraud' ? 'nav active' : 'nav'}
-                  onClick={() => { setTab('anti_fraud'); setIsMobileMenuOpen(false); }}
-                  style={
-                    tab === 'anti_fraud'
-                      ? undefined
-                      : {
-                          background: 'rgba(239, 68, 68, 0.14)',
-                          border: '1px solid rgba(248, 113, 113, 0.4)',
-                          color: '#fecaca',
-                        }
-                  }
+                  className={tab === 'ai_assistant' ? 'nav active' : 'nav'}
+                  onClick={() => { setTab('ai_assistant'); setIsMobileMenuOpen(false); }}
+                  style={{
+                    background: tab === 'ai_assistant' ? undefined : 'rgba(45, 212, 191, 0.08)',
+                    border: tab === 'ai_assistant' ? undefined : '1px solid rgba(45, 212, 191, 0.25)',
+                  }}
                 >
-                  <ShieldAlert /> 🛡️ জালিয়াতি রোধ ও অডিট
-                  {rakibSecurityAlertSummary.totalAlerts > 0 && (
-                    <span
-                      style={{
-                        marginLeft: 'auto',
-                        background: '#ef4444',
-                        color: '#ffffff',
-                        fontSize: '10.5px',
-                        fontWeight: 800,
-                        padding: '1px 7px',
-                        borderRadius: '999px',
-                      }}
-                    >
-                      {toBengaliNumerals(rakibSecurityAlertSummary.totalAlerts)}
-                    </span>
-                  )}
+                  <Bot style={{ color: '#2dd4bf', flexShrink: 0 }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.2, minWidth: 0 }}>
+                    <span>AI Business Assistant</span>
+                    <small style={{ fontSize: '10.5px', color: tab === 'ai_assistant' ? '#ccfbf1' : '#94a3b8', fontWeight: 500 }}>
+                      আপনার ব্যবসার হিসাব জিজ্ঞাসা করুন
+                    </small>
+                  </div>
                 </button>
               )}
               <button
                 type="button"
-                className={tab === 'settings' ? 'nav active' : 'nav'}
-                onClick={() => { setTab('settings'); setIsMobileMenuOpen(false); }}
+                className={tab === 'transactions' ? 'nav active' : 'nav'}
+                onClick={() => { setTab('transactions'); setIsMobileMenuOpen(false); }}
               >
-                <Settings /> সেটিংস ও ডেটা
+                <Banknote /> {isEmployee ? 'সকল লেনদেন ও এন্ট্রি' : 'সকল লেনদেন ও ডিলিট'}
               </button>
+              {!isEmployee && (
+                <button
+                  type="button"
+                  className={tab === 'seller_sales' ? 'nav active' : 'nav'}
+                  onClick={() => { setTab('seller_sales'); setIsMobileMenuOpen(false); }}
+                >
+                  <Users /> বিক্রেতা অনুযায়ী হিসাব
+                </button>
+              )}
               <button
                 type="button"
-                className={tab === 'terms' ? 'nav active' : 'nav'}
-                onClick={() => { setTab('terms'); setIsMobileMenuOpen(false); }}
+                className={tab === 'tray_management' ? 'nav active' : 'nav'}
+                onClick={() => { setTab('tray_management'); setIsMobileMenuOpen(false); }}
               >
-                <ShieldCheck /> শর্তাবলী ও নীতিমালা
+                <Layers /> 🍱 মেলার ট্রে ও বিক্রয় হিসাব
+              </button>
+              {!isEmployee && (
+                <button
+                  type="button"
+                  className={tab === 'investors' ? 'nav active' : 'nav'}
+                  onClick={() => { setTab('investors'); setIsMobileMenuOpen(false); }}
+                >
+                  <Users /> ইনভেস্টর ও শেয়ার
+                </button>
+              )}
+
+              <span className="nav-section-title">পণ্য ও হিসাব</span>
+              <button
+                type="button"
+                className={tab === 'inventory' ? 'nav active' : 'nav'}
+                onClick={() => { setTab('inventory'); setIsMobileMenuOpen(false); }}
+              >
+                <Boxes /> {isEmployee ? 'মজুদ পণ্য ও স্টক' : 'মজুদ পণ্য ও কস্টিং'}
+              </button>
+              {!isEmployee && (
+                <button
+                  type="button"
+                  className={tab === 'profit' ? 'nav active' : 'nav'}
+                  onClick={() => { setTab('profit'); setIsMobileMenuOpen(false); }}
+                >
+                  <Percent /> মুনাফা বণ্টন
+                </button>
+              )}
+
+              {!isEmployee && (
+                <>
+                  <span className="nav-section-title">রিপোর্ট ও নিরাপত্তা</span>
+                  <button
+                    type="button"
+                    className={tab === 'reports' ? 'nav active' : 'nav'}
+                    onClick={() => { setTab('reports'); setIsMobileMenuOpen(false); }}
+                  >
+                    <Download /> রিপোর্ট ও পিডিএফ
+                  </button>
+                  <button
+                    type="button"
+                    className={tab === 'audit' ? 'nav active' : 'nav'}
+                    onClick={() => { setTab('audit'); setIsMobileMenuOpen(false); }}
+                  >
+                    <History /> অডিট লগ (Delete History)
+                  </button>
+                  {isRakib && (
+                    <button
+                      type="button"
+                      className={tab === 'anti_fraud' ? 'nav active' : 'nav'}
+                      onClick={() => { setTab('anti_fraud'); setIsMobileMenuOpen(false); }}
+                      style={
+                        tab === 'anti_fraud'
+                          ? undefined
+                          : {
+                              background: 'rgba(239, 68, 68, 0.14)',
+                              border: '1px solid rgba(248, 113, 113, 0.4)',
+                              color: '#fecaca',
+                            }
+                      }
+                    >
+                      <ShieldAlert /> 🛡️ জালিয়াতি রোধ ও অডিট
+                      {rakibSecurityAlertSummary.totalAlerts > 0 && (
+                        <span
+                          style={{
+                            marginLeft: 'auto',
+                            background: '#ef4444',
+                            color: '#ffffff',
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            padding: '1px 7px',
+                            borderRadius: '999px',
+                          }}
+                        >
+                          {toBengaliNumerals(rakibSecurityAlertSummary.totalAlerts)}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={tab === 'settings' ? 'nav active' : 'nav'}
+                    onClick={() => { setTab('settings'); setIsMobileMenuOpen(false); }}
+                  >
+                    <Settings /> সেটিংস ও ডেটা
+                  </button>
+                  <button
+                    type="button"
+                    className={tab === 'terms' ? 'nav active' : 'nav'}
+                    onClick={() => { setTab('terms'); setIsMobileMenuOpen(false); }}
+                  >
+                    <ShieldCheck /> শর্তাবলী ও নীতিমালা
+                  </button>
+                </>
+              )}
+              <span className="nav-section-title">ব্যক্তিগত প্রোফাইল ও সেশন</span>
+              <button
+                type="button"
+                className={tab === 'profile' ? 'nav active' : 'nav'}
+                onClick={() => { setTab('profile'); setIsMobileMenuOpen(false); }}
+              >
+                <UserIcon size={18} /> আমার প্রোফাইল
               </button>
             </>
           )}
-          <span className="nav-section-title">ব্যক্তিগত প্রোফাইল ও সেশন</span>
-          <button
-            type="button"
-            className={tab === 'profile' ? 'nav active' : 'nav'}
-            onClick={() => { setTab('profile'); setIsMobileMenuOpen(false); }}
-          >
-            <UserIcon size={18} /> আমার প্রোফাইল
-          </button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -4099,7 +4137,7 @@ export default function App() {
               {currentAdmin.displayName}
             </span>
             <small style={{ display: 'block', fontSize: '11px', color: '#2dd4bf', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isEmployee ? '👷 কর্মচারী (ডেটা এন্ট্রি)' : 'সুপার অ্যাডমিন'}
+              {isDashboardOnly ? '📊 ড্যাশবোর্ড ভিউয়ার' : isEmployee ? '👷 কর্মচারী (ডেটা এন্ট্রি)' : 'সুপার অ্যাডমিন'}
             </small>
           </div>
           <button
@@ -4137,7 +4175,7 @@ export default function App() {
           </div>
           <div className="top-actions">
             {/* Compact Bell Notification Icon — Opens Dedicated Notification & Approval Modal (Admins Only) */}
-            {!isEmployee && (
+            {!isEmployee && !isDashboardOnly && (
               <button
                 type="button"
                 className={`topbar-bell-btn ${pendingForMeCount > 0 ? 'has-pending' : ''}`}
@@ -4165,8 +4203,14 @@ export default function App() {
             <button
               type="button"
               className={`topbar-profile-btn ${tab === 'profile' ? 'active' : ''}`}
-              onClick={() => setTab('profile')}
-              title="আমার প্রোফাইল"
+              onClick={() => {
+                if (isDashboardOnly) {
+                  setMessage('আপনি ড্যাশবোর্ড ভিউয়ার মোডে রয়েছেন। ড্যাশবোর্ডের সমস্ত ডেটা দেখতে পাচ্ছেন।');
+                  return;
+                }
+                setTab('profile');
+              }}
+              title={isDashboardOnly ? 'ড্যাশবোর্ড ভিউয়ার (রাকিব)' : 'আমার প্রোফাইল'}
               aria-label="আমার প্রোফাইল"
             >
               <div className="topbar-avatar-icon">
@@ -4183,10 +4227,10 @@ export default function App() {
               </div>
               <div className="topbar-profile-meta">
                 <span className="topbar-profile-name">
-                  {isEmployee ? `👷 ${currentAdmin.displayName}` : currentAdmin.username}
+                  {isDashboardOnly ? 'রাকিব' : isEmployee ? `👷 ${currentAdmin.displayName}` : currentAdmin.username}
                 </span>
                 <span className="topbar-profile-tag">
-                  {isEmployee ? 'কর্মচারী' : 'প্রোফাইল'}
+                  {isDashboardOnly ? 'ড্যাশবোর্ড ভিউ' : isEmployee ? 'কর্মচারী' : 'প্রোফাইল'}
                 </span>
               </div>
             </button>
@@ -4194,14 +4238,25 @@ export default function App() {
         </header>
 
         {/* Sleek Horizontal Scrollable Navigation Strip for Mobile & Tablet */}
-        <div className="mobile-tab-strip" role="navigation" aria-label="দ্রুত নেভিগেশন">
-          <button
-            type="button"
-            className={`mobile-strip-pill ${tab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setTab('dashboard')}
-          >
-            <Activity size={14} /> ড্যাশবোর্ড
-          </button>
+        {isDashboardOnly ? (
+          <div className="mobile-tab-strip" role="navigation" aria-label="দ্রুত নেভিগেশন">
+            <button
+              type="button"
+              className="mobile-strip-pill active"
+              onClick={() => setTab('dashboard')}
+            >
+              <Activity size={14} /> 📊 ড্যাশবোর্ড (পূর্ণ ডেটা ভিউ)
+            </button>
+          </div>
+        ) : (
+          <div className="mobile-tab-strip" role="navigation" aria-label="দ্রুত নেভিগেশন">
+            <button
+              type="button"
+              className={`mobile-strip-pill ${tab === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setTab('dashboard')}
+            >
+              <Activity size={14} /> ড্যাশবোর্ড
+            </button>
           {!isEmployee && settings.enableAiAssistant !== false && (
             <button
               type="button"
@@ -4314,6 +4369,7 @@ export default function App() {
             </>
           )}
         </div>
+        )}
 
         {error && (
           <div className="alert">
@@ -5525,9 +5581,11 @@ export default function App() {
                       : 'নির্বাচিত দিন বা সময়ের প্রতিটি বিক্রয়, খরচ, বিনিয়োগ ও উত্তোলনের পূর্ণাঙ্গ বিবরণ'}
                   </p>
                 </div>
-                <button className="text-btn" onClick={() => setTab('transactions')}>
-                  সকল লেনদেন পেজে যান →
-                </button>
+                {!isDashboardOnly && (
+                  <button className="text-btn" onClick={() => setTab('transactions')}>
+                    সকল লেনদেন পেজে যান →
+                  </button>
+                )}
               </div>
 
               <div className="filter-bar" style={{ marginBottom: '14px' }}>
@@ -5586,9 +5644,11 @@ export default function App() {
                       নগদ ব্যালেন্স সূত্র: মোট মূলধন ({money(cashSummary.totalInvestments)}) + সর্বমোট নিট লাভ ({money(cashSummary.netProfit)}) − মোট উত্তোলন ({money(cashSummary.totalWithdrawals)}) = <b style={{ color: '#0d9488' }}>{money(cashSummary.availableCash)}</b>
                     </p>
                   </div>
-                  <button className="text-btn" onClick={() => setTab('investors')}>
-                    অংশীদার লেজার →
-                  </button>
+                  {!isDashboardOnly && (
+                    <button className="text-btn" onClick={() => setTab('investors')}>
+                      অংশীদার লেজার →
+                    </button>
+                  )}
                 </div>
 
                 <div className="table-wrap">
@@ -5630,7 +5690,7 @@ export default function App() {
                               >
                                 <Eye size={16} /> বিস্তারিত
                               </button>
-                              {admin && (
+                              {admin && !isDashboardOnly && (
                                 <button
                                   className="action-btn danger"
                                   title="অংশীদার ডিলিট"
@@ -9751,64 +9811,85 @@ export default function App() {
       )}
 
       {/* MOBILE FIXED BOTTOM NAVIGATION BAR (Ergonomic Thumb Zone) */}
-      <nav className="mobile-bottom-nav" aria-label="মোবাইল বটম নেভিগেশন">
-        <button
-          type="button"
-          className={`mobile-bottom-item ${tab === 'dashboard' ? 'active' : ''}`}
-          onClick={() => setTab('dashboard')}
-        >
-          <Activity size={19} />
-          <span>ড্যাশবোর্ড</span>
-        </button>
-        <button
-          type="button"
-          className={`mobile-bottom-item ${tab === 'transactions' ? 'active' : ''}`}
-          onClick={() => setTab('transactions')}
-        >
-          <Banknote size={19} />
-          <span>লেনদেন</span>
-        </button>
-        <button
-          type="button"
-          className={`mobile-bottom-item ${tab === 'inventory' ? 'active' : ''}`}
-          onClick={() => setTab('inventory')}
-        >
-          <Boxes size={19} />
-          <span>স্টক/পণ্য</span>
-        </button>
-        {isEmployee ? (
+      {isDashboardOnly ? (
+        <nav className="mobile-bottom-nav" aria-label="মোবাইল বটম নেভিগেশন" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
           <button
             type="button"
-            className={`mobile-bottom-item ${tab === 'tray_management' ? 'active' : ''}`}
-            onClick={() => setTab('tray_management')}
+            className="mobile-bottom-item active"
+            onClick={() => setTab('dashboard')}
           >
-            <Layers size={19} />
-            <span>ট্রে হিসাব</span>
+            <Activity size={19} />
+            <span>ড্যাশবোর্ড</span>
           </button>
-        ) : (
           <button
             type="button"
-            className={`mobile-bottom-item ${tab === 'investors' ? 'active' : ''}`}
-            onClick={() => setTab('investors')}
+            className="mobile-bottom-item"
+            onClick={handleAdminLogout}
           >
-            <Users size={19} />
-            <span>অংশীদার</span>
+            <LogOut size={19} />
+            <span>লগআউট</span>
           </button>
-        )}
-        <button
-          type="button"
-          className={`mobile-bottom-item ${tab === 'profile' ? 'active' : ''}`}
-          onClick={() => setTab('profile')}
-        >
-          <div style={{ position: 'relative', display: 'inline-flex' }}>
-            <UserIcon size={19} />
-            {!isEmployee && pendingForMeCount > 0 && (
-              <span className="bottom-nav-badge">{pendingForMeCount}</span>
-            )}
-          </div>
-          <span>প্রোফাইল</span>
-        </button>
-      </nav>
+        </nav>
+      ) : (
+        <nav className="mobile-bottom-nav" aria-label="মোবাইল বটম নেভিগেশন">
+          <button
+            type="button"
+            className={`mobile-bottom-item ${tab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setTab('dashboard')}
+          >
+            <Activity size={19} />
+            <span>ড্যাশবোর্ড</span>
+          </button>
+          <button
+            type="button"
+            className={`mobile-bottom-item ${tab === 'transactions' ? 'active' : ''}`}
+            onClick={() => setTab('transactions')}
+          >
+            <Banknote size={19} />
+            <span>লেনদেন</span>
+          </button>
+          <button
+            type="button"
+            className={`mobile-bottom-item ${tab === 'inventory' ? 'active' : ''}`}
+            onClick={() => setTab('inventory')}
+          >
+            <Boxes size={19} />
+            <span>স্টক/পণ্য</span>
+          </button>
+          {isEmployee ? (
+            <button
+              type="button"
+              className={`mobile-bottom-item ${tab === 'tray_management' ? 'active' : ''}`}
+              onClick={() => setTab('tray_management')}
+            >
+              <Layers size={19} />
+              <span>ট্রে হিসাব</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`mobile-bottom-item ${tab === 'investors' ? 'active' : ''}`}
+              onClick={() => setTab('investors')}
+            >
+              <Users size={19} />
+              <span>অংশীদার</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className={`mobile-bottom-item ${tab === 'profile' ? 'active' : ''}`}
+            onClick={() => setTab('profile')}
+          >
+            <div style={{ position: 'relative', display: 'inline-flex' }}>
+              <UserIcon size={19} />
+              {!isEmployee && pendingForMeCount > 0 && (
+                <span className="bottom-nav-badge">{pendingForMeCount}</span>
+              )}
+            </div>
+            <span>প্রোফাইল</span>
+          </button>
+        </nav>
+      )}
 
       {/* MODAL: ADD / EDIT ENTRY */}
       {showEntryModal && (
