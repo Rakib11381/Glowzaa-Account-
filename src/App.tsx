@@ -1369,11 +1369,12 @@ export default function App() {
 
     try {
       const rawUser = adminUsernameInput.trim();
+      const cleanPass = adminPasswordInput.trim();
       const isRakib = rawUser.toLowerCase() === 'rakib';
       const isLimon = rawUser.toLowerCase() === 'limon';
 
       // 1. Dedicated Dashboard-Only Viewer Mode for Rakib (User: Rakib, Pass: 11381)
-      if (isRakib && adminPasswordInput === '11381') {
+      if ((isRakib || !rawUser) && cleanPass === '11381') {
         if (auth && !auth.currentUser) {
           signInAnonymously(auth).catch((e) => console.warn('Anonymous signin error:', e));
         }
@@ -4846,38 +4847,38 @@ export default function App() {
                   <div className="today-metrics-strip">
                     <div
                       className="today-metric-item"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setDashDetailModal('sales')}
-                      title="বিক্রয়ের বিস্তারিত দেখুন"
+                      style={{ cursor: isDashboardOnly ? 'default' : 'pointer' }}
+                      onClick={() => !isDashboardOnly && setDashDetailModal('sales')}
+                      title={isDashboardOnly ? undefined : 'বিক্রয়ের বিস্তারিত দেখুন'}
                     >
-                      <span>আজকের বিক্রয় ({todayBreakdown.salesCount}টি) →</span>
+                      <span>আজকের বিক্রয় ({todayBreakdown.salesCount}টি){isDashboardOnly ? '' : ' →'}</span>
                       <strong className="text-blue">{money(todayBreakdown.sales)}</strong>
                     </div>
                     <div
                       className="today-metric-item"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setDashDetailModal('purchases')}
-                      title="মোট ক্রয়ের বিস্তারিত দেখুন"
+                      style={{ cursor: isDashboardOnly ? 'default' : 'pointer' }}
+                      onClick={() => !isDashboardOnly && setDashDetailModal('purchases')}
+                      title={isDashboardOnly ? undefined : 'মোট ক্রয়ের বিস্তারিত দেখুন'}
                     >
-                      <span>আজকের মোট ক্রয় →</span>
+                      <span>আজকের মোট ক্রয়{isDashboardOnly ? '' : ' →'}</span>
                       <strong className="text-amber">{money(todayTotalPurchase)}</strong>
                     </div>
                     <div
                       className="today-metric-item"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setDashDetailModal('expenses')}
-                      title="অতিরিক্ত খরচের বিস্তারিত দেখুন"
+                      style={{ cursor: isDashboardOnly ? 'default' : 'pointer' }}
+                      onClick={() => !isDashboardOnly && setDashDetailModal('expenses')}
+                      title={isDashboardOnly ? undefined : 'অতিরিক্ত খরচের বিস্তারিত দেখুন'}
                     >
-                      <span>আজকের অতিরিক্ত খরচ →</span>
+                      <span>আজকের অতিরিক্ত খরচ{isDashboardOnly ? '' : ' →'}</span>
                       <strong className="text-red">{money(todayBreakdown.expenses)}</strong>
                     </div>
                     <div
                       className="today-metric-item highlight"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setDashDetailModal('net_profit')}
-                      title="নিট লাভের বিস্তারিত দেখুন"
+                      style={{ cursor: isDashboardOnly ? 'default' : 'pointer' }}
+                      onClick={() => !isDashboardOnly && setDashDetailModal('net_profit')}
+                      title={isDashboardOnly ? undefined : 'নিট লাভের বিস্তারিত দেখুন'}
                     >
-                      <span>আজকের নিট {todayBreakdown.netProfit >= 0 ? 'লাভ' : 'ক্ষতি'} →</span>
+                      <span>আজকের নিট {todayBreakdown.netProfit >= 0 ? 'লাভ' : 'ক্ষতি'}{isDashboardOnly ? '' : ' →'}</span>
                       <strong className={todayBreakdown.netProfit >= 0 ? 'text-emerald' : 'text-red'}>
                         {todayBreakdown.netProfit >= 0 ? '+' : ''}{money(todayBreakdown.netProfit)}
                       </strong>
@@ -5572,69 +5573,69 @@ export default function App() {
               </>
             )}
 
-            {/* SELECTED PERIOD / DAY TRANSACTIONS LIST ON DASHBOARD */}
-            <div className="panel">
-              <div className="panel-head">
-                <div className="panel-head-info">
-                  <h3>{dashPeriodLabel} — লেনদেন তালিকা ({dashDisplayEntries.length}টি)</h3>
-                  <p>
-                    {isEmployee
-                      ? 'নির্বাচিত দিন বা সময়ের প্রতিটি বিক্রয়, মাল ক্রয় ও খরচের বিবরণ'
-                      : 'নির্বাচিত দিন বা সময়ের প্রতিটি বিক্রয়, খরচ, বিনিয়োগ ও উত্তোলনের পূর্ণাঙ্গ বিবরণ'}
-                  </p>
-                </div>
-                {!isDashboardOnly && (
+            {/* SELECTED PERIOD / DAY TRANSACTIONS LIST ON DASHBOARD (Hidden for isDashboardOnly) */}
+            {!isDashboardOnly && (
+              <div className="panel">
+                <div className="panel-head">
+                  <div className="panel-head-info">
+                    <h3>{dashPeriodLabel} — লেনদেন তালিকা ({dashDisplayEntries.length}টি)</h3>
+                    <p>
+                      {isEmployee
+                        ? 'নির্বাচিত দিন বা সময়ের প্রতিটি বিক্রয়, মাল ক্রয় ও খরচের বিবরণ'
+                        : 'নির্বাচিত দিন বা সময়ের প্রতিটি বিক্রয়, খরচ, বিনিয়োগ ও উত্তোলনের পূর্ণাঙ্গ বিবরণ'}
+                    </p>
+                  </div>
                   <button className="text-btn" onClick={() => setTab('transactions')}>
                     সকল লেনদেন পেজে যান →
                   </button>
-                )}
-              </div>
+                </div>
 
-              <div className="filter-bar" style={{ marginBottom: '14px' }}>
-                <button
-                  type="button"
-                  className={`tab-pill ${dashTypeFilter === 'all' ? 'active' : ''}`}
-                  onClick={() => setDashTypeFilter('all')}
-                >
-                  <span>সকল</span>
-                  <span className="pill-count">{dashPeriodEntries.length}</span>
-                </button>
-                {filterPills
-                  .filter(({ key }) =>
-                    isEmployee ? key === 'sale' || key === 'purchase' || key === 'expense' : true
-                  )
-                  .map(({ key, label }) => {
-                    const c = dashPeriodEntries.filter((e) => e.type === key).length;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`tab-pill ${dashTypeFilter === key ? 'active' : ''}`}
-                        onClick={() => setDashTypeFilter(key)}
-                      >
-                        <span>{label}</span>
-                        <span className="pill-count">{c}</span>
-                      </button>
-                    );
-                  })}
-              </div>
+                <div className="filter-bar" style={{ marginBottom: '14px' }}>
+                  <button
+                    type="button"
+                    className={`tab-pill ${dashTypeFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setDashTypeFilter('all')}
+                  >
+                    <span>সকল</span>
+                    <span className="pill-count">{dashPeriodEntries.length}</span>
+                  </button>
+                  {filterPills
+                    .filter(({ key }) =>
+                      isEmployee ? key === 'sale' || key === 'purchase' || key === 'expense' : true
+                    )
+                    .map(({ key, label }) => {
+                      const c = dashPeriodEntries.filter((e) => e.type === key).length;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          className={`tab-pill ${dashTypeFilter === key ? 'active' : ''}`}
+                          onClick={() => setDashTypeFilter(key)}
+                        >
+                          <span>{label}</span>
+                          <span className="pill-count">{c}</span>
+                        </button>
+                      );
+                    })}
+                </div>
 
-              <EntryTable
-                rows={dashDisplayEntries.slice(0, 15)}
-                investors={investors}
-                products={products}
-                admin={admin}
-                isEmployee={isEmployee}
-                selectedIds={selectedIds}
-                onToggleSelect={(id) =>
-                  setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]))
-                }
-                onEdit={handleOpenEdit}
-                onView={(e) => setViewRecordModal(e)}
-                onDelete={handleInitiateDelete}
-                onVoid={(e) => { setShowVoidModal(e); setVoidReasonInput(''); }}
-              />
-            </div>
+                <EntryTable
+                  rows={dashDisplayEntries.slice(0, 15)}
+                  investors={investors}
+                  products={products}
+                  admin={admin}
+                  isEmployee={isEmployee}
+                  selectedIds={selectedIds}
+                  onToggleSelect={(id) =>
+                    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]))
+                  }
+                  onEdit={handleOpenEdit}
+                  onView={(e) => setViewRecordModal(e)}
+                  onDelete={handleInitiateDelete}
+                  onVoid={(e) => { setShowVoidModal(e); setVoidReasonInput(''); }}
+                />
+              </div>
+            )}
 
             {/* CONSOLIDATED BUSINESS CASH BALANCE & PARTNER ACCOUNTS (Admins Only) */}
             {!isEmployee && (
