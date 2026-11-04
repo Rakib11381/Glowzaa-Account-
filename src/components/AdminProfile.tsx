@@ -165,10 +165,12 @@ export default function AdminProfile({
   const isRakibAdmin = adminUser.role === 'admin' && adminUser.username === 'Rakib';
   const isEmployeeUser = adminUser.role === 'employee';
 
-  // Active section filter ('all' | 'mela_tracker' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms')
+  // Active profile feature menu section (only one section open at a time — no cluttered 'all' stack)
   const [activeSection, setActiveSection] = useState<
-    'all' | 'mela_tracker' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms'
-  >('all');
+    'mela_tracker' | 'employees' | 'approvals' | 'wallet' | 'security' | 'terms' | null
+  >(() => (isRakibAdmin ? 'mela_tracker' : 'approvals'));
+  const [melaSubView, setMelaSubView] = useState<'list' | 'create'>('list');
+  const [empSubView, setEmpSubView] = useState<'create' | 'list'>('create');
 
   // Employee Account Creation & Management states (Exclusively for Rakib)
   const [empDisplayName, setEmpDisplayName] = useState('');
@@ -678,6 +680,7 @@ export default function AdminProfile({
         type: 'success',
         text: `✅ কর্মচারী "${cleanName}" (ইউজারনেম: ${cleanUser})-এর একাউন্ট সফলভাবে তৈরি হয়েছে! এখন তিনি এই ইউজারনেম ও পাসওয়ার্ড দিয়ে লগইন করে শুধু ডেটা এন্ট্রি ও ট্রে হিসাব রাখতে পারবেন।`,
       });
+      setEmpSubView('list');
     } catch (err: any) {
       setEmpFormMsg({
         type: 'error',
@@ -1208,90 +1211,187 @@ export default function AdminProfile({
         </div>
       </div>
 
-      {/* 3. QUICK SECTION FILTER BAR */}
-      <div className="profile-section-tabs" role="tablist" aria-label="প্রোফাইল সেকশন ফিল্টার">
-        <button
-          type="button"
-          className={`profile-sec-btn ${activeSection === 'all' ? 'active' : ''}`}
-          onClick={() => setActiveSection('all')}
-        >
-          সব দেখুন
-        </button>
-        {isRakibAdmin && (
-          <button
-            type="button"
-            className={`profile-sec-btn ${activeSection === 'mela_tracker' ? 'active' : ''}`}
-            onClick={() => setActiveSection('mela_tracker')}
-            style={
-              activeSection === 'mela_tracker'
-                ? undefined
-                : { borderColor: '#f59e0b', background: '#fffbeb', color: '#b45309', fontWeight: 800 }
-            }
-          >
-            🎪 কোন মেলায় কত লাভ ও সময়কাল
-          </button>
-        )}
-        {isRakibAdmin && (
-          <button
-            type="button"
-            className={`profile-sec-btn ${activeSection === 'employees' ? 'active' : ''}`}
-            onClick={() => setActiveSection('employees')}
-            style={
-              activeSection === 'employees'
-                ? undefined
-                : { borderColor: '#5eead4', background: '#f0fdfa', color: '#0f766e', fontWeight: 800 }
-            }
-          >
-            👷 কর্মচারী একাউন্ট তৈরি ও নিয়ন্ত্রণ
-            <span className="sec-badge-count" style={{ background: '#0d9488', color: '#ffffff' }}>
-              {toBengaliNumerals(employees.length)}
-            </span>
-          </button>
-        )}
-        <button
-          type="button"
-          className={`profile-sec-btn ${activeSection === 'approvals' ? 'active' : ''}`}
-          onClick={() => setActiveSection('approvals')}
-        >
-          অনুমোদন কেন্দ্র
-          {pendingForMe.length > 0 && (
-            <span className="sec-badge-count">{pendingForMe.length}</span>
+      {/* 3. ORGANIZED PROFILE FEATURE MENU HUB (রাকিবের প্রোফাইল ফিচার মেনু — এক নজরে পরিষ্কার মেনু) */}
+      <div className="profile-menu-hub-card">
+        <div className="profile-menu-hub-head">
+          <div className="profile-menu-hub-title">
+            <span className="profile-menu-hub-icon">☰</span>
+            <div>
+              <h3>
+                {isRakibAdmin
+                  ? 'রাকিবের প্রোফাইল ফিচার মেনু (যেকোনো ফিচারে ক্লিক করুন)'
+                  : 'প্রোফাইল ফিচার মেনু (যেকোনো ফিচারে ক্লিক করুন)'}
+              </h3>
+              <p>একাধিক সেকশন একসাথে জগাখিচুড়ি না হয়ে শুধুমাত্র নির্বাচিত ফিচারটি নিচে ওপেন হবে</p>
+            </div>
+          </div>
+          {activeSection !== null && (
+            <button
+              type="button"
+              className="profile-menu-collapse-btn"
+              onClick={() => setActiveSection(null)}
+              title="ওপেন থাকা ফিচারটি বন্ধ করুন"
+            >
+              ✕ সেকশন ক্লোজ
+            </button>
           )}
-        </button>
-        <button
-          type="button"
-          className={`profile-sec-btn ${activeSection === 'terms' ? 'active' : ''}`}
-          onClick={() => setActiveSection('terms')}
-        >
-          শর্তাবলী ও নীতিমালা (৭টি শর্ত)
-        </button>
-        <button
-          type="button"
-          className={`profile-sec-btn ${activeSection === 'wallet' ? 'active' : ''}`}
-          onClick={() => setActiveSection('wallet')}
-        >
-          উত্তোলন, লোন ও লেনদেন ({myEntries.length})
-        </button>
-        <button
-          type="button"
-          className={`profile-sec-btn ${activeSection === 'security' ? 'active' : ''}`}
-          onClick={() => setActiveSection('security')}
-        >
-          পাসওয়ার্ড পরিবর্তন
-        </button>
+        </div>
+
+        <div className="profile-feature-menu-grid" role="tablist" aria-label="প্রোফাইল ফিচার মেনু">
+          {isRakibAdmin && (
+            <>
+              <button
+                type="button"
+                className={`profile-feature-menu-btn amber-tone ${
+                  activeSection === 'mela_tracker' && melaSubView === 'list' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  setActiveSection('mela_tracker');
+                  setMelaSubView('list');
+                }}
+              >
+                <span className="pfm-icon">🎪</span>
+                <div className="pfm-text">
+                  <strong>সব মেলার ডেটা ও লাভ</strong>
+                  <small>কোন মেলায় কত লাভ ও সময়কাল</small>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className={`profile-feature-menu-btn orange-tone ${
+                  activeSection === 'mela_tracker' && melaSubView === 'create' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  setActiveSection('mela_tracker');
+                  setMelaSubView('create');
+                }}
+              >
+                <span className="pfm-icon">➕</span>
+                <div className="pfm-text">
+                  <strong>নতুন মেলা যোগ ও হিসাব</strong>
+                  <small>মেলার নাম ও তারিখ সেট করুন</small>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className={`profile-feature-menu-btn teal-tone ${
+                  activeSection === 'employees' && empSubView === 'create' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  setActiveSection('employees');
+                  setEmpSubView('create');
+                }}
+              >
+                <span className="pfm-icon">👷</span>
+                <div className="pfm-text">
+                  <strong>কর্মচারী প্রোফাইল তৈরি</strong>
+                  <small>নতুন আইডি ও পাসওয়ার্ড তৈরি</small>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className={`profile-feature-menu-btn sky-tone ${
+                  activeSection === 'employees' && empSubView === 'list' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  setActiveSection('employees');
+                  setEmpSubView('list');
+                }}
+              >
+                <span className="pfm-icon">👥</span>
+                <div className="pfm-text">
+                  <div className="pfm-title-row">
+                    <strong>কর্মচারীদের তালিকা</strong>
+                    <span className="pfm-count-badge">{toBengaliNumerals(employees.length)}</span>
+                  </div>
+                  <small>লগইন কপি ও অ্যাক্সেস নিয়ন্ত্রণ</small>
+                </div>
+              </button>
+            </>
+          )}
+
+          <button
+            type="button"
+            className={`profile-feature-menu-btn emerald-tone ${
+              activeSection === 'approvals' ? 'active' : ''
+            }`}
+            onClick={() => setActiveSection('approvals')}
+          >
+            <span className="pfm-icon">🛡️</span>
+            <div className="pfm-text">
+              <div className="pfm-title-row">
+                <strong>অনুমোদন কেন্দ্র</strong>
+                {pendingForMe.length > 0 && (
+                  <span className="pfm-count-badge alert">{toBengaliNumerals(pendingForMe.length)}</span>
+                )}
+              </div>
+              <small>লেনদেন ও ডিলিট অনুমোদন</small>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className={`profile-feature-menu-btn blue-tone ${
+              activeSection === 'wallet' ? 'active' : ''
+            }`}
+            onClick={() => setActiveSection('wallet')}
+          >
+            <span className="pfm-icon">💳</span>
+            <div className="pfm-text">
+              <div className="pfm-title-row">
+                <strong>উত্তোলন, লোন ও লেনদেন</strong>
+                <span className="pfm-count-badge">{toBengaliNumerals(myEntries.length)}</span>
+              </div>
+              <small>ব্যক্তিগত লাভাংশ ও খতিয়ান</small>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className={`profile-feature-menu-btn violet-tone ${
+              activeSection === 'security' ? 'active' : ''
+            }`}
+            onClick={() => setActiveSection('security')}
+          >
+            <span className="pfm-icon">🔑</span>
+            <div className="pfm-text">
+              <strong>পাসওয়ার্ড পরিবর্তন</strong>
+              <small>লগইন পিন ও নিরাপত্তা সেটিংস</small>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className={`profile-feature-menu-btn slate-tone ${
+              activeSection === 'terms' ? 'active' : ''
+            }`}
+            onClick={() => setActiveSection('terms')}
+          >
+            <span className="pfm-icon">📜</span>
+            <div className="pfm-text">
+              <strong>শর্তাবলী ও নীতিমালা</strong>
+              <small>পার্টনারশিপের ৭টি শর্তাবলী</small>
+            </div>
+          </button>
+        </div>
       </div>
 
       {/* 3.2 EXCLUSIVE MELA PROFIT & DURATION TRACKER (RAKIB ONLY) */}
-      {isRakibAdmin && (activeSection === 'all' || activeSection === 'mela_tracker') && (
+      {isRakibAdmin && activeSection === 'mela_tracker' && (
         <MelaProfitTrackerPanel
           isRakibAdmin={isRakibAdmin}
           entries={entries}
           products={products}
+          activeSubView={melaSubView}
+          onChangeSubView={(sub) => setMelaSubView(sub)}
         />
       )}
 
       {/* 3.5 EXCLUSIVE EMPLOYEE ACCOUNT CREATION & MANAGEMENT (RAKIB ONLY) */}
-      {isRakibAdmin && (activeSection === 'all' || activeSection === 'employees') && (() => {
+      {isRakibAdmin && activeSection === 'employees' && (() => {
         const activeEmpCount = employees.filter((e) => e.active).length;
         const blockedEmpCount = employees.length - activeEmpCount;
 
@@ -1457,8 +1557,28 @@ export default function AdminProfile({
                 </div>
               )}
 
-              <div className="emp-mgmt-grid">
-                {/* LEFT CARD: CREATE NEW EMPLOYEE ACCOUNT FORM */}
+              <div className="mela-sub-menu-tabs" role="tablist" aria-label="কর্মচারী ফিচার সাব-মেনু">
+                <button
+                  type="button"
+                  className={`mela-sub-tab-btn ${empSubView === 'create' ? 'active' : ''}`}
+                  onClick={() => setEmpSubView('create')}
+                >
+                  <UserPlus size={15} />
+                  <span>+ নতুন কর্মচারী প্রোফাইল তৈরি</span>
+                </button>
+                <button
+                  type="button"
+                  className={`mela-sub-tab-btn ${empSubView === 'list' ? 'active' : ''}`}
+                  onClick={() => setEmpSubView('list')}
+                >
+                  <Users size={15} />
+                  <span>তৈরিকৃত কর্মচারী তালিকা ({toBengaliNumerals(employees.length)} জন)</span>
+                </button>
+              </div>
+
+              <div className="emp-mgmt-grid" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+                {/* TAB 1: CREATE NEW EMPLOYEE ACCOUNT FORM */}
+                {empSubView === 'create' && (
                 <form
                   onSubmit={handleCreateEmployee}
                   className="emp-modern-card create-card"
@@ -1687,8 +1807,10 @@ export default function AdminProfile({
                     </span>
                   </button>
                 </form>
+                )}
 
-                {/* RIGHT CARD: EXISTING EMPLOYEES DIRECTORY & ACCESS CONTROL */}
+                {/* TAB 2: EXISTING EMPLOYEES DIRECTORY & ACCESS CONTROL */}
+                {empSubView === 'list' && (
                 <div className="emp-modern-card">
                   <div className="emp-card-head">
                     <div className="emp-card-head-title">
@@ -1994,6 +2116,7 @@ export default function AdminProfile({
                     </div>
                   )}
                 </div>
+                )}
               </div>
             </div>
           </div>
@@ -2001,7 +2124,7 @@ export default function AdminProfile({
       })()}
 
       {/* 4. DUAL-ADMIN APPROVAL & INTEGRITY CENTER */}
-      {(activeSection === 'all' || activeSection === 'approvals') && (
+      {activeSection === 'approvals' && (
         <div
           className="panel approval-center-panel"
           style={{
@@ -2444,7 +2567,7 @@ export default function AdminProfile({
       )}
 
       {/* 4.5 PARTNERSHIP TERMS & CONDITIONS (শর্তাবলী ও নীতিমালা) */}
-      {(activeSection === 'all' || activeSection === 'terms') && (
+      {activeSection === 'terms' && (
         <TermsConditionsCard
           currentAdminName={adminUser.displayName}
           partnerName={partnerName}
@@ -2452,17 +2575,13 @@ export default function AdminProfile({
       )}
 
       {/* 5. WALLET / WITHDRAWAL HISTORY & PASSWORD CHANGE */}
-      {(activeSection === 'all' || activeSection === 'wallet' || activeSection === 'security') && (
+      {(activeSection === 'wallet' || activeSection === 'security') && (
         <div
           className="profile-content-grid"
-          style={
-            activeSection !== 'all'
-              ? { gridTemplateColumns: 'minmax(0, 1fr)' }
-              : undefined
-          }
+          style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}
         >
-          {/* Left Column: Personal Transactions & Withdrawals */}
-          {(activeSection === 'all' || activeSection === 'wallet') && (
+          {/* Personal Transactions & Withdrawals */}
+          {activeSection === 'wallet' && (
             <div className="panel" style={{ margin: 0 }}>
               <div className="panel-head" style={{ marginBottom: '14px' }}>
                 <div className="panel-head-info">
@@ -2638,8 +2757,8 @@ export default function AdminProfile({
             </div>
           )}
 
-          {/* Right Column: Password Change Form */}
-          {(activeSection === 'all' || activeSection === 'security') && (
+          {/* Password Change Form */}
+          {activeSection === 'security' && (
             <div className="panel" style={{ margin: 0 }}>
               <div className="panel-head" style={{ marginBottom: '14px' }}>
                 <div className="panel-head-info">

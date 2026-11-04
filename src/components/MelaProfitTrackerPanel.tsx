@@ -29,6 +29,8 @@ interface MelaProfitTrackerPanelProps {
   isRakibAdmin: boolean;
   entries: Entry[];
   products: Product[];
+  activeSubView?: 'list' | 'create';
+  onChangeSubView?: (subView: 'list' | 'create') => void;
 }
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
@@ -224,8 +226,16 @@ export default function MelaProfitTrackerPanel({
   isRakibAdmin,
   entries,
   products,
+  activeSubView,
+  onChangeSubView,
 }: MelaProfitTrackerPanelProps) {
   const [melaList, setMelaList] = useState<MelaEventRecord[]>(() => getCachedMelaEvents());
+  const [internalSubTab, setInternalSubTab] = useState<'list' | 'create'>('list');
+  const currentSubTab = activeSubView || internalSubTab;
+  const setSubTab = (next: 'list' | 'create') => {
+    setInternalSubTab(next);
+    if (onChangeSubView) onChangeSubView(next);
+  };
   const [editingMelaId, setEditingMelaId] = useState<string | null>(null);
   const [melaName, setMelaName] = useState('');
   const [melaLocation, setMelaLocation] = useState('');
@@ -530,6 +540,7 @@ export default function MelaProfitTrackerPanel({
             )}) সফলভাবে সংরক্ষিত হয়েছে!`,
       });
       resetForm();
+      setSubTab('list');
     } catch (err: any) {
       setMelaBannerMsg({
         type: 'error',
@@ -571,6 +582,7 @@ export default function MelaProfitTrackerPanel({
         type: 'success',
         text: `✅ "${defaultName}" মেলার সম্পূর্ণ লাভ ও সময়কাল তালিকায় যুক্ত হয়েছে!`,
       });
+      setSubTab('list');
     } catch (err: any) {
       setMelaBannerMsg({
         type: 'error',
@@ -596,6 +608,7 @@ export default function MelaProfitTrackerPanel({
     );
     setMelaNotes(record.notes || '');
     setMelaBannerMsg(null);
+    setSubTab('create');
   }
 
   async function handleDeleteMela(record: MelaEventRecord) {
@@ -761,8 +774,28 @@ export default function MelaProfitTrackerPanel({
           </div>
         )}
 
-        <div className="mela-tracker-grid">
-          {/* LEFT COLUMN: CREATE / EDIT MELA EVENT FORM */}
+        <div className="mela-sub-menu-tabs" role="tablist" aria-label="মেলা ফিচার মেনু">
+          <button
+            type="button"
+            className={`mela-sub-tab-btn ${currentSubTab === 'list' ? 'active' : ''}`}
+            onClick={() => setSubTab('list')}
+          >
+            <TrendingUp size={15} />
+            <span>সব মেলার ডেটা ও লাভ ({toBengaliNumerals(melaList.length)})</span>
+          </button>
+          <button
+            type="button"
+            className={`mela-sub-tab-btn ${currentSubTab === 'create' ? 'active' : ''}`}
+            onClick={() => setSubTab('create')}
+          >
+            {editingMelaId ? <Edit3 size={15} /> : <Plus size={15} />}
+            <span>{editingMelaId ? 'মেলার তথ্য এডিট ফর্ম' : '+ নতুন মেলা যোগ ও হিসাব'}</span>
+          </button>
+        </div>
+
+        <div className="mela-tracker-grid" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+          {/* TAB 1: CREATE / EDIT MELA EVENT FORM */}
+          {currentSubTab === 'create' && (
           <form onSubmit={handleSaveMelaRecord} className="mela-card mela-form-card">
             <div className="mela-card-head">
               <div className="mela-card-head-left">
@@ -1045,8 +1078,10 @@ export default function MelaProfitTrackerPanel({
               </span>
             </button>
           </form>
+          )}
 
-          {/* RIGHT COLUMN: SAVED MELAS DIRECTORY & PROFIT CARDS */}
+          {/* TAB 2: SAVED MELAS DIRECTORY & PROFIT CARDS */}
+          {currentSubTab === 'list' && (
           <div className="mela-card mela-list-card">
             <div className="mela-card-head">
               <div className="mela-card-head-left">
@@ -1067,6 +1102,16 @@ export default function MelaProfitTrackerPanel({
                   <small>কোন মেলা কবে থেকে কবে চলছে এবং কত টাকা লাভ হয়েছে</small>
                 </div>
               </div>
+              <button
+                type="button"
+                className="mela-action-btn view-tx"
+                onClick={() => {
+                  resetForm();
+                  setSubTab('create');
+                }}
+              >
+                <Plus size={13} /> + নতুন মেলা যোগ
+              </button>
             </div>
 
             {/* Filter Pills & Search */}
@@ -1351,6 +1396,7 @@ export default function MelaProfitTrackerPanel({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

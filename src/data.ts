@@ -122,9 +122,6 @@ export function getCachedAuditLogs(): AuditLog[] {
 
 // Entries listener
 export function watchEntries(cb: (rows: Entry[]) => void, error: (e: Error) => void): Unsubscribe {
-  const cached = getCachedEntries();
-  if (cached.length > 0) cb(cached);
-
   const d = requireDb();
   const path = 'entries';
   return onSnapshot(
@@ -148,9 +145,6 @@ export function watchEntries(cb: (rows: Entry[]) => void, error: (e: Error) => v
 
 // Investors listener
 export function watchInvestors(cb: (rows: Investor[]) => void, error: (e: Error) => void): Unsubscribe {
-  const cached = getCachedInvestors();
-  if (cached.length > 0) cb(cached);
-
   const d = requireDb();
   const path = 'investors';
   return onSnapshot(
@@ -174,9 +168,6 @@ export function watchInvestors(cb: (rows: Investor[]) => void, error: (e: Error)
 
 // Products / Inventory listener
 export function watchProducts(cb: (rows: Product[]) => void, error: (e: Error) => void): Unsubscribe {
-  const cached = getCachedProducts();
-  if (cached.length > 0) cb(cached);
-
   const d = requireDb();
   const path = 'products';
   return onSnapshot(
@@ -200,9 +191,6 @@ export function watchProducts(cb: (rows: Product[]) => void, error: (e: Error) =
 
 // Profit distributions listener
 export function watchDistributions(cb: (rows: ProfitDistribution[]) => void, error: (e: Error) => void): Unsubscribe {
-  const cached = getCachedDistributions();
-  if (cached.length > 0) cb(cached);
-
   const d = requireDb();
   const path = 'profitDistributions';
   return onSnapshot(
@@ -226,9 +214,6 @@ export function watchDistributions(cb: (rows: ProfitDistribution[]) => void, err
 
 // Audit Logs listener
 export function watchAuditLogs(cb: (rows: AuditLog[]) => void, error: (e: Error) => void): Unsubscribe {
-  const cached = getCachedAuditLogs();
-  if (cached.length > 0) cb(cached);
-
   const d = requireDb();
   const path = 'auditLogs';
   return onSnapshot(
@@ -240,7 +225,8 @@ export function watchAuditLogs(cb: (rows: AuditLog[]) => void, error: (e: Error)
           const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
           const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
           return tB - tA;
-        });
+        })
+        .slice(0, 250);
       writeCache(CACHE_KEYS.auditLogs, rows.slice(0, 100));
       cb(rows);
     },

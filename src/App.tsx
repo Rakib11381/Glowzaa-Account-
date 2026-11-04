@@ -240,15 +240,15 @@ const blankSettings: BusinessSettings = {
   phone: '০১৭১১-০০০০০০',
   currencySymbol: '৳',
   superAdminEmail: 'glowzaabd.shop@gmail.com',
-  showBrandPopup: true,
+  showBrandPopup: false,
   brandPopupText: 'Glowzaa এটা ব্রান্ড',
-  showCalculator: true,
+  showCalculator: false,
   enableVoiceInput: true,
-  enableCameraScan: true,
+  enableCameraScan: false,
   enableDrawingPad: true,
-  enableSpecialOfferAutoSale: true,
+  enableSpecialOfferAutoSale: false,
   enableQrCodeAutoSale: true,
-  enableTrayRefillFeature: true,
+  enableTrayRefillFeature: false,
   enableAiAssistant: true,
   lowStockReorderPoint: 15,
 };
@@ -366,10 +366,10 @@ export default function App() {
       const cached = localStorage.getItem('glowzaa_business_settings');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed.showBrandPopup === false) return false;
+        return Boolean(parsed.showBrandPopup);
       }
     } catch {}
-    return true;
+    return false;
   });
 
   // UI state
@@ -656,7 +656,6 @@ export default function App() {
 
   // 1. Initial Auth Setup & Connection Test (Non-blocking so UI renders in 0ms)
   useEffect(() => {
-    testConnection();
     getAdminAuthData().then((authData) => {
       setAdminPasswords({ rakib: authData.rakib, limon: authData.limon });
       setAdminAvatars({
@@ -672,11 +671,23 @@ export default function App() {
       getDoc(doc(db, 'businessSettings', 'main'))
         .then((s) => {
           if (s.exists()) {
-            const merged = { ...blankSettings, ...(s.data() as BusinessSettings) };
+            const rawData = s.data() as BusinessSettings;
+            const merged: BusinessSettings = {
+              ...blankSettings,
+              ...rawData,
+              showBrandPopup: Boolean(rawData.showBrandPopup),
+              showCalculator: Boolean(rawData.showCalculator),
+              enableVoiceInput: rawData.enableVoiceInput !== false,
+              enableCameraScan: Boolean(rawData.enableCameraScan),
+              enableDrawingPad: rawData.enableDrawingPad !== false,
+              enableSpecialOfferAutoSale: Boolean(rawData.enableSpecialOfferAutoSale),
+              enableQrCodeAutoSale: rawData.enableQrCodeAutoSale !== false,
+              enableTrayRefillFeature: Boolean(rawData.enableTrayRefillFeature),
+              enableAiAssistant: rawData.enableAiAssistant !== false,
+              lowStockReorderPoint: rawData.lowStockReorderPoint ?? 15,
+            };
             setSettings(merged);
-            if (merged.showBrandPopup === false) {
-              setShowBrandWelcome(false);
-            }
+            setShowBrandWelcome(Boolean(merged.showBrandPopup));
             try {
               localStorage.setItem(
                 'glowzaa_business_settings',
@@ -687,17 +698,28 @@ export default function App() {
                   phone: merged.phone || '',
                   currencySymbol: merged.currencySymbol || '৳',
                   superAdminEmail: merged.superAdminEmail || blankSettings.superAdminEmail,
-                  showBrandPopup: merged.showBrandPopup !== false,
+                  showBrandPopup: Boolean(merged.showBrandPopup),
                   brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
-                  showCalculator: merged.showCalculator !== false,
+                  showCalculator: Boolean(merged.showCalculator),
                   enableVoiceInput: merged.enableVoiceInput !== false,
-                  enableCameraScan: merged.enableCameraScan !== false,
+                  enableCameraScan: Boolean(merged.enableCameraScan),
                   enableDrawingPad: merged.enableDrawingPad !== false,
-                  enableSpecialOfferAutoSale: merged.enableSpecialOfferAutoSale !== false,
+                  enableSpecialOfferAutoSale: Boolean(merged.enableSpecialOfferAutoSale),
                   enableQrCodeAutoSale: merged.enableQrCodeAutoSale !== false,
+                  enableTrayRefillFeature: Boolean(merged.enableTrayRefillFeature),
                   enableAiAssistant: merged.enableAiAssistant !== false,
+                  lowStockReorderPoint: merged.lowStockReorderPoint ?? 15,
                 })
               );
+              if (
+                typeof merged.lowStockReorderPoint === 'number' &&
+                Number.isFinite(merged.lowStockReorderPoint) &&
+                merged.lowStockReorderPoint >= 0
+              ) {
+                setReorderPointThreshold(merged.lowStockReorderPoint);
+                setReorderPointInput(String(merged.lowStockReorderPoint));
+                localStorage.setItem('glowzaa_reorder_point', String(merged.lowStockReorderPoint));
+              }
             } catch {}
           }
         })
@@ -746,47 +768,6 @@ export default function App() {
     const unsubAudit = watchAuditLogs(setAuditLogs, (e) => console.warn('Audit logs sync warning:', e));
     const unsubApprovals = watchApprovalRequests(setApprovalRequests, (e) => console.warn('Approvals sync warning:', e));
     const unsubEmployees = watchEmployees(setEmployees, (e) => console.warn('Employees sync warning:', e));
-
-    getDoc(doc(db, 'businessSettings', 'main'))
-      .then((s) => {
-        if (s.exists()) {
-          const merged = { ...blankSettings, ...(s.data() as BusinessSettings) };
-          setSettings(merged);
-          if (merged.showBrandPopup === false) {
-            setShowBrandWelcome(false);
-          }
-          try {
-            localStorage.setItem('glowzaa_business_settings', JSON.stringify({
-              name: merged.name || blankSettings.name,
-              type: merged.type || '',
-              address: merged.address || '',
-              phone: merged.phone || '',
-              currencySymbol: merged.currencySymbol || '৳',
-              superAdminEmail: merged.superAdminEmail || blankSettings.superAdminEmail,
-              showBrandPopup: merged.showBrandPopup !== false,
-              brandPopupText: merged.brandPopupText || 'Glowzaa এটা ব্রান্ড',
-              showCalculator: merged.showCalculator !== false,
-              enableVoiceInput: merged.enableVoiceInput !== false,
-              enableCameraScan: merged.enableCameraScan !== false,
-              enableDrawingPad: merged.enableDrawingPad !== false,
-              enableSpecialOfferAutoSale: merged.enableSpecialOfferAutoSale !== false,
-              enableQrCodeAutoSale: merged.enableQrCodeAutoSale !== false,
-              enableAiAssistant: merged.enableAiAssistant !== false,
-              lowStockReorderPoint: merged.lowStockReorderPoint ?? 15,
-            }));
-            if (
-              typeof merged.lowStockReorderPoint === 'number' &&
-              Number.isFinite(merged.lowStockReorderPoint) &&
-              merged.lowStockReorderPoint >= 0
-            ) {
-              setReorderPointThreshold(merged.lowStockReorderPoint);
-              setReorderPointInput(String(merged.lowStockReorderPoint));
-              localStorage.setItem('glowzaa_reorder_point', String(merged.lowStockReorderPoint));
-            }
-          } catch {}
-        }
-      })
-      .catch(() => {});
 
     return () => {
       unsubEntries();
@@ -1386,25 +1367,34 @@ export default function App() {
         const canonicalName: 'Rakib' | 'Limon' = isRakib ? 'Rakib' : 'Limon';
         const adminKey = isRakib ? 'rakib' : 'limon';
 
-        // Fetch fresh passwords & avatars
-        const fresh = await getAdminAuthData();
-        setAdminPasswords({ rakib: fresh.rakib, limon: fresh.limon });
-        setAdminAvatars({
-          rakib: fresh.rakibAvatar || '',
-          limon: fresh.limonAvatar || '',
-        });
-        const expectedPassword = fresh[adminKey];
+        // Instant 0ms check against cached password first; only fetch fresh if mismatch
+        let expectedPassword = adminPasswords[adminKey];
+        if (adminPasswordInput !== expectedPassword) {
+          const fresh = await getAdminAuthData();
+          setAdminPasswords({ rakib: fresh.rakib, limon: fresh.limon });
+          setAdminAvatars({
+            rakib: fresh.rakibAvatar || '',
+            limon: fresh.limonAvatar || '',
+          });
+          expectedPassword = fresh[adminKey];
+        } else {
+          getAdminAuthData()
+            .then((fresh) => {
+              setAdminPasswords({ rakib: fresh.rakib, limon: fresh.limon });
+              setAdminAvatars({
+                rakib: fresh.rakibAvatar || '',
+                limon: fresh.limonAvatar || '',
+              });
+            })
+            .catch(() => {});
+        }
 
         if (adminPasswordInput !== expectedPassword) {
           throw new Error('ভুল পাসওয়ার্ড! অনুগ্রহ করে আপনার সঠিক গোপন পাসওয়ার্ড দিন।');
         }
 
         if (auth && !auth.currentUser) {
-          try {
-            await signInAnonymously(auth);
-          } catch (e) {
-            console.warn('Anonymous signin error:', e);
-          }
+          signInAnonymously(auth).catch((e) => console.warn('Anonymous signin error:', e));
         }
 
         const adminProfile = {
@@ -1765,7 +1755,6 @@ export default function App() {
     setBusy(true);
 
     try {
-      await new Promise((r) => setTimeout(r, 380));
       const amount = Number(entryForm.amount);
       if (!entryForm.title.trim() || !Number.isFinite(amount) || amount <= 0) {
         throw new Error('দয়া করে সঠিক বিবরণ এবং ০ এর অধিক টাকার পরিমাণ দিন।');
@@ -1974,7 +1963,6 @@ export default function App() {
     setBusyText('অংশীদারের তথ্য সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       if (!investorName.trim()) throw new Error('ইনভেস্টরের নাম আবশ্যক');
       const payload = {
         name: investorName.trim(),
@@ -2030,7 +2018,6 @@ export default function App() {
     setBusyText(editingProduct ? 'পণ্যের তথ্য আপডেট হচ্ছে…' : 'নতুন পণ্য সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       if (!productForm.name.trim()) throw new Error('পণ্যের নাম আবশ্যক');
       const strictSku =
         toStrictAllowedSkuClient(productForm.sku) ||
@@ -2482,7 +2469,6 @@ export default function App() {
     setBusyText('গড় হিসাবে পণ্যগুলো আপলোড ও সংরক্ষণ হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 420));
       const filledRows = batchProductsForm.filter((r) => r.name.trim().length > 0);
       if (filledRows.length === 0) {
         throw new Error('কমপক্ষে ১টি বা ৫-৬টি পণ্যের নাম লিখুন');
@@ -2647,7 +2633,6 @@ export default function App() {
     setBusy(true);
 
     try {
-      await new Promise((r) => setTimeout(r, 380));
       const distAmount = Number(distributionForm.distributableAmount);
       if (!Number.isFinite(distAmount) || distAmount <= 0) {
         throw new Error('বণ্টনযোগ্য টাকার পরিমাণ ০ এর বেশি দিন');
@@ -2713,7 +2698,6 @@ export default function App() {
     setBusyText('নষ্ট পণ্যের হিসাব প্রসেস করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       const qty = Number(wasteForm.quantity);
       if (!wasteForm.productId) {
         throw new Error('দয়া করে নষ্ট হওয়া পণ্যটি নির্বাচন করুন');
@@ -2826,7 +2810,6 @@ export default function App() {
     setBusyText('লেনদেন ডিলিট প্রসেস করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 400));
       if (currentAdmin && needsPartnerApproval) {
         const targetApprover = 'Rakib';
         const targetApproverName = 'রাকিব (Rakib)';
@@ -2880,7 +2863,6 @@ export default function App() {
     setBusyText('হিসাব রিভার্স (Void) করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       const finalVoidReason = voidReasonInput.trim() || 'রাকিব কর্তৃক হিসাব রিভার্স (Void)';
       if (currentAdmin && needsPartnerApproval) {
         const targetApprover = 'Rakib';
@@ -2934,7 +2916,6 @@ export default function App() {
     setBusyText('অংশীদার ডিলিট প্রসেস করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 400));
       if (currentAdmin && needsPartnerApproval) {
         const targetApprover = 'Rakib';
         const targetApproverName = 'রাকিব (Rakib)';
@@ -2983,7 +2964,6 @@ export default function App() {
     setBusyText('পণ্য ডিলিট প্রসেস করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 400));
       if (currentAdmin && needsPartnerApproval) {
         const targetApprover = 'Rakib';
         const targetApproverName = 'রাকিব (Rakib)';
@@ -3032,7 +3012,6 @@ export default function App() {
     setBusyText('অনুরোধ অনুমোদন ও কার্যকর করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       await approveApprovalRequest(req, currentAdmin.username, currentAdmin.displayName, note);
       setMessage(`অনুরোধ "${req.title}" সফলভাবে অনুমোদিত এবং মূল ওয়েবসাইটে কার্যকর করা হয়েছে!`);
     } catch (err: any) {
@@ -3048,7 +3027,6 @@ export default function App() {
     setBusyText('অনুরোধ বাতিল করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       await rejectApprovalRequest(req, currentAdmin.username, currentAdmin.displayName, reason);
       setMessage(`অনুরোধ "${req.title}" বাতিল করা হয়েছে।`);
     } catch (err: any) {
@@ -3064,7 +3042,6 @@ export default function App() {
     setBusyText('মুনাফা বণ্টন রেকর্ড ডিলিট হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       if (currentAdmin && needsPartnerApproval) {
         const targetApprover = 'Rakib';
         const targetApproverName = 'রাকিব (Rakib)';
@@ -3120,7 +3097,6 @@ export default function App() {
     setBusyText('সম্পূর্ণ ওয়েবসাইট ডেটা রিসেট করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 450));
       const actorUid = user?.uid || currentAdmin?.username || 'admin';
       await resetAllWebsiteData(actorUid, user?.email || currentAdmin?.displayName);
       setMessage('ওয়েবসাইটের সমস্ত লেনদেন, অংশীদার, পণ্য ইনভেন্টরি, মুনাফা বণ্টন ও অডিট লগ সফলভাবে রিসেট করা হয়েছে।');
@@ -3147,7 +3123,6 @@ export default function App() {
     setBusyText('নির্বাচিত রেকর্ডগুলো ডিলিট করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 400));
       const actorUid = user?.uid || currentAdmin?.username || 'admin';
       await bulkRemoveDraftEntries(
         draftsToDelete.map((d) => d.id),
@@ -3598,7 +3573,6 @@ export default function App() {
     setBusyText('ব্যবসার সেটিংস সংরক্ষণ করা হচ্ছে…');
     setBusy(true);
     try {
-      await new Promise((r) => setTimeout(r, 380));
       const actorId = currentAdmin?.username || user?.uid || 'admin';
       const normalizedSettings: BusinessSettings = {
         name: (settings.name || 'Glowzaa Shop').trim() || 'Glowzaa Shop',
@@ -3607,15 +3581,17 @@ export default function App() {
         phone: (settings.phone || '').trim(),
         currencySymbol: settings.currencySymbol || '৳',
         superAdminEmail: settings.superAdminEmail || 'glowzaabd.shop@gmail.com',
-        showBrandPopup: settings.showBrandPopup !== false,
+        showBrandPopup: Boolean(settings.showBrandPopup),
         brandPopupText: (settings.brandPopupText || 'Glowzaa এটা ব্রান্ড').trim() || 'Glowzaa এটা ব্রান্ড',
-        showCalculator: settings.showCalculator !== false,
+        showCalculator: Boolean(settings.showCalculator),
         enableVoiceInput: settings.enableVoiceInput !== false,
-        enableCameraScan: settings.enableCameraScan !== false,
+        enableCameraScan: Boolean(settings.enableCameraScan),
         enableDrawingPad: settings.enableDrawingPad !== false,
-        enableSpecialOfferAutoSale: settings.enableSpecialOfferAutoSale !== false,
+        enableSpecialOfferAutoSale: Boolean(settings.enableSpecialOfferAutoSale),
         enableQrCodeAutoSale: settings.enableQrCodeAutoSale !== false,
+        enableTrayRefillFeature: Boolean(settings.enableTrayRefillFeature),
         enableAiAssistant: settings.enableAiAssistant !== false,
+        lowStockReorderPoint: settings.lowStockReorderPoint ?? 15,
         updatedBy: actorId,
       };
       const payload = deepClean({
@@ -4770,19 +4746,6 @@ export default function App() {
                     >
                       <PieChart size={15} /> লাভ ও স্টক রিপোর্ট
                     </button>
-
-                    {settings.enableTrayRefillFeature !== false && (
-                      <button
-                        type="button"
-                        className="dash-cmd-btn primary-amber"
-                        onClick={() => {
-                          setTrayModalInitialTab('scan_refill');
-                          setShowTrayRefillModal(true);
-                        }}
-                      >
-                        <Boxes size={15} /> মেলার ট্রে ও রিফিল
-                      </button>
-                    )}
 
                     <button
                       type="button"
@@ -14054,58 +14017,60 @@ export default function App() {
       })()}
 
       {/* PRODUCT-LEVEL PROFITABILITY & STAGNATING STOCK REPORT MODAL */}
-      <ProductProfitabilityModal
-        isOpen={showProfitabilityModal}
-        onClose={() => setShowProfitabilityModal(false)}
-        products={products}
-        entries={entries}
-        admin={admin}
-        onRecordSaleForProduct={(prod) => {
-          setShowProfitabilityModal(false);
-          setEditingEntry(null);
-          const sellPrice = Number(prod.sellingPrice) || 0;
-          const avgCost = Number(prod.averageCost) || 0;
-          const unitProfit = Math.max(0, sellPrice - avgCost);
-          setEntryForm({
-            type: 'sale',
-            seller: (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
-            title: `${prod.name} বিক্রয়`,
-            amount: sellPrice > 0 ? String(sellPrice) : '',
-            profit: sellPrice > 0 ? String(unitProfit) : '',
-            cost: avgCost > 0 ? String(avgCost) : '',
-            date: today(),
-            status: 'posted',
-            investorId: '',
-            productId: prod.id,
-            quantity: '1',
-            unitPrice: sellPrice > 0 ? String(sellPrice) : '',
-            unitCost: avgCost > 0 ? String(avgCost) : '',
-            category: 'পণ্য বিক্রয়',
-            notes: '',
-          });
-          setShowEntryModal(true);
-        }}
-        onEditProduct={(prod) => {
-          setShowProfitabilityModal(false);
-          handleOpenEditProduct(prod);
-        }}
-        onAddNewProduct={() => {
-          setShowProfitabilityModal(false);
-          setEditingProduct(null);
-          setProductUploadMode('single');
-          setProductForm({
-            name: '',
-            sku: getNextSequentialSku(products),
-            unit: 'পিস',
-            currentStock: '',
-            averageCost: '',
-            sellingPrice: '',
-            reorderPoint: '',
-            imageUrl: '',
-          });
-          setShowProductModal(true);
-        }}
-      />
+      {showProfitabilityModal && (
+        <ProductProfitabilityModal
+          isOpen={showProfitabilityModal}
+          onClose={() => setShowProfitabilityModal(false)}
+          products={products}
+          entries={entries}
+          admin={admin}
+          onRecordSaleForProduct={(prod) => {
+            setShowProfitabilityModal(false);
+            setEditingEntry(null);
+            const sellPrice = Number(prod.sellingPrice) || 0;
+            const avgCost = Number(prod.averageCost) || 0;
+            const unitProfit = Math.max(0, sellPrice - avgCost);
+            setEntryForm({
+              type: 'sale',
+              seller: (currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib') as 'Rakib' | 'Limon',
+              title: `${prod.name} বিক্রয়`,
+              amount: sellPrice > 0 ? String(sellPrice) : '',
+              profit: sellPrice > 0 ? String(unitProfit) : '',
+              cost: avgCost > 0 ? String(avgCost) : '',
+              date: today(),
+              status: 'posted',
+              investorId: '',
+              productId: prod.id,
+              quantity: '1',
+              unitPrice: sellPrice > 0 ? String(sellPrice) : '',
+              unitCost: avgCost > 0 ? String(avgCost) : '',
+              category: 'পণ্য বিক্রয়',
+              notes: '',
+            });
+            setShowEntryModal(true);
+          }}
+          onEditProduct={(prod) => {
+            setShowProfitabilityModal(false);
+            handleOpenEditProduct(prod);
+          }}
+          onAddNewProduct={() => {
+            setShowProfitabilityModal(false);
+            setEditingProduct(null);
+            setProductUploadMode('single');
+            setProductForm({
+              name: '',
+              sku: getNextSequentialSku(products),
+              unit: 'পিস',
+              currentStock: '',
+              averageCost: '',
+              sellingPrice: '',
+              reorderPoint: '',
+              imageUrl: '',
+            });
+            setShowProductModal(true);
+          }}
+        />
+      )}
 
       {/* GLOBAL FIXED FLOATING TRAY REFILL, QR CODE, SPECIAL OFFER, QUICK SKU & CAMERA AUTO-SALE BUTTONS */}
       {settings.enableTrayRefillFeature !== false && (
@@ -14318,7 +14283,7 @@ export default function App() {
       )}
 
       {/* PERSISTENT BUSINESS CALCULATOR POPUP MODAL */}
-      {settings.showCalculator !== false && (
+      {settings.showCalculator !== false && showCalculatorModal && (
         <BusinessCalculatorModal
           isOpen={showCalculatorModal}
           onMinimize={() => setShowCalculatorModal(false)}
@@ -14329,7 +14294,7 @@ export default function App() {
       )}
 
       {/* SEPARATE LIVE CAMERA AUTO-SALE POS MODAL */}
-      {settings.enableCameraScan !== false && (
+      {settings.enableCameraScan !== false && showCameraSaleModal && (
         <CameraAutoSaleModal
           isOpen={showCameraSaleModal}
           onClose={() => setShowCameraSaleModal(false)}
@@ -14409,7 +14374,7 @@ export default function App() {
       )}
 
       {/* SEPARATE DRAWING PAD AUTO-SALE POS MODAL */}
-      {settings.enableDrawingPad !== false && (
+      {settings.enableDrawingPad !== false && showDrawingSaleModal && (
         <CameraAutoSaleModal
           isOpen={showDrawingSaleModal}
           onClose={() => setShowDrawingSaleModal(false)}
@@ -14489,7 +14454,7 @@ export default function App() {
       )}
 
       {/* SEPARATE SPECIAL OFFER AUTO-SALE POS MODAL */}
-      {settings.enableSpecialOfferAutoSale !== false && (
+      {settings.enableSpecialOfferAutoSale !== false && showSpecialOfferSaleModal && (
         <CameraAutoSaleModal
           isOpen={showSpecialOfferSaleModal}
           onClose={() => setShowSpecialOfferSaleModal(false)}
@@ -14572,7 +14537,7 @@ export default function App() {
       )}
 
       {/* SEPARATE NANOSECOND QR CODE AUTO-SALE & STICKER MODAL */}
-      {settings.enableQrCodeAutoSale !== false && (
+      {settings.enableQrCodeAutoSale !== false && showQrCodeSaleModal && (
         <QrCodeAutoSaleModal
           isOpen={showQrCodeSaleModal}
           onClose={() => setShowQrCodeSaleModal(false)}
@@ -14638,7 +14603,7 @@ export default function App() {
       )}
 
       {/* SEPARATE FAIR STALL DISPLAY TRAY STOCK & SCAN-TO-TRAY REFILL MODAL */}
-      {settings.enableTrayRefillFeature !== false && (
+      {settings.enableTrayRefillFeature !== false && showTrayRefillModal && (
         <TrayStockRefillModal
           isOpen={showTrayRefillModal}
           onClose={() => setShowTrayRefillModal(false)}
@@ -14689,30 +14654,32 @@ export default function App() {
       )}
 
       {/* NEXT MARKET PURCHASE & TRENDING ADVISOR MODAL */}
-      <StockCatalogAndMarketAdvisorModal
-        isOpen={showStockCatalogAdvisorModal}
-        onClose={() => setShowStockCatalogAdvisorModal(false)}
-        products={products}
-        entries={entries}
-        settings={settings}
-        defaultReorderPoint={reorderPointThreshold}
-        onQuickAddSuggestedProduct={(suggestion) => {
-          setShowStockCatalogAdvisorModal(false);
-          setEditingProduct(null);
-          setProductUploadMode('single');
-          setProductForm({
-            name: suggestion.name,
-            sku: getNextSequentialSku(products),
-            unit: suggestion.unit || 'পিস',
-            currentStock: String(suggestion.recommendedQty || 12),
-            averageCost: String(suggestion.estimatedUnitCost || ''),
-            sellingPrice: String(suggestion.estimatedSellingPrice || ''),
-            reorderPoint: String(reorderPointThreshold || 5),
-            imageUrl: suggestion.imageUrl || '',
-          });
-          setShowProductModal(true);
-        }}
-      />
+      {showStockCatalogAdvisorModal && (
+        <StockCatalogAndMarketAdvisorModal
+          isOpen={showStockCatalogAdvisorModal}
+          onClose={() => setShowStockCatalogAdvisorModal(false)}
+          products={products}
+          entries={entries}
+          settings={settings}
+          defaultReorderPoint={reorderPointThreshold}
+          onQuickAddSuggestedProduct={(suggestion) => {
+            setShowStockCatalogAdvisorModal(false);
+            setEditingProduct(null);
+            setProductUploadMode('single');
+            setProductForm({
+              name: suggestion.name,
+              sku: getNextSequentialSku(products),
+              unit: suggestion.unit || 'পিস',
+              currentStock: String(suggestion.recommendedQty || 12),
+              averageCost: String(suggestion.estimatedUnitCost || ''),
+              sellingPrice: String(suggestion.estimatedSellingPrice || ''),
+              reorderPoint: String(reorderPointThreshold || 5),
+              imageUrl: suggestion.imageUrl || '',
+            });
+            setShowProductModal(true);
+          }}
+        />
+      )}
     </div>
   );
 }

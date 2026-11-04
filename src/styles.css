@@ -14274,3 +14274,311 @@ tr.inv-row-out-of-stock td:first-child {
     font-size: 13px;
   }
 }
+
+/* ==========================================================================
+   RAKIB PROFILE FEATURE MENU HUB & SUB-MENU TABS (CLEAN, ZERO-CLUTTER MENU)
+   ========================================================================== */
+
+.profile-menu-hub-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1.5px solid #cbd5e1;
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-menu-hub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #cbd5e1;
+}
+
+.profile-menu-hub-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-menu-hub-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #091e32 0%, #0d9488 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profile-menu-hub-title h3 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.profile-menu-hub-title p {
+  margin: 1px 0 0;
+  font-size: 10.8px;
+  color: #64748b;
+  line-height: 1.3;
+}
+
+.profile-menu-collapse-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 26px !important;
+  min-height: 26px !important;
+  padding: 2px 9px !important;
+  margin: 0 !important;
+  border-radius: 7px !important;
+  font-size: 10.5px !important;
+  font-weight: 800 !important;
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+  border: 1px solid #fecaca !important;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: none !important;
+}
+
+.profile-feature-menu-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.profile-feature-menu-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  padding: 9px 10px !important;
+  min-height: 52px !important;
+  height: auto !important;
+  margin: 0 !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  border: 1.5px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  text-align: left !important;
+  cursor: pointer;
+  transition: all 0.16s ease !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+}
+
+.profile-feature-menu-btn:hover {
+  border-color: #0d9488 !important;
+  background: #f0fdfa !important;
+  transform: translateY(-1px);
+}
+
+.profile-feature-menu-btn.amber-tone {
+  border-color: #fcd34d !important;
+  background: #fffbeb !important;
+}
+
+.profile-feature-menu-btn.orange-tone {
+  border-color: #fed7aa !important;
+  background: #fff7ed !important;
+}
+
+.profile-feature-menu-btn.teal-tone {
+  border-color: #99f6e4 !important;
+  background: #f0fdfa !important;
+}
+
+.profile-feature-menu-btn.sky-tone {
+  border-color: #bae6fd !important;
+  background: #f0f9ff !important;
+}
+
+.profile-feature-menu-btn.active {
+  background: linear-gradient(135deg, #091e32 0%, #0f766e 100%) !important;
+  border-color: #0d9488 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.28) !important;
+}
+
+.pfm-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.06);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.profile-feature-menu-btn.active .pfm-icon {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.pfm-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pfm-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.pfm-text strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-feature-menu-btn.active .pfm-text strong {
+  color: #ffffff;
+}
+
+.pfm-text small {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-feature-menu-btn.active .pfm-text small {
+  color: #ccfbf1;
+}
+
+.pfm-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  background: #0d9488;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.pfm-count-badge.alert {
+  background: #ef4444;
+}
+
+.profile-feature-menu-btn.active .pfm-count-badge {
+  background: #ffffff;
+  color: #0f766e;
+}
+
+/* Sub-Menu Tabs inside Mela Tracker & Employee Panel */
+.mela-sub-menu-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+  background: #f1f5f9;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  margin-bottom: 10px;
+}
+
+.mela-sub-tab-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 4px 10px !important;
+  margin: 0 !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+  border: 1px solid #cbd5e1 !important;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: none !important;
+  transition: all 0.15s ease !important;
+}
+
+.mela-sub-tab-btn.active {
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important;
+  color: #ffffff !important;
+  border-color: #0f766e !important;
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25) !important;
+}
+
+@media (max-width: 900px) {
+  .profile-feature-menu-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .profile-menu-hub-card {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .profile-feature-menu-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .profile-feature-menu-btn {
+    padding: 7px 8px !important;
+    min-height: 46px !important;
+    gap: 6px !important;
+  }
+
+  .pfm-icon {
+    width: 26px;
+    height: 26px;
+    font-size: 13.5px;
+  }
+
+  .pfm-text strong {
+    font-size: 11.2px;
+  }
+
+  .pfm-text small {
+    font-size: 9.5px;
+  }
+
+  .mela-sub-tab-btn {
+    height: 33px !important;
+    min-height: 33px !important;
+    font-size: 11px !important;
+    padding: 4px 6px !important;
+  }
+}
