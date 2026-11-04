@@ -4754,72 +4754,74 @@ export default function App() {
               })()
             ) : (
               <>
-                <div className="dash-command-bar">
-                  <div className="dash-compact-grid">
-                    {canEnterData && (
+                {!isDashboardOnly && (
+                  <div className="dash-command-bar">
+                    <div className="dash-compact-grid">
+                      {canEnterData && (
+                        <button
+                          type="button"
+                          className="dash-cmd-btn primary-teal"
+                          onClick={() => {
+                            setEditingEntry(null);
+                            setEntryForm({
+                              type: 'sale',
+                              seller: currentAdmin?.username || 'Rakib',
+                              title: '',
+                              amount: '',
+                              profit: '',
+                              cost: '',
+                              date: today(),
+                              status: 'posted',
+                              investorId: '',
+                              productId: '',
+                              quantity: '',
+                              unitPrice: '',
+                              unitCost: '',
+                              category: '',
+                              notes: '',
+                            });
+                            setShowEntryModal(true);
+                          }}
+                        >
+                          <Plus size={15} /> নতুন হিসাব যোগ
+                        </button>
+                      )}
+
                       <button
                         type="button"
-                        className="dash-cmd-btn primary-teal"
-                        onClick={() => {
-                          setEditingEntry(null);
-                          setEntryForm({
-                            type: 'sale',
-                            seller: currentAdmin?.username || 'Rakib',
-                            title: '',
-                            amount: '',
-                            profit: '',
-                            cost: '',
-                            date: today(),
-                            status: 'posted',
-                            investorId: '',
-                            productId: '',
-                            quantity: '',
-                            unitPrice: '',
-                            unitCost: '',
-                            category: '',
-                            notes: '',
-                          });
-                          setShowEntryModal(true);
-                        }}
+                        className="dash-cmd-btn outline-slate"
+                        onClick={handleDownloadPdf}
+                        disabled={isPdfLoading}
                       >
-                        <Plus size={15} /> নতুন হিসাব যোগ
+                        <Download size={15} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
                       </button>
-                    )}
 
-                    <button
-                      type="button"
-                      className="dash-cmd-btn outline-slate"
-                      onClick={handleDownloadPdf}
-                      disabled={isPdfLoading}
-                    >
-                      <Download size={15} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
-                    </button>
+                      <button
+                        type="button"
+                        className="dash-cmd-btn tint-teal"
+                        onClick={() => setShowProfitabilityModal(true)}
+                      >
+                        <PieChart size={15} /> লাভ ও স্টক রিপোর্ট
+                      </button>
 
-                    <button
-                      type="button"
-                      className="dash-cmd-btn tint-teal"
-                      onClick={() => setShowProfitabilityModal(true)}
-                    >
-                      <PieChart size={15} /> লাভ ও স্টক রিপোর্ট
-                    </button>
+                      <button
+                        type="button"
+                        className="dash-cmd-btn tint-emerald"
+                        onClick={() => setShowBlindCashModal(true)}
+                      >
+                        <Lock size={15} /> ব্লাইন্ড ক্যাশ কাউন্ট
+                      </button>
 
-                    <button
-                      type="button"
-                      className="dash-cmd-btn tint-emerald"
-                      onClick={() => setShowBlindCashModal(true)}
-                    >
-                      <Lock size={15} /> ব্লাইন্ড ক্যাশ কাউন্ট
-                    </button>
-
-                    <button
-                      type="button"
-                      className="dash-cmd-btn tint-indigo"
-                      onClick={() => setShowShiftHandoverModal(true)}
-                    >
-                      <Users size={15} /> শিফট হ্যান্ডওভার লক
-                    </button>
+                      <button
+                        type="button"
+                        className="dash-cmd-btn tint-indigo"
+                        onClick={() => setShowShiftHandoverModal(true)}
+                      >
+                        <Users size={15} /> শিফট হ্যান্ডওভার লক
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* TODAY'S INSTANT SNAPSHOT BAR */}
                 <div className="today-highlight-banner">
@@ -14154,213 +14156,217 @@ export default function App() {
       )}
 
       {/* GLOBAL FIXED FLOATING TRAY REFILL, QR CODE, SPECIAL OFFER, QUICK SKU & CAMERA AUTO-SALE BUTTONS */}
-      {settings.enableTrayRefillFeature !== false && (
-        <button
-          type="button"
-          onClick={() => {
-            setTrayModalInitialTab('scan_refill');
-            setShowTrayRefillModal(true);
-          }}
-          title="🍱 মেলার ট্রে ডিসপ্লে ও স্ক্যান রিফিল (নতুন প্রডাক্ট ট্রে-তে রাখার সময় স্ক্যান করুন — মূল স্টক কমবে ও হিসাব আলাদা থাকবে)"
-          aria-label="মেলার ট্রে ও স্ক্যান রিফিল"
-          style={{
-            position: 'fixed',
-            right: '14px',
-            bottom: `${
-              84 +
-              54 *
-                ((settings.showCalculator !== false ? 1 : 0) +
-                  (settings.enableCameraScan !== false ? 1 : 0) +
-                  (settings.enableDrawingPad !== false ? 1 : 0) +
-                  (settings.enableSpecialOfferAutoSale !== false ? 1 : 0) +
-                  (settings.enableQrCodeAutoSale !== false ? 1 : 0))
-            }px`,
-            zIndex: 940,
-            width: '44px',
-            height: '44px',
-            minHeight: '44px',
-            padding: 0,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #d97706, #ea580c)',
-            color: '#ffffff',
-            border: '2px solid #ffffff',
-            boxShadow: '0 6px 18px rgba(217, 119, 6, 0.48)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            fontSize: '18px',
-          }}
-        >
-          🍱
-        </button>
-      )}
-
-      {settings.enableQrCodeAutoSale !== false && (
-        <button
-          type="button"
-          onClick={() => {
-            setQrModalInitialTab('scanner');
-            setShowQrCodeSaleModal(true);
-          }}
-          title="⚡ QR কোড ন্যানো-সেকেন্ড অটো-সেল স্ক্যানার (প্রডাক্টের QR কোডে ক্যামেরা ধরলেই তাৎক্ষণিক সেল)"
-          aria-label="QR কোড অটো-সেল"
-          style={{
-            position: 'fixed',
-            right: '14px',
-            bottom: `${
-              84 +
-              54 *
-                ((settings.showCalculator !== false ? 1 : 0) +
-                  (settings.enableCameraScan !== false ? 1 : 0) +
-                  (settings.enableDrawingPad !== false ? 1 : 0) +
-                  (settings.enableSpecialOfferAutoSale !== false ? 1 : 0))
-            }px`,
-            zIndex: 940,
-            width: '44px',
-            height: '44px',
-            minHeight: '44px',
-            padding: 0,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-            color: '#ffffff',
-            border: '2px solid #ffffff',
-            boxShadow: '0 6px 18px rgba(79, 70, 229, 0.48)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-          }}
-        >
-          <QrCode size={19} />
-        </button>
-      )}
-
-      {settings.enableSpecialOfferAutoSale !== false && (
-        <button
-          type="button"
-          onClick={() => setShowSpecialOfferSaleModal(true)}
-          title="🎁 বিশেষ অফার অটো-সেল (ডিসকাউন্ট বা অফার মূল্যে তাৎক্ষণিক সেল)"
-          aria-label="বিশেষ অফার অটো-সেল"
-          style={{
-            position: 'fixed',
-            right: '14px',
-            bottom: `${
-              84 +
-              54 *
-                ((settings.showCalculator !== false ? 1 : 0) +
-                  (settings.enableCameraScan !== false ? 1 : 0) +
-                  (settings.enableDrawingPad !== false ? 1 : 0))
-            }px`,
-            zIndex: 940,
-            width: '44px',
-            height: '44px',
-            minHeight: '44px',
-            padding: 0,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #e11d48, #d97706)',
-            color: '#ffffff',
-            border: '2px solid #ffffff',
-            boxShadow: '0 6px 18px rgba(225, 29, 72, 0.45)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-          }}
-        >
-          <Percent size={19} />
-        </button>
-      )}
-
-      {settings.enableDrawingPad !== false && (
-        <button
-          type="button"
-          onClick={() => setShowDrawingSaleModal(true)}
-          title="কুইক SKU নাম্বার অটো-সেল (1, 2, 3... নাম্বার দিলেই সাথে সাথে সেল)"
-          aria-label="কুইক SKU অটো-সেল"
-          style={{
-            position: 'fixed',
-            right: '14px',
-            bottom:
-              settings.showCalculator !== false
-                ? settings.enableCameraScan !== false
-                  ? '192px'
-                  : '138px'
-                : settings.enableCameraScan !== false
-                ? '138px'
-                : '84px',
-            zIndex: 940,
-            width: '44px',
-            height: '44px',
-            minHeight: '44px',
-            padding: 0,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #0d9488, #0284c7)',
-            color: '#ffffff',
-            border: '2px solid #ffffff',
-            boxShadow: '0 6px 18px rgba(13, 148, 136, 0.42)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-          }}
-        >
-          <Zap size={19} />
-        </button>
-      )}
-
-      {settings.enableCameraScan !== false && (
-        <button
-          type="button"
-          onClick={() => setShowCameraSaleModal(true)}
-          title="লাইভ ক্যামেরা অটো-সেল স্ক্যানার"
-          aria-label="লাইভ ক্যামেরা অটো-সেল"
-          style={{
-            position: 'fixed',
-            right: '14px',
-            bottom: settings.showCalculator !== false ? '138px' : '84px',
-            zIndex: 940,
-            width: '44px',
-            height: '44px',
-            minHeight: '44px',
-            padding: 0,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #059669, #0284c7)',
-            color: '#ffffff',
-            border: '2px solid #ffffff',
-            boxShadow: '0 6px 18px rgba(5, 150, 105, 0.38)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-          }}
-        >
-          <Camera size={19} />
-        </button>
-      )}
-
-      {/* GLOBAL FIXED FLOATING CALCULATOR BUTTON (Visible across all pages & stays fixed on scroll) */}
-      {settings.showCalculator !== false && (
-        <button
-          type="button"
-          className={`floating-calc-trigger-btn ${
-            calcState.display !== '0' || Boolean(calcState.expression) || calcState.memory !== 0
-              ? 'has-saved-calc'
-              : ''
-          }`}
-          onClick={() => setShowCalculatorModal(true)}
-          title={
-            calcState.display !== '0' || Boolean(calcState.expression)
-              ? `ব্যবসার ক্যালকুলেটর (সংরক্ষিত হিসাব: ৳${toBengaliNumerals(calcState.display)})`
-              : 'ব্যবসার ক্যালকুলেটর খুলুন'
-          }
-          aria-label="ব্যবসার ক্যালকুলেটর"
-        >
-          <Calculator size={19} />
-          {(calcState.display !== '0' || Boolean(calcState.expression) || calcState.memory !== 0) && (
-            <span className="quick-calc-saved-dot" aria-hidden="true" />
+      {!isDashboardOnly && (
+        <>
+          {settings.enableTrayRefillFeature !== false && (
+            <button
+              type="button"
+              onClick={() => {
+                setTrayModalInitialTab('scan_refill');
+                setShowTrayRefillModal(true);
+              }}
+              title="🍱 মেলার ট্রে ডিসপ্লে ও স্ক্যান রিফিল (নতুন প্রডাক্ট ট্রে-তে রাখার সময় স্ক্যান করুন — মূল স্টক কমবে ও হিসাব আলাদা থাকবে)"
+              aria-label="মেলার ট্রে ও স্ক্যান রিফিল"
+              style={{
+                position: 'fixed',
+                right: '14px',
+                bottom: `${
+                  84 +
+                  54 *
+                    ((settings.showCalculator !== false ? 1 : 0) +
+                      (settings.enableCameraScan !== false ? 1 : 0) +
+                      (settings.enableDrawingPad !== false ? 1 : 0) +
+                      (settings.enableSpecialOfferAutoSale !== false ? 1 : 0) +
+                      (settings.enableQrCodeAutoSale !== false ? 1 : 0))
+                }px`,
+                zIndex: 940,
+                width: '44px',
+                height: '44px',
+                minHeight: '44px',
+                padding: 0,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #d97706, #ea580c)',
+                color: '#ffffff',
+                border: '2px solid #ffffff',
+                boxShadow: '0 6px 18px rgba(217, 119, 6, 0.48)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                fontSize: '18px',
+              }}
+            >
+              🍱
+            </button>
           )}
-        </button>
+
+          {settings.enableQrCodeAutoSale !== false && (
+            <button
+              type="button"
+              onClick={() => {
+                setQrModalInitialTab('scanner');
+                setShowQrCodeSaleModal(true);
+              }}
+              title="⚡ QR কোড ন্যানো-সেকেন্ড অটো-সেল স্ক্যানার (প্রডাক্টের QR কোডে ক্যামেরা ধরলেই তাৎক্ষণিক সেল)"
+              aria-label="QR কোড অটো-সেল"
+              style={{
+                position: 'fixed',
+                right: '14px',
+                bottom: `${
+                  84 +
+                  54 *
+                    ((settings.showCalculator !== false ? 1 : 0) +
+                      (settings.enableCameraScan !== false ? 1 : 0) +
+                      (settings.enableDrawingPad !== false ? 1 : 0) +
+                      (settings.enableSpecialOfferAutoSale !== false ? 1 : 0))
+                }px`,
+                zIndex: 940,
+                width: '44px',
+                height: '44px',
+                minHeight: '44px',
+                padding: 0,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                color: '#ffffff',
+                border: '2px solid #ffffff',
+                boxShadow: '0 6px 18px rgba(79, 70, 229, 0.48)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <QrCode size={19} />
+            </button>
+          )}
+
+          {settings.enableSpecialOfferAutoSale !== false && (
+            <button
+              type="button"
+              onClick={() => setShowSpecialOfferSaleModal(true)}
+              title="🎁 বিশেষ অফার অটো-সেল (ডিসকাউন্ট বা অফার মূল্যে তাৎক্ষণিক সেল)"
+              aria-label="বিশেষ অফার অটো-সেল"
+              style={{
+                position: 'fixed',
+                right: '14px',
+                bottom: `${
+                  84 +
+                  54 *
+                    ((settings.showCalculator !== false ? 1 : 0) +
+                      (settings.enableCameraScan !== false ? 1 : 0) +
+                      (settings.enableDrawingPad !== false ? 1 : 0))
+                }px`,
+                zIndex: 940,
+                width: '44px',
+                height: '44px',
+                minHeight: '44px',
+                padding: 0,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #e11d48, #d97706)',
+                color: '#ffffff',
+                border: '2px solid #ffffff',
+                boxShadow: '0 6px 18px rgba(225, 29, 72, 0.45)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <Percent size={19} />
+            </button>
+          )}
+
+          {settings.enableDrawingPad !== false && (
+            <button
+              type="button"
+              onClick={() => setShowDrawingSaleModal(true)}
+              title="কুইক SKU নাম্বার অটো-সেল (1, 2, 3... নাম্বার দিলেই সাথে সাথে সেল)"
+              aria-label="কুইক SKU অটো-সেল"
+              style={{
+                position: 'fixed',
+                right: '14px',
+                bottom:
+                  settings.showCalculator !== false
+                    ? settings.enableCameraScan !== false
+                      ? '192px'
+                      : '138px'
+                    : settings.enableCameraScan !== false
+                    ? '138px'
+                    : '84px',
+                zIndex: 940,
+                width: '44px',
+                height: '44px',
+                minHeight: '44px',
+                padding: 0,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0d9488, #0284c7)',
+                color: '#ffffff',
+                border: '2px solid #ffffff',
+                boxShadow: '0 6px 18px rgba(13, 148, 136, 0.42)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <Zap size={19} />
+            </button>
+          )}
+
+          {settings.enableCameraScan !== false && (
+            <button
+              type="button"
+              onClick={() => setShowCameraSaleModal(true)}
+              title="লাইভ ক্যামেরা অটো-সেল স্ক্যানার"
+              aria-label="লাইভ ক্যামেরা অটো-সেল"
+              style={{
+                position: 'fixed',
+                right: '14px',
+                bottom: settings.showCalculator !== false ? '138px' : '84px',
+                zIndex: 940,
+                width: '44px',
+                height: '44px',
+                minHeight: '44px',
+                padding: 0,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #059669, #0284c7)',
+                color: '#ffffff',
+                border: '2px solid #ffffff',
+                boxShadow: '0 6px 18px rgba(5, 150, 105, 0.38)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <Camera size={19} />
+            </button>
+          )}
+
+          {/* GLOBAL FIXED FLOATING CALCULATOR BUTTON (Visible across all pages & stays fixed on scroll) */}
+          {settings.showCalculator !== false && (
+            <button
+              type="button"
+              className={`floating-calc-trigger-btn ${
+                calcState.display !== '0' || Boolean(calcState.expression) || calcState.memory !== 0
+                  ? 'has-saved-calc'
+                  : ''
+              }`}
+              onClick={() => setShowCalculatorModal(true)}
+              title={
+                calcState.display !== '0' || Boolean(calcState.expression)
+                  ? `ব্যবসার ক্যালকুলেটর (সংরক্ষিত হিসাব: ৳${toBengaliNumerals(calcState.display)})`
+                  : 'ব্যবসার ক্যালকুলেটর খুলুন'
+              }
+              aria-label="ব্যবসার ক্যালকুলেটর"
+            >
+              <Calculator size={19} />
+              {(calcState.display !== '0' || Boolean(calcState.expression) || calcState.memory !== 0) && (
+                <span className="quick-calc-saved-dot" aria-hidden="true" />
+              )}
+            </button>
+          )}
+        </>
       )}
 
       {/* PERSISTENT BUSINESS CALCULATOR POPUP MODAL */}
