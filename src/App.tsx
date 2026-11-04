@@ -438,6 +438,7 @@ export default function App() {
   const [showCameraSaleModal, setShowCameraSaleModal] = useState(false);
   const [showDrawingSaleModal, setShowDrawingSaleModal] = useState(false);
   const [showSpecialOfferSaleModal, setShowSpecialOfferSaleModal] = useState(false);
+  const [showComboSaleModal, setShowComboSaleModal] = useState(false);
   const [showQrCodeSaleModal, setShowQrCodeSaleModal] = useState(false);
   const [qrModalInitialTab, setQrModalInitialTab] = useState<'scanner' | 'stickers'>('scanner');
   const [showTrayRefillModal, setShowTrayRefillModal] = useState(false);
@@ -4650,6 +4651,14 @@ export default function App() {
                             <Camera size={15} /> ক্যামেরা অটো-সেল
                           </button>
                         )}
+
+                        <button
+                          type="button"
+                          className="emp-ops-action-btn violet"
+                          onClick={() => setShowComboSaleModal(true)}
+                        >
+                          <Layers size={15} /> 📦 কম্বো অটো-সেল
+                        </button>
 
                         {settings.enableTrayRefillFeature !== false && (
                           <button
@@ -14382,247 +14391,403 @@ export default function App() {
       )}
 
       {/* SEPARATE LIVE CAMERA AUTO-SALE POS MODAL */}
-      {settings.enableCameraScan !== false && showCameraSaleModal && (
-        <CameraAutoSaleModal
-          isOpen={showCameraSaleModal}
-          onClose={() => setShowCameraSaleModal(false)}
-          products={products}
-          featureMode="camera"
-          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
-          onExecuteSale={async ({ product, quantity, matchMethod }) => {
-            const actorId = currentAdmin?.username || 'Rakib';
-            const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
-            const actorDisplay =
-              actorId === 'Limon'
-                ? 'লিমন (Limon)'
-                : actorId === 'Rakib'
-                ? 'রাকিব (Rakib)'
-                : `${currentAdmin?.displayName || actorId} (${actorId})`;
+      {(() => {
+        const handleExecuteComboAutoSale = async ({
+          combo,
+          quantity,
+        }: {
+          combo: import('./types').ProductCombo;
+          quantity: number;
+          seller: 'Rakib' | 'Limon';
+        }) => {
+          const actorId = currentAdmin?.username || 'Rakib';
+          const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
+          const actorDisplay =
+            actorId === 'Limon'
+              ? 'লিমন (Limon)'
+              : actorId === 'Rakib'
+              ? 'রাকিব (Rakib)'
+              : `${currentAdmin?.displayName || actorId} (${actorId})`;
 
-            const unitPrice = Number(product.sellingPrice) || 0;
-            const unitCost = Number(product.averageCost) || 0;
-            const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
-            const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
-            const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+          const setsCount = Math.max(1, Math.round(Number(quantity) || 1));
+          const totalAmount = Math.round(setsCount * (Number(combo.comboPrice) || 0) * 100) / 100;
+          const cogsAmount = Math.round(setsCount * (Number(combo.totalCost) || 0) * 100) / 100;
+          const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
 
-            const methodLabel =
-              matchMethod === 'barcode'
-                ? 'SKU কোড স্ক্যান'
-                : matchMethod === 'quick_tap'
-                ? 'কুইক ট্যাপ ক্যামেরা সেল'
-                : 'ক্যামেরা অটো-স্ক্যান';
+          const comboItemsPayload = combo.items.map((item) => ({
+            productId: item.productId,
+            productName: item.productName,
+            unit: item.unit || 'পিস',
+            quantity: Math.round(Number(item.quantity) * setsCount * 100) / 100,
+            unitCost: Number(item.unitCost) || 0,
+            sellingPrice: Number(item.sellingPrice) || 0,
+          }));
 
-            const createdId = await addEntry(
-              {
-                type: 'sale',
-                title: `${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})`,
-                amount: totalAmount,
-                date: today(),
-                status: 'posted',
-                productId: product.id,
-                quantity,
-                unitPrice,
-                unitCost,
-                cogsAmount,
-                grossProfit,
-                profit: grossProfit,
-                category: 'ক্যামেরা অটো-সেল (POS)',
-                notes: `${methodLabel} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
-                demo: false,
-              },
-              actorId,
-              actorEmail,
-              actorDisplay
-            );
+          const itemsBreakdownText = comboItemsPayload
+            .map((ci) => `${ci.productName} (${toBengaliNumerals(ci.quantity)} ${ci.unit})`)
+            .join(' + ');
 
-            setMessage(
-              `✅ ক্যামেরা অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)}${isEmployee ? '' : ` (লাভ: +${money(grossProfit)})`}`
-            );
-            return createdId;
-          }}
-          onUndoSale={async (entryId, product, quantity) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            await removeEntry(entryId, actorId, actorEmail);
-            setMessage(
-              `↩️ ক্যামেরা সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
-            );
-          }}
-          onUpdateProductSku={async (product, newSku) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
-            setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
-          }}
-        />
-      )}
+          const createdId = await addEntry(
+            {
+              type: 'sale',
+              title: `📦 ${combo.name} বিক্রয় (${toBengaliNumerals(setsCount)} সেট) [#${combo.code}]`,
+              amount: totalAmount,
+              date: today(),
+              status: 'posted',
+              quantity: setsCount,
+              unitPrice: combo.comboPrice,
+              unitCost: combo.totalCost,
+              cogsAmount,
+              grossProfit,
+              profit: grossProfit,
+              comboId: combo.id,
+              comboName: combo.name,
+              comboCode: combo.code,
+              comboItems: comboItemsPayload,
+              category: 'কম্বো প্যাক অটো-সেল (POS)',
+              notes: `কাস্টম কম্বো (#${combo.code}) অটো-সেল: ${itemsBreakdownText} | কম্বো মূল্য: ৳${toBengaliNumerals(
+                combo.comboPrice
+              )}/সেট (${actorDisplay})`,
+              demo: false,
+            },
+            actorId,
+            actorEmail,
+            actorDisplay
+          );
 
-      {/* SEPARATE DRAWING PAD AUTO-SALE POS MODAL */}
-      {settings.enableDrawingPad !== false && showDrawingSaleModal && (
-        <CameraAutoSaleModal
-          isOpen={showDrawingSaleModal}
-          onClose={() => setShowDrawingSaleModal(false)}
-          products={products}
-          featureMode="drawing"
-          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
-          onExecuteSale={async ({ product, quantity, matchMethod }) => {
-            const actorId = currentAdmin?.username || 'Rakib';
-            const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
-            const actorDisplay =
-              actorId === 'Limon'
-                ? 'লিমন (Limon)'
-                : actorId === 'Rakib'
-                ? 'রাকিব (Rakib)'
-                : `${currentAdmin?.displayName || actorId} (${actorId})`;
+          setMessage(
+            `📦 কম্বো অটো-সেল সম্পন্ন (#${combo.code}): ${combo.name} (${toBengaliNumerals(
+              setsCount
+            )} সেট: ${itemsBreakdownText}) — ${money(totalAmount)}${
+              isEmployee ? '' : ` (লাভ: ${grossProfit >= 0 ? '+' : ''}${money(grossProfit)})`
+            }`
+          );
+          return createdId;
+        };
 
-            const unitPrice = Number(product.sellingPrice) || 0;
-            const unitCost = Number(product.averageCost) || 0;
-            const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
-            const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
-            const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+        return (
+          <>
+            {settings.enableCameraScan !== false && showCameraSaleModal && (
+              <CameraAutoSaleModal
+                isOpen={showCameraSaleModal}
+                onClose={() => setShowCameraSaleModal(false)}
+                products={products}
+                featureMode="camera"
+                initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+                onExecuteComboSale={handleExecuteComboAutoSale}
+                onExecuteSale={async ({ product, quantity, matchMethod }) => {
+                  const actorId = currentAdmin?.username || 'Rakib';
+                  const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
+                  const actorDisplay =
+                    actorId === 'Limon'
+                      ? 'লিমন (Limon)'
+                      : actorId === 'Rakib'
+                      ? 'রাকিব (Rakib)'
+                      : `${currentAdmin?.displayName || actorId} (${actorId})`;
 
-            const methodLabel =
-              matchMethod === 'barcode'
-                ? 'কুইক SKU নাম্বার এন্ট্রি'
-                : matchMethod === 'quick_tap'
-                ? '১-ট্যাপ কুইক SKU সেল'
-                : 'কুইক SKU অটো-সেল';
+                  const unitPrice = Number(product.sellingPrice) || 0;
+                  const unitCost = Number(product.averageCost) || 0;
+                  const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+                  const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+                  const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
 
-            const createdId = await addEntry(
-              {
-                type: 'sale',
-                title: `${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})`,
-                amount: totalAmount,
-                date: today(),
-                status: 'posted',
-                productId: product.id,
-                quantity,
-                unitPrice,
-                unitCost,
-                cogsAmount,
-                grossProfit,
-                profit: grossProfit,
-                category: 'কুইক SKU অটো-সেল (POS)',
-                notes: `${methodLabel} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
-                demo: false,
-              },
-              actorId,
-              actorEmail,
-              actorDisplay
-            );
+                  const methodLabel =
+                    matchMethod === 'barcode'
+                      ? 'SKU কোড স্ক্যান'
+                      : matchMethod === 'quick_tap'
+                      ? 'কুইক ট্যাপ ক্যামেরা সেল'
+                      : 'ক্যামেরা অটো-স্ক্যান';
 
-            setMessage(
-              `✅ কুইক SKU অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)}${isEmployee ? '' : ` (লাভ: +${money(grossProfit)})`}`
-            );
-            return createdId;
-          }}
-          onUndoSale={async (entryId, product, quantity) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            await removeEntry(entryId, actorId, actorEmail);
-            setMessage(
-              `↩️ কুইক SKU সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
-            );
-          }}
-          onUpdateProductSku={async (product, newSku) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
-            setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
-          }}
-        />
-      )}
+                  const createdId = await addEntry(
+                    {
+                      type: 'sale',
+                      title: `${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})`,
+                      amount: totalAmount,
+                      date: today(),
+                      status: 'posted',
+                      productId: product.id,
+                      quantity,
+                      unitPrice,
+                      unitCost,
+                      cogsAmount,
+                      grossProfit,
+                      profit: grossProfit,
+                      category: 'ক্যামেরা অটো-সেল (POS)',
+                      notes: `${methodLabel} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
+                      demo: false,
+                    },
+                    actorId,
+                    actorEmail,
+                    actorDisplay
+                  );
 
-      {/* SEPARATE SPECIAL OFFER AUTO-SALE POS MODAL */}
-      {settings.enableSpecialOfferAutoSale !== false && showSpecialOfferSaleModal && (
-        <CameraAutoSaleModal
-          isOpen={showSpecialOfferSaleModal}
-          onClose={() => setShowSpecialOfferSaleModal(false)}
-          products={products}
-          featureMode="special_offer"
-          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
-          onExecuteSale={async ({ product, quantity, matchMethod, offerUnitPrice, offerDiscountLabel }) => {
-            const actorId = currentAdmin?.username || 'Rakib';
-            const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
-            const actorDisplay =
-              actorId === 'Limon'
-                ? 'লিমন (Limon)'
-                : actorId === 'Rakib'
-                ? 'রাকিব (Rakib)'
-                : `${currentAdmin?.displayName || actorId} (${actorId})`;
+                  setMessage(
+                    `✅ ক্যামেরা অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)}${isEmployee ? '' : ` (লাভ: +${money(grossProfit)})`}`
+                  );
+                  return createdId;
+                }}
+                onUndoSale={async (entryId, product, quantity) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await removeEntry(entryId, actorId, actorEmail);
+                  setMessage(
+                    `↩️ ক্যামেরা সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+                  );
+                }}
+                onUpdateProductSku={async (product, newSku) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
+                  setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+                }}
+              />
+            )}
 
-            const regularPrice = Number(product.sellingPrice) || 0;
-            const unitPrice =
-              offerUnitPrice !== undefined && Number.isFinite(offerUnitPrice)
-                ? Math.max(0, offerUnitPrice)
-                : regularPrice;
-            const unitCost = Number(product.averageCost) || 0;
-            const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
-            const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
-            const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+            {/* SEPARATE DRAWING PAD AUTO-SALE POS MODAL */}
+            {settings.enableDrawingPad !== false && showDrawingSaleModal && (
+              <CameraAutoSaleModal
+                isOpen={showDrawingSaleModal}
+                onClose={() => setShowDrawingSaleModal(false)}
+                products={products}
+                featureMode="drawing"
+                initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+                onExecuteComboSale={handleExecuteComboAutoSale}
+                onExecuteSale={async ({ product, quantity, matchMethod }) => {
+                  const actorId = currentAdmin?.username || 'Rakib';
+                  const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
+                  const actorDisplay =
+                    actorId === 'Limon'
+                      ? 'লিমন (Limon)'
+                      : actorId === 'Rakib'
+                      ? 'রাকিব (Rakib)'
+                      : `${currentAdmin?.displayName || actorId} (${actorId})`;
 
-            const offerTag = offerDiscountLabel ? ` [${offerDiscountLabel}]` : ' [বিশেষ অফার]';
-            const methodLabel =
-              matchMethod === 'barcode'
-                ? 'বিশেষ অফার SKU নাম্বার এন্ট্রি'
-                : '১-ট্যাপ বিশেষ অফার সেল';
+                  const unitPrice = Number(product.sellingPrice) || 0;
+                  const unitCost = Number(product.averageCost) || 0;
+                  const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+                  const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+                  const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
 
-            const createdId = await addEntry(
-              {
-                type: 'sale',
-                title: `🎁 ${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})${offerTag}`,
-                amount: totalAmount,
-                date: today(),
-                status: 'posted',
-                productId: product.id,
-                quantity,
-                unitPrice,
-                unitCost,
-                cogsAmount,
-                grossProfit,
-                profit: grossProfit,
-                category: 'বিশেষ অফার অটো-সেল (POS)',
-                notes: `${methodLabel} দ্বারা অফার মূল্যে ৳${toBengaliNumerals(unitPrice)}/পিস (রেগুলার: ৳${toBengaliNumerals(regularPrice)}) এন্ট্রিকৃত (${actorDisplay})`,
-                demo: false,
-              },
-              actorId,
-              actorEmail,
-              actorDisplay
-            );
+                  const methodLabel =
+                    matchMethod === 'barcode'
+                      ? 'কুইক SKU নাম্বার এন্ট্রি'
+                      : matchMethod === 'quick_tap'
+                      ? '১-ট্যাপ কুইক SKU সেল'
+                      : 'কুইক SKU অটো-সেল';
 
-            setMessage(
-              `🎁 বিশেষ অফার সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name}${offerTag} — ${money(totalAmount)}${isEmployee ? '' : ` (লাভ: ${grossProfit >= 0 ? '+' : ''}${money(grossProfit)})`}`
-            );
-            return createdId;
-          }}
-          onUndoSale={async (entryId, product, quantity) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            await removeEntry(entryId, actorId, actorEmail);
-            setMessage(
-              `↩️ বিশেষ অফার সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
-            );
-          }}
-          onUpdateProductSku={async (product, newSku) => {
-            const actorId = currentAdmin?.username || user?.uid || 'admin';
-            const actorEmail = currentAdmin
-              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
-              : user?.email || '';
-            await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
-            setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
-          }}
-        />
-      )}
+                  const createdId = await addEntry(
+                    {
+                      type: 'sale',
+                      title: `${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})`,
+                      amount: totalAmount,
+                      date: today(),
+                      status: 'posted',
+                      productId: product.id,
+                      quantity,
+                      unitPrice,
+                      unitCost,
+                      cogsAmount,
+                      grossProfit,
+                      profit: grossProfit,
+                      category: 'কুইক SKU অটো-সেল (POS)',
+                      notes: `${methodLabel} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
+                      demo: false,
+                    },
+                    actorId,
+                    actorEmail,
+                    actorDisplay
+                  );
+
+                  setMessage(
+                    `✅ কুইক SKU অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)}${isEmployee ? '' : ` (লাভ: +${money(grossProfit)})`}`
+                  );
+                  return createdId;
+                }}
+                onUndoSale={async (entryId, product, quantity) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await removeEntry(entryId, actorId, actorEmail);
+                  setMessage(
+                    `↩️ কুইক SKU সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+                  );
+                }}
+                onUpdateProductSku={async (product, newSku) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
+                  setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+                }}
+              />
+            )}
+
+            {/* SEPARATE SPECIAL OFFER AUTO-SALE POS MODAL */}
+            {settings.enableSpecialOfferAutoSale !== false && showSpecialOfferSaleModal && (
+              <CameraAutoSaleModal
+                isOpen={showSpecialOfferSaleModal}
+                onClose={() => setShowSpecialOfferSaleModal(false)}
+                products={products}
+                featureMode="special_offer"
+                initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+                onExecuteComboSale={handleExecuteComboAutoSale}
+                onExecuteSale={async ({ product, quantity, matchMethod, offerUnitPrice, offerDiscountLabel }) => {
+                  const actorId = currentAdmin?.username || 'Rakib';
+                  const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
+                  const actorDisplay =
+                    actorId === 'Limon'
+                      ? 'লিমন (Limon)'
+                      : actorId === 'Rakib'
+                      ? 'রাকিব (Rakib)'
+                      : `${currentAdmin?.displayName || actorId} (${actorId})`;
+
+                  const regularPrice = Number(product.sellingPrice) || 0;
+                  const unitPrice =
+                    offerUnitPrice !== undefined && Number.isFinite(offerUnitPrice)
+                      ? Math.max(0, offerUnitPrice)
+                      : regularPrice;
+                  const unitCost = Number(product.averageCost) || 0;
+                  const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+                  const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+                  const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+
+                  const offerTag = offerDiscountLabel ? ` [${offerDiscountLabel}]` : ' [বিশেষ অফার]';
+                  const methodLabel =
+                    matchMethod === 'barcode'
+                      ? 'বিশেষ অফার SKU নাম্বার এন্ট্রি'
+                      : '১-ট্যাপ বিশেষ অফার সেল';
+
+                  const createdId = await addEntry(
+                    {
+                      type: 'sale',
+                      title: `🎁 ${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})${offerTag}`,
+                      amount: totalAmount,
+                      date: today(),
+                      status: 'posted',
+                      productId: product.id,
+                      quantity,
+                      unitPrice,
+                      unitCost,
+                      cogsAmount,
+                      grossProfit,
+                      profit: grossProfit,
+                      category: 'বিশেষ অফার অটো-সেল (POS)',
+                      notes: `${methodLabel} দ্বারা অফার মূল্যে ৳${toBengaliNumerals(unitPrice)}/পিস (রেগুলার: ৳${toBengaliNumerals(regularPrice)}) এন্ট্রিকৃত (${actorDisplay})`,
+                      demo: false,
+                    },
+                    actorId,
+                    actorEmail,
+                    actorDisplay
+                  );
+
+                  setMessage(
+                    `🎁 বিশেষ অফার সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name}${offerTag} — ${money(totalAmount)}${isEmployee ? '' : ` (লাভ: ${grossProfit >= 0 ? '+' : ''}${money(grossProfit)})`}`
+                  );
+                  return createdId;
+                }}
+                onUndoSale={async (entryId, product, quantity) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await removeEntry(entryId, actorId, actorEmail);
+                  setMessage(
+                    `↩️ বিশেষ অফার সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} (স্টক পুনঃসমন্বয় হয়েছে)`
+                  );
+                }}
+                onUpdateProductSku={async (product, newSku) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
+                  setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+                }}
+              />
+            )}
+
+            {/* DEDICATED CUSTOM COMBO PACK BUILDER & AUTO-SALE MODAL */}
+            {showComboSaleModal && (
+              <CameraAutoSaleModal
+                isOpen={showComboSaleModal}
+                onClose={() => setShowComboSaleModal(false)}
+                products={products}
+                featureMode="combo"
+                initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+                onExecuteComboSale={handleExecuteComboAutoSale}
+                onExecuteSale={async ({ product, quantity, matchMethod }) => {
+                  const actorId = currentAdmin?.username || 'Rakib';
+                  const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
+                  const actorDisplay =
+                    actorId === 'Limon'
+                      ? 'লিমন (Limon)'
+                      : actorId === 'Rakib'
+                      ? 'রাকিব (Rakib)'
+                      : `${currentAdmin?.displayName || actorId} (${actorId})`;
+
+                  const unitPrice = Number(product.sellingPrice) || 0;
+                  const unitCost = Number(product.averageCost) || 0;
+                  const totalAmount = Math.round(quantity * unitPrice * 100) / 100;
+                  const cogsAmount = Math.round(quantity * unitCost * 100) / 100;
+                  const grossProfit = Math.round((totalAmount - cogsAmount) * 100) / 100;
+
+                  const createdId = await addEntry(
+                    {
+                      type: 'sale',
+                      title: `${product.name} বিক্রয় (${toBengaliNumerals(quantity)} ${product.unit || 'পিস'})`,
+                      amount: totalAmount,
+                      date: today(),
+                      status: 'posted',
+                      productId: product.id,
+                      quantity,
+                      unitPrice,
+                      unitCost,
+                      cogsAmount,
+                      grossProfit,
+                      profit: grossProfit,
+                      category: 'কুইক SKU অটো-সেল (POS)',
+                      notes: `${matchMethod} দ্বারা স্বয়ংক্রিয়ভাবে এন্ট্রিকৃত (${actorDisplay})`,
+                      demo: false,
+                    },
+                    actorId,
+                    actorEmail,
+                    actorDisplay
+                  );
+
+                  setMessage(
+                    `✅ অটো-সেল সম্পন্ন: ${toBengaliNumerals(quantity)} ${product.unit || 'পিস'} ${product.name} — ${money(totalAmount)}${isEmployee ? '' : ` (লাভ: +${money(grossProfit)})`}`
+                  );
+                  return createdId;
+                }}
+                onUndoSale={async (entryId, product, quantity) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await removeEntry(entryId, actorId, actorEmail);
+                  setMessage(
+                    `↩️ কম্বো/অটো সেল বাতিল করা হয়েছে: ${toBengaliNumerals(quantity)} ${product.unit || 'সেট'} ${product.name} (সব প্রডাক্টের স্টক পুনঃসমন্বয় হয়েছে)`
+                  );
+                }}
+                onUpdateProductSku={async (product, newSku) => {
+                  const actorId = currentAdmin?.username || user?.uid || 'admin';
+                  const actorEmail = currentAdmin
+                    ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                    : user?.email || '';
+                  await updateProduct(product.id, { sku: newSku }, actorId, actorEmail);
+                  setMessage(`✅ "${product.name}"-এর SKU কোড "${newSku}" সফলভাবে সংরক্ষণ করা হয়েছে!`);
+                }}
+              />
+            )}
+          </>
+        );
+      })()}
 
       {/* SEPARATE NANOSECOND QR CODE AUTO-SALE & STICKER MODAL */}
       {settings.enableQrCodeAutoSale !== false && showQrCodeSaleModal && (

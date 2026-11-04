@@ -29,6 +29,7 @@ import type {
   AiChatSession,
   EmployeeAccount,
   MelaEventRecord,
+  ProductCombo,
 } from './types';
 import { formatBengaliDateTime, calculateCashBalance } from './accounting';
 
@@ -262,8 +263,29 @@ export async function addEntry(
 
     batch.set(entryRef, newEntry);
 
-    // If sale or purchase of an inventoried product, update stock in batch
-    if (row.productId && row.quantity && row.quantity > 0 && row.status === 'posted') {
+    // If sale of a multi-product Combo Pack, deduct stock for each constituent product in batch
+    if (Array.isArray(row.comboItems) && row.comboItems.length > 0 && row.status === 'posted' && row.type === 'sale') {
+      const deductMap = new Map<string, number>();
+      for (const ci of row.comboItems) {
+        if (ci.productId && Number(ci.quantity) > 0) {
+          deductMap.set(ci.productId, (deductMap.get(ci.productId) || 0) + Number(ci.quantity));
+        }
+      }
+      for (const [prodId, qtyToDeduct] of deductMap.entries()) {
+        const prodRef = doc(d, 'products', prodId);
+        const prodSnap = await getDoc(prodRef);
+        if (prodSnap.exists()) {
+          const prodData = prodSnap.data() as Product;
+          const curStock = prodData.currentStock || 0;
+          const newStock = Math.max(0, Math.round((curStock - qtyToDeduct) * 100) / 100);
+          batch.update(prodRef, cleanObject({
+            currentStock: newStock,
+            updatedAt: serverTimestamp(),
+          }));
+        }
+      }
+    } else if (row.productId && row.quantity && row.quantity > 0 && row.status === 'posted') {
+      // If sale or purchase of a single inventoried product, update stock in batch
       const prodRef = doc(d, 'products', row.productId);
       const prodSnap = await getDoc(prodRef);
       if (prodSnap.exists()) {
@@ -658,7 +680,25 @@ export async function removeEntry(id: string, uid: string, email?: string) {
       details: { title: data.title, amount: data.amount, type: data.type, status: data.status },
     }));
 
-    if (data.status === 'posted' && data.productId && data.quantity && data.quantity > 0) {
+    if (data.status === 'posted' && Array.isArray(data.comboItems) && data.comboItems.length > 0 && data.type === 'sale') {
+      const restoreMap = new Map<string, number>();
+      for (const ci of data.comboItems) {
+        if (ci.productId && Number(ci.quantity) > 0) {
+          restoreMap.set(ci.productId, (restoreMap.get(ci.productId) || 0) + Number(ci.quantity));
+        }
+      }
+      for (const [prodId, qtyToRestore] of restoreMap.entries()) {
+        const prodRef = doc(d, 'products', prodId);
+        const prodSnap = await getDoc(prodRef);
+        if (prodSnap.exists()) {
+          const curStock = (prodSnap.data() as Product).currentStock || 0;
+          batch.update(prodRef, cleanObject({
+            currentStock: Math.round((curStock + qtyToRestore) * 100) / 100,
+            updatedAt: serverTimestamp(),
+          }));
+        }
+      }
+    } else if (data.status === 'posted' && data.productId && data.quantity && data.quantity > 0) {
       const prodRef = doc(d, 'products', data.productId);
       const prodSnap = await getDoc(prodRef);
       if (prodSnap.exists()) {
@@ -713,7 +753,25 @@ export async function voidPostedEntry(entry: Entry, reason: string, uid: string,
       },
     }));
 
-    if (entry.productId && entry.quantity && entry.quantity > 0) {
+    if (Array.isArray(entry.comboItems) && entry.comboItems.length > 0 && entry.type === 'sale') {
+      const restoreMap = new Map<string, number>();
+      for (const ci of entry.comboItems) {
+        if (ci.productId && Number(ci.quantity) > 0) {
+          restoreMap.set(ci.productId, (restoreMap.get(ci.productId) || 0) + Number(ci.quantity));
+        }
+      }
+      for (const [prodId, qtyToRestore] of restoreMap.entries()) {
+        const prodRef = doc(d, 'products', prodId);
+        const prodSnap = await getDoc(prodRef);
+        if (prodSnap.exists()) {
+          const curStock = (prodSnap.data() as Product).currentStock || 0;
+          batch.update(prodRef, cleanObject({
+            currentStock: Math.round((curStock + qtyToRestore) * 100) / 100,
+            updatedAt: serverTimestamp(),
+          }));
+        }
+      }
+    } else if (entry.productId && entry.quantity && entry.quantity > 0) {
       const prodRef = doc(d, 'products', entry.productId);
       const prodSnap = await getDoc(prodRef);
       if (prodSnap.exists()) {
@@ -2406,4 +2464,85 @@ export async function recordAiAssistantAuditLog(params: {
   } catch {
     // Non-blocking audit log write
   }
+}
+
+// ============================================================================
+// CUSTOM PRODUCT COMBO PACK BUILDER & PERSISTENCE (Auto-Sale Combos)
+// ============================================================================
+const PRODUCT_COMBOS_STORAGE_KEY = 'glowzaa_product_combos_v1';
+export const COMBOS_UPDATED_EVENT = 'glowzaa_combos_updated';
+
+export function getCachedProductCombos(): ProductCombo[] {
+  try {
+    const raw = localStorage.getItem(PRODUCT_COMBOS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCachedProductCombos(list: ProductCombo[]): void {
+  try {
+    localStorage.setItem(PRODUCT_COMBOS_STORAGE_KEY, JSON.stringify(list));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(COMBOS_UPDATED_EVENT, { detail: list }));
+    }
+  } catch {}
+}
+
+export function watchProductCombos(
+  cb: (rows: ProductCombo[]) => void,
+  onError?: (e: Error) => void
+): Unsubscribe {
+  const cached = getCachedProductCombos();
+  cb(cached);
+
+  if (!db) {
+    return () => {};
+  }
+
+  return onSnapshot(
+    doc(db, 'businessSettings', 'productCombos'),
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const rows: ProductCombo[] = Array.isArray(data?.list) ? data.list : [];
+        saveCachedProductCombos(rows);
+        cb(rows);
+      } else {
+        cb(getCachedProductCombos());
+      }
+    },
+    (err) => {
+      if (onError) onError(err as Error);
+      cb(getCachedProductCombos());
+    }
+  );
+}
+
+export async function saveProductCombos(
+  combos: ProductCombo[],
+  actorUsername = 'Rakib'
+): Promise<ProductCombo[]> {
+  saveCachedProductCombos(combos);
+
+  if (db) {
+    try {
+      await setDoc(
+        doc(db, 'businessSettings', 'productCombos'),
+        cleanObject({
+          list: combos,
+          updatedBy: actorUsername,
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('Could not sync product combos to Firestore (saved locally):', err);
+    }
+  }
+
+  return combos;
 }

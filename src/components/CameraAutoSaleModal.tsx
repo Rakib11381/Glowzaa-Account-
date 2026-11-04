@@ -19,9 +19,17 @@ import {
   VolumeX,
   X,
   Zap,
+  Plus,
+  Layers,
 } from 'lucide-react';
-import type { Product } from '../types';
+import type { Product, ProductCombo, ComboItem } from '../types';
 import { money, toBengaliNumerals } from '../accounting';
+import {
+  getCachedProductCombos,
+  saveProductCombos,
+  watchProductCombos,
+  COMBOS_UPDATED_EVENT,
+} from '../data';
 import {
   loadScannerSoundConfig,
   playScannerSound,
@@ -43,13 +51,15 @@ export interface CameraSaleLogItem {
   timestamp: string;
   matchMethod: 'ai_vision' | 'barcode' | 'visual_hash' | 'quick_tap';
   seller?: 'Rakib' | 'Limon';
+  isCombo?: boolean;
+  combo?: ProductCombo;
 }
 
 interface CameraAutoSaleModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
-  featureMode?: 'camera' | 'drawing' | 'special_offer';
+  featureMode?: 'camera' | 'drawing' | 'special_offer' | 'combo';
   initialSeller?: 'Rakib' | 'Limon';
   onExecuteSale: (params: {
     product: Product;
@@ -58,6 +68,11 @@ interface CameraAutoSaleModalProps {
     seller: 'Rakib' | 'Limon';
     offerUnitPrice?: number;
     offerDiscountLabel?: string;
+  }) => Promise<string | void>;
+  onExecuteComboSale?: (params: {
+    combo: ProductCombo;
+    quantity: number;
+    seller: 'Rakib' | 'Limon';
   }) => Promise<string | void>;
   onUndoSale?: (entryId: string, product: Product, quantity: number) => Promise<void>;
   onUpdateProductSku?: (product: Product, newSku: string) => Promise<void>;
@@ -397,6 +412,7 @@ export default function CameraAutoSaleModal({
   featureMode = 'camera',
   initialSeller = 'Rakib',
   onExecuteSale,
+  onExecuteComboSale,
   onUndoSale,
   onUpdateProductSku,
 }: CameraAutoSaleModalProps) {
@@ -404,9 +420,45 @@ export default function CameraAutoSaleModal({
   useEffect(() => {
     if (initialSeller) setSelectedSeller(initialSeller);
   }, [initialSeller]);
+  const isComboFeature = featureMode === 'combo';
   const isSpecialOfferFeature = featureMode === 'special_offer';
-  const isDrawingFeature = featureMode === 'drawing' || isSpecialOfferFeature;
+  const isDrawingFeature = featureMode === 'drawing' || isSpecialOfferFeature || isComboFeature;
   const inputTab: 'camera' | 'drawing' = isDrawingFeature ? 'drawing' : 'camera';
+
+  // Active sub-mode inside Auto-Sale: 'single' vs 'combo'
+  const [activeSaleTab, setActiveSaleTab] = useState<'single' | 'combo'>(
+    isComboFeature ? 'combo' : 'single'
+  );
+  useEffect(() => {
+    setActiveSaleTab(featureMode === 'combo' ? 'combo' : 'single');
+  }, [featureMode, isOpen]);
+
+  // Saved Custom Combos & Combo Builder State
+  const [combos, setCombos] = useState<ProductCombo[]>(() => getCachedProductCombos());
+  const [showComboBuilder, setShowComboBuilder] = useState<boolean>(
+    () => getCachedProductCombos().length === 0 || featureMode === 'combo'
+  );
+  const [editingComboId, setEditingComboId] = useState<string | null>(null);
+  const [comboNameInput, setComboNameInput] = useState<string>('');
+  const [comboCodeInput, setComboCodeInput] = useState<string>('');
+  const [comboPriceInput, setComboPriceInput] = useState<string>('');
+  const [comboDraftItems, setComboDraftItems] = useState<ComboItem[]>([]);
+  const [comboSearchQuery, setComboSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    const unsub = watchProductCombos((rows) => {
+      setCombos(rows);
+    });
+    const handleLocalComboSync = () => {
+      setCombos(getCachedProductCombos());
+    };
+    window.addEventListener(COMBOS_UPDATED_EVENT, handleLocalComboSync);
+    return () => {
+      unsub();
+      window.removeEventListener(COMBOS_UPDATED_EVENT, handleLocalComboSync);
+    };
+  }, []);
+
   const [offerMode, setOfferMode] = useState<'flat_discount' | 'fixed_price' | 'percent_discount' | 'at_cost'>('flat_discount');
   const [offerValueInput, setOfferValueInput] = useState<string>('5');
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -427,7 +479,9 @@ export default function CameraAutoSaleModal({
   const [editingSkuValue, setEditingSkuValue] = useState<string>('');
   const [savingSkuId, setSavingSkuId] = useState<string | null>(null);
   const [scanStatusText, setScanStatusText] = useState<string>(
-    isSpecialOfferFeature
+    isComboFeature
+      ? '📦 যেকোনো প্রডাক্ট দিয়ে ইচ্ছামতো কম্বো প্যাক তৈরি করুন এবং ১-ট্যাপে অটো-সেল করুন'
+      : isSpecialOfferFeature
       ? '🎁 বিশেষ অফার মূল্য বা ছাড় নির্বাচন করে প্রডাক্টের SKU নাম্বার (1, 2, 3...) দিন — সাথে সাথে অফারে অটো-সেল হবে'
       : isDrawingFeature
       ? '🔢 নিচের বক্সে প্রডাক্টের SKU নাম্বার (1, 2, 3...) লিখুন বা ট্যাপ করুন — সাথে সাথে অটো-সেল হবে'
@@ -949,6 +1003,354 @@ export default function CameraAutoSaleModal({
       });
   }
 
+  // ============================================================================
+  // CUSTOM PRODUCT COMBO HELPERS & 0MS COMBO AUTO-SALE EXECUTION
+  // ============================================================================
+  function getNextComboCode(list: ProductCombo[] = combos): string {
+    let maxIdx = 0;
+    for (const c of list) {
+      const m = String(c.code || '').toUpperCase().match(/^C(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > maxIdx) maxIdx = n;
+      }
+    }
+    return `C${maxIdx + 1}`;
+  }
+
+  function matchComboByCode(rawInput: string): ProductCombo | null {
+    const cleaned = bnToEnSkuDigits(String(rawInput || ''))
+      .trim()
+      .toUpperCase()
+      .replace(/^#/, '');
+    if (!cleaned) return null;
+    for (const c of combos) {
+      const codeUpper = String(c.code || '').trim().toUpperCase();
+      if (codeUpper && codeUpper === cleaned) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  const comboDraftSummary = (() => {
+    let regularTotalPrice = 0;
+    let totalCost = 0;
+    for (const item of comboDraftItems) {
+      const prod = products.find((p) => p.id === item.productId);
+      const uPrice = prod ? Number(prod.sellingPrice) || 0 : Number(item.sellingPrice) || 0;
+      const uCost = prod ? Number(prod.averageCost) || 0 : Number(item.unitCost) || 0;
+      const q = Math.max(0, Number(item.quantity) || 0);
+      regularTotalPrice += uPrice * q;
+      totalCost += uCost * q;
+    }
+    regularTotalPrice = Math.round(regularTotalPrice * 100) / 100;
+    totalCost = Math.round(totalCost * 100) / 100;
+    const parsedCustomPrice = Number(comboPriceInput);
+    const effectiveComboPrice =
+      comboPriceInput.trim() !== '' && Number.isFinite(parsedCustomPrice) && parsedCustomPrice >= 0
+        ? Math.round(parsedCustomPrice * 100) / 100
+        : regularTotalPrice;
+    const discountAmount = Math.max(0, Math.round((regularTotalPrice - effectiveComboPrice) * 100) / 100);
+    const netProfit = Math.round((effectiveComboPrice - totalCost) * 100) / 100;
+    return {
+      regularTotalPrice,
+      totalCost,
+      effectiveComboPrice,
+      discountAmount,
+      netProfit,
+    };
+  })();
+
+  function handleAddOrIncrementComboDraftProduct(prod: Product) {
+    unlockScannerAudio();
+    const idx = products.findIndex((p) => p.id === prod.id);
+    const sku = getEffectiveProductSku(prod, idx >= 0 ? idx : 0);
+    setComboDraftItems((prev) => {
+      const existing = prev.find((i) => i.productId === prod.id);
+      let next: ComboItem[];
+      if (existing) {
+        next = prev.map((i) =>
+          i.productId === prod.id
+            ? {
+                ...i,
+                quantity: Math.round((Number(i.quantity) + 1) * 100) / 100,
+                unitCost: Number(prod.averageCost) || 0,
+                sellingPrice: Number(prod.sellingPrice) || 0,
+              }
+            : i
+        );
+      } else {
+        next = [
+          ...prev,
+          {
+            productId: prod.id,
+            productName: prod.name,
+            sku,
+            unit: prod.unit || 'পিস',
+            quantity: 1,
+            unitCost: Number(prod.averageCost) || 0,
+            sellingPrice: Number(prod.sellingPrice) || 0,
+          },
+        ];
+      }
+      const nextRegTotal = Math.round(
+        next.reduce((acc, item) => acc + item.sellingPrice * item.quantity, 0) * 100
+      ) / 100;
+      setComboPriceInput(String(nextRegTotal));
+      if (!editingComboId && !comboCodeInput.trim()) {
+        setComboCodeInput(getNextComboCode());
+      }
+      return next;
+    });
+  }
+
+  function handleUpdateComboDraftItemQty(productId: string, newQtyVal: string) {
+    const cleaned = bnToEnSkuDigits(newQtyVal);
+    const num = Math.max(0, Number(cleaned) || 0);
+    setComboDraftItems((prev) => {
+      const next = prev.map((i) =>
+        i.productId === productId ? { ...i, quantity: num } : i
+      );
+      const nextRegTotal = Math.round(
+        next.reduce((acc, item) => acc + item.sellingPrice * item.quantity, 0) * 100
+      ) / 100;
+      setComboPriceInput(String(nextRegTotal));
+      return next;
+    });
+  }
+
+  function handleRemoveComboDraftItem(productId: string) {
+    setComboDraftItems((prev) => {
+      const next = prev.filter((i) => i.productId !== productId);
+      const nextRegTotal = Math.round(
+        next.reduce((acc, item) => acc + item.sellingPrice * item.quantity, 0) * 100
+      ) / 100;
+      setComboPriceInput(next.length > 0 ? String(nextRegTotal) : '');
+      return next;
+    });
+  }
+
+  function resetComboBuilderForm() {
+    setEditingComboId(null);
+    setComboNameInput('');
+    setComboCodeInput(getNextComboCode());
+    setComboPriceInput('');
+    setComboDraftItems([]);
+  }
+
+  function buildComboObjectFromDraft(): ProductCombo | null {
+    const validItems = comboDraftItems
+      .map((item) => {
+        const prod = products.find((p) => p.id === item.productId);
+        return {
+          ...item,
+          productName: prod?.name || item.productName,
+          unit: prod?.unit || item.unit || 'পিস',
+          unitCost: prod ? Number(prod.averageCost) || 0 : Number(item.unitCost) || 0,
+          sellingPrice: prod ? Number(prod.sellingPrice) || 0 : Number(item.sellingPrice) || 0,
+          quantity: Math.max(0, Number(item.quantity) || 0),
+        };
+      })
+      .filter((i) => i.quantity > 0);
+
+    if (validItems.length === 0) {
+      playScannerSound('undo');
+      setScanStatusText('⚠️ কম্বো তৈরি করতে অন্তত ১টি বা একাধিক প্রডাক্ট নির্বাচন করুন!');
+      return null;
+    }
+
+    const autoName =
+      validItems.map((i) => `${i.productName} (${toBengaliNumerals(i.quantity)} ${i.unit})`).join(' + ');
+    const finalName = comboNameInput.trim() || `কম্বো: ${autoName.slice(0, 48)}`;
+    const finalCode =
+      bnToEnSkuDigits(comboCodeInput.trim()).toUpperCase().replace(/\s+/g, '') ||
+      getNextComboCode();
+
+    return {
+      id: editingComboId || `combo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: finalName,
+      code: finalCode,
+      items: validItems,
+      regularTotalPrice: comboDraftSummary.regularTotalPrice,
+      totalCost: comboDraftSummary.totalCost,
+      comboPrice: comboDraftSummary.effectiveComboPrice,
+      active: true,
+      createdBy: selectedSeller,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async function handleSaveComboPreset() {
+    const built = buildComboObjectFromDraft();
+    if (!built) return;
+
+    const nextList = editingComboId
+      ? combos.map((c) => (c.id === editingComboId ? built : c))
+      : [built, ...combos.filter((c) => c.code !== built.code)];
+
+    setCombos(nextList);
+    await saveProductCombos(nextList, selectedSeller);
+    playScannerSound('success');
+    setScanStatusText(
+      `✅ "${built.name}" (কোড: #${built.code}, দাম: ${money(built.comboPrice)}) সফলভাবে সেভ হয়েছে! এখন ১-ট্যাপে সেল করতে পারবেন।`
+    );
+    resetComboBuilderForm();
+    setShowComboBuilder(false);
+  }
+
+  async function handleDeleteComboPreset(combo: ProductCombo) {
+    const nextList = combos.filter((c) => c.id !== combo.id);
+    setCombos(nextList);
+    await saveProductCombos(nextList, selectedSeller);
+    if (editingComboId === combo.id) {
+      resetComboBuilderForm();
+    }
+    setScanStatusText(`🗑️ কম্বো "${combo.name}" মুছে ফেলা হয়েছে।`);
+  }
+
+  function handleEditComboPreset(combo: ProductCombo) {
+    setEditingComboId(combo.id);
+    setComboNameInput(combo.name);
+    setComboCodeInput(combo.code);
+    setComboPriceInput(String(combo.comboPrice));
+    setComboDraftItems(
+      combo.items.map((i) => {
+        const prod = products.find((p) => p.id === i.productId);
+        return {
+          ...i,
+          productName: prod?.name || i.productName,
+          unitCost: prod ? Number(prod.averageCost) || 0 : i.unitCost,
+          sellingPrice: prod ? Number(prod.sellingPrice) || 0 : i.sellingPrice,
+        };
+      })
+    );
+    setShowComboBuilder(true);
+    setActiveSaleTab('combo');
+  }
+
+  async function triggerSaleForCombo(combo: ProductCombo, setsToSell?: number) {
+    const cleanQty = Math.max(1, Math.round(Number(setsToSell ?? defaultQty) || 1));
+
+    // Recalculate real-time cost from current product catalog
+    let unitComboCost = 0;
+    let unitRegularPrice = 0;
+    const refreshedItems: ComboItem[] = combo.items.map((item) => {
+      const prod = productsRef.current.find((p) => p.id === item.productId);
+      const uCost = prod ? Number(prod.averageCost) || 0 : Number(item.unitCost) || 0;
+      const uPrice = prod ? Number(prod.sellingPrice) || 0 : Number(item.sellingPrice) || 0;
+      unitComboCost += uCost * item.quantity;
+      unitRegularPrice += uPrice * item.quantity;
+      return {
+        ...item,
+        productName: prod?.name || item.productName,
+        unit: prod?.unit || item.unit || 'পিস',
+        unitCost: uCost,
+        sellingPrice: uPrice,
+      };
+    });
+
+    const syncedCombo: ProductCombo = {
+      ...combo,
+      items: refreshedItems,
+      totalCost: Math.round(unitComboCost * 100) / 100,
+      regularTotalPrice: Math.round(unitRegularPrice * 100) / 100,
+    };
+
+    const totalAmount = Math.round(cleanQty * syncedCombo.comboPrice * 100) / 100;
+    const totalCost = Math.round(cleanQty * syncedCombo.totalCost * 100) / 100;
+    const profitAmount = Math.round((totalAmount - totalCost) * 100) / 100;
+
+    playScannerSound('success');
+    setScanPulseKey((prev) => prev + 1);
+    setScanSuccessPulse(true);
+    setTimeout(() => setScanSuccessPulse(false), 650);
+
+    setFlashSuccess({
+      productName: `📦 ${syncedCombo.name}`,
+      skuCode: syncedCombo.code,
+      quantity: cleanQty,
+      unit: 'সেট কম্বো',
+      totalAmount,
+      profit: profitAmount,
+    });
+    setTimeout(() => {
+      setFlashSuccess((prev) =>
+        prev?.productName === `📦 ${syncedCombo.name}` ? null : prev
+      );
+    }, 900);
+
+    // Create synthetic Product representation for session sale log display & Undo
+    const firstProd =
+      productsRef.current.find((p) => p.id === syncedCombo.items[0]?.productId) ||
+      productsRef.current[0] || {
+        id: syncedCombo.id,
+        name: syncedCombo.name,
+        unit: 'সেট',
+        currentStock: 0,
+        averageCost: syncedCombo.totalCost,
+        sellingPrice: syncedCombo.comboPrice,
+      };
+
+    const syntheticProduct: Product = {
+      ...firstProd,
+      id: firstProd.id,
+      name: `📦 ${syncedCombo.name}`,
+      sku: syncedCombo.code,
+      unit: 'সেট',
+      averageCost: syncedCombo.totalCost,
+      sellingPrice: syncedCombo.comboPrice,
+    };
+
+    const logId = `combo-sale-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const optimisticLogItem: CameraSaleLogItem = {
+      id: logId,
+      product: syntheticProduct,
+      skuCode: syncedCombo.code,
+      quantity: cleanQty,
+      totalAmount,
+      profitAmount,
+      timestamp: new Date().toLocaleTimeString('bn-BD', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      matchMethod: 'quick_tap',
+      seller: selectedSeller,
+      isCombo: true,
+      combo: syncedCombo,
+    };
+
+    setSaleLogs((prev) => [optimisticLogItem, ...prev]);
+    const itemsSummaryText = syncedCombo.items
+      .map((i) => `${i.productName} ×${toBengaliNumerals(i.quantity * cleanQty)}`)
+      .join(', ');
+    setScanStatusText(
+      `✅ কম্বো সেল সম্পন্ন (#${syncedCombo.code}): ${syncedCombo.name} (${toBengaliNumerals(
+        cleanQty
+      )} সেট: ${itemsSummaryText}) — ${money(totalAmount)}`
+    );
+
+    if (onExecuteComboSale) {
+      onExecuteComboSale({
+        combo: syncedCombo,
+        quantity: cleanQty,
+        seller: selectedSeller,
+      })
+        .then((createdEntryId) => {
+          if (typeof createdEntryId === 'string') {
+            setSaleLogs((prev) =>
+              prev.map((item) => (item.id === logId ? { ...item, entryId: createdEntryId } : item))
+            );
+          }
+        })
+        .catch((err: any) => {
+          setScanStatusText(err?.message || 'কম্বো বিক্রি এন্ট্রি করতে সমস্যা হয়েছে');
+        });
+    }
+  }
+
   function buildCatalogPayload(list: Product[], _includePhotos: boolean) {
     return list.slice(0, 210).map((p, idx) => {
       const s = getEffectiveProductSku(p, idx);
@@ -1185,11 +1587,20 @@ export default function CameraAutoSaleModal({
     const raw = manualSkuInput.trim().toUpperCase();
     if (!raw) return;
 
+    // 1. Check if input matches a Saved Custom Combo Code (e.g., C1, C2...)
+    const matchedCombo = matchComboByCode(raw);
+    if (matchedCombo) {
+      const qty = Math.max(1, Math.round(Number(defaultQty) || 1));
+      setManualSkuInput('');
+      await triggerSaleForCombo(matchedCombo, qty);
+      return;
+    }
+
     const strictCode = toStrictAllowedSkuClient(raw);
     if (!strictCode) {
       playScannerSound('undo');
       setScanStatusText(
-        `❌ "${raw}" গ্রহণযোগ্য নয়! অনুগ্রহ করে প্রডাক্টের সঠিক SKU নাম্বার (যেমন: 1, 2, 3, 4...) লিখুন।`
+        `❌ "${raw}" গ্রহণযোগ্য নয়! প্রডাক্টের SKU নাম্বার (1, 2, 3...) অথবা কম্বো কোড (C1, C2...) লিখুন।`
       );
       return;
     }
@@ -1427,11 +1838,14 @@ export default function CameraAutoSaleModal({
         {/* 1. CLEAN, BALANCED TOP HEADER */}
         <div
           style={{
-            background: isSpecialOfferFeature
-              ? 'linear-gradient(135deg, #be123c 0%, #d97706 100%)'
-              : isDrawingFeature
-              ? 'linear-gradient(135deg, #0f766e 0%, #0284c7 100%)'
-              : 'linear-gradient(135deg, #0d9488 0%, #0369a1 100%)',
+            background:
+              activeSaleTab === 'combo' || isComboFeature
+                ? 'linear-gradient(135deg, #6d28d9 0%, #c026d3 100%)'
+                : isSpecialOfferFeature
+                ? 'linear-gradient(135deg, #be123c 0%, #d97706 100%)'
+                : isDrawingFeature
+                ? 'linear-gradient(135deg, #0f766e 0%, #0284c7 100%)'
+                : 'linear-gradient(135deg, #0d9488 0%, #0369a1 100%)',
             padding: '12px 14px',
             display: 'flex',
             alignItems: 'center',
@@ -1464,7 +1878,9 @@ export default function CameraAutoSaleModal({
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
               }}
             >
-              {isSpecialOfferFeature ? (
+              {activeSaleTab === 'combo' || isComboFeature ? (
+                <Layers size={18} color="#ffffff" />
+              ) : isSpecialOfferFeature ? (
                 <Tag size={18} color="#ffffff" />
               ) : isDrawingFeature ? (
                 <Zap size={18} color="#ffffff" />
@@ -1485,7 +1901,9 @@ export default function CameraAutoSaleModal({
                   textOverflow: 'ellipsis',
                 }}
               >
-                {isSpecialOfferFeature
+                {activeSaleTab === 'combo' || isComboFeature
+                  ? '📦 কাস্টম কম্বো প্যাক ও অটো-সেল'
+                  : isSpecialOfferFeature
                   ? '🎁 বিশেষ অফার অটো-সেল'
                   : isDrawingFeature
                   ? '⚡ কুইক SKU অটো-সেল'
@@ -1502,10 +1920,12 @@ export default function CameraAutoSaleModal({
                   textOverflow: 'ellipsis',
                 }}
               >
-                {isSpecialOfferFeature
+                {activeSaleTab === 'combo' || isComboFeature
+                  ? 'যেকোনো প্রডাক্ট দিয়ে ইচ্ছামতো কম্বো বানিয়ে সেট করুন ও অটো-সেল করুন'
+                  : isSpecialOfferFeature
                   ? 'বিশেষ ছাড় বা অফার মূল্যে SKU নাম্বারে তাৎক্ষণিক সেল'
                   : isDrawingFeature
-                  ? 'SKU নাম্বার (1, 2, 3...) দিলেই তাৎক্ষণিক অটো-সেল'
+                  ? 'SKU নাম্বার (1, 2, 3...) বা কম্বো কোডে তাৎক্ষণিক অটো-সেল'
                   : 'SKU নাম্বার (1, 2, 3...) স্ক্যান বা টাইপ করে অটো-সেল'}
               </p>
             </div>
@@ -1830,6 +2250,80 @@ export default function CameraAutoSaleModal({
                 />
               </div>
             </div>
+
+            {/* Row 3: Mode Switcher — Single Product Auto-Sale vs Custom Combo Builder & Auto-Sale */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '6px',
+                background: '#0b1120',
+                padding: '4px',
+                borderRadius: '10px',
+                border: '1px solid #1e293b',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setActiveSaleTab('single')}
+                style={{
+                  height: '33px',
+                  minHeight: '33px',
+                  borderRadius: '8px',
+                  border:
+                    activeSaleTab === 'single'
+                      ? '1.5px solid #2dd4bf'
+                      : '1px solid transparent',
+                  background:
+                    activeSaleTab === 'single'
+                      ? 'linear-gradient(135deg, #0d9488 0%, #0284c7 100%)'
+                      : 'transparent',
+                  color: activeSaleTab === 'single' ? '#ffffff' : '#94a3b8',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
+                }}
+              >
+                <Zap size={13} />
+                <span>সিঙ্গেল প্রডাক্ট সেল</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSaleTab('combo');
+                  if (combos.length === 0) setShowComboBuilder(true);
+                }}
+                style={{
+                  height: '33px',
+                  minHeight: '33px',
+                  borderRadius: '8px',
+                  border:
+                    activeSaleTab === 'combo'
+                      ? '1.5px solid #f0abfc'
+                      : '1px solid rgba(192, 132, 252, 0.25)',
+                  background:
+                    activeSaleTab === 'combo'
+                      ? 'linear-gradient(135deg, #7c3aed 0%, #c026d3 100%)'
+                      : 'rgba(124, 58, 237, 0.12)',
+                  color: activeSaleTab === 'combo' ? '#ffffff' : '#e9d5ff',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
+                }}
+              >
+                <Layers size={13} />
+                <span>📦 কম্বো বানিয়ে সেল ({toBengaliNumerals(combos.length)})</span>
+              </button>
+            </div>
           </div>
 
           {/* Flash Success Banner when in Quick SKU Auto-Sale view */}
@@ -1880,8 +2374,8 @@ export default function CameraAutoSaleModal({
             </div>
           )}
 
-          {/* 3. LIVE CAMERA VIEWPORT (Shown ONLY when featureMode === 'camera') */}
-          {!isDrawingFeature && (
+          {/* 3. LIVE CAMERA VIEWPORT (Shown ONLY when featureMode === 'camera' and activeSaleTab === 'single') */}
+          {!isDrawingFeature && activeSaleTab === 'single' && (
           <div
             style={{
               position: 'relative',
@@ -2487,10 +2981,13 @@ export default function CameraAutoSaleModal({
             )}
 
             {/* Direct Instant SKU Number Entry (Opens Mobile Numeric Keyboard on Tap) */}
-            {(() => {
-              const livePreviewHit = manualSkuInput.trim()
-                ? matchProductBySkuClient(manualSkuInput.trim(), products)
-                : null;
+            {activeSaleTab === 'single' && (() => {
+              const trimmedSku = manualSkuInput.trim();
+              const liveComboHit = trimmedSku ? matchComboByCode(trimmedSku) : null;
+              const livePreviewHit =
+                trimmedSku && !liveComboHit
+                  ? matchProductBySkuClient(trimmedSku, products)
+                  : null;
               const previewQty = Math.max(0.1, Number(defaultQty) || 1);
               const previewOffer = livePreviewHit
                 ? computeOfferPricing(livePreviewHit.product)
@@ -2499,7 +2996,9 @@ export default function CameraAutoSaleModal({
                 <div
                   style={{
                     background: 'linear-gradient(145deg, #0f172a 0%, #1e293b 100%)',
-                    border: livePreviewHit
+                    border: liveComboHit
+                      ? '2px solid #c084fc'
+                      : livePreviewHit
                       ? '2px solid #10b981'
                       : isSpecialOfferFeature
                       ? '1.5px solid rgba(251, 191, 36, 0.55)'
@@ -2689,8 +3188,49 @@ export default function CameraAutoSaleModal({
                     </button>
                   </form>
 
-                  {/* Live Matched Product Preview Card when typing a SKU number */}
-                  {livePreviewHit && previewOffer ? (
+                  {/* Live Matched Product or Combo Preview Card when typing a SKU / Combo code */}
+                  {liveComboHit ? (
+                    <div
+                      style={{
+                        background: 'rgba(88, 28, 135, 0.55)',
+                        border: '1.5px solid #c084fc',
+                        borderRadius: '12px',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <strong style={{ fontSize: '13.5px', color: '#ffffff' }}>
+                            📦 {liveComboHit.name}
+                          </strong>
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 900,
+                              background: '#9333ea',
+                              color: '#fde047',
+                              padding: '1px 7px',
+                              borderRadius: '999px',
+                            }}
+                          >
+                            কম্বো #{liveComboHit.code}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: '#e9d5ff', marginTop: '3px' }}>
+                          কম্বো দাম: <b style={{ color: '#fde047' }}>{money(liveComboHit.comboPrice)}</b> ×{' '}
+                          {toBengaliNumerals(Math.max(1, Math.round(previewQty)))} সেট ={' '}
+                          <b style={{ color: '#4ade80' }}>
+                            {money(liveComboHit.comboPrice * Math.max(1, Math.round(previewQty)))}
+                          </b>
+                        </div>
+                      </div>
+                    </div>
+                  ) : livePreviewHit && previewOffer ? (
                     <div
                       style={{
                         background: 'rgba(6, 78, 59, 0.55)',
@@ -2803,7 +3343,7 @@ export default function CameraAutoSaleModal({
                         fontWeight: 700,
                       }}
                     >
-                      ❌ "{manualSkuInput.trim()}" নাম্বারে আপনার স্টকে কোনো প্রডাক্ট পাওয়া যায়নি
+                      ❌ "{manualSkuInput.trim()}" নাম্বারে কোনো প্রডাক্ট বা কম্বো পাওয়া যায়নি
                     </div>
                   ) : null}
 
@@ -2874,9 +3414,1172 @@ export default function CameraAutoSaleModal({
                       })}
                     </div>
                   )}
+
+                  {/* Quick 1-Tap Saved Combo Buttons inside Single SKU View */}
+                  {combos.length > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        overflowX: 'auto',
+                        paddingTop: '4px',
+                        paddingBottom: '2px',
+                        borderTop: '1px dashed rgba(148, 163, 184, 0.2)',
+                        WebkitOverflowScrolling: 'touch',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 900,
+                          color: '#e879f9',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
+                        }}
+                      >
+                        📦 ১-ট্যাপ কম্বো:
+                      </span>
+                      {combos.map((combo) => (
+                        <button
+                          key={combo.id}
+                          type="button"
+                          disabled={isPostingSale}
+                          onClick={() => {
+                            const qty = Math.max(1, Math.round(Number(defaultQty) || 1));
+                            triggerSaleForCombo(combo, qty);
+                          }}
+                          title={`${combo.name} — ${money(combo.comboPrice)}`}
+                          style={{
+                            background: 'linear-gradient(135deg, rgba(109, 40, 217, 0.45), rgba(192, 38, 211, 0.35))',
+                            color: '#fdf4ff',
+                            border: '1px solid #d8b4fe',
+                            borderRadius: '8px',
+                            height: '30px',
+                            minHeight: '30px',
+                            padding: '0 10px',
+                            fontSize: '11.5px',
+                            fontWeight: 900,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                          }}
+                        >
+                          <span style={{ color: '#fde047' }}>#{combo.code}</span>
+                          <span>{combo.name.replace(/^কম্বো:\s*/, '').slice(0, 14)}</span>
+                          <span style={{ color: '#86efac' }}>({money(combo.comboPrice)})</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })()}
+
+            {/* ===================================================================== */}
+            {/* CUSTOM COMBO BUILDER & SAVED COMBO 1-TAP AUTO-SALE PANEL              */}
+            {/* ===================================================================== */}
+            {activeSaleTab === 'combo' && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                {/* Top Header Bar of Combo Section */}
+                <div
+                  style={{
+                    background: 'linear-gradient(145deg, #2e1065 0%, #1e1b4b 100%)',
+                    border: '1.5px solid rgba(216, 180, 254, 0.45)',
+                    borderRadius: '14px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#f5d0fe' }}>
+                      📦 ইচ্ছামতো প্রডাক্ট দিয়ে কম্বো সেট ও অটো-সেল
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '2px' }}>
+                      যেকোনো প্রডাক্ট সিলেক্ট করে নিজের মতো দাম বসিয়ে সেভ রাখুন অথবা সাথে সাথে সেল করুন
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (showComboBuilder && editingComboId) {
+                        resetComboBuilderForm();
+                      } else {
+                        if (!showComboBuilder && !comboCodeInput) {
+                          setComboCodeInput(getNextComboCode());
+                        }
+                        setShowComboBuilder((prev) => !prev);
+                      }
+                    }}
+                    style={{
+                      background: showComboBuilder
+                        ? 'rgba(255, 255, 255, 0.15)'
+                        : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: '#ffffff',
+                      border: `1.5px solid ${showComboBuilder ? '#c084fc' : '#6ee7b7'}`,
+                      borderRadius: '9px',
+                      height: '34px',
+                      minHeight: '34px',
+                      padding: '0 12px',
+                      fontSize: '12px',
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Plus size={14} />
+                    <span>
+                      {showComboBuilder
+                        ? editingComboId
+                          ? 'এডিট বাতিল করুন'
+                          : 'ফর্ম লুকান'
+                        : 'নতুন কম্বো তৈরি করুন'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* COMBO BUILDER / CUSTOMIZER CARD */}
+                {showComboBuilder && (
+                  <div
+                    style={{
+                      background: '#0f172a',
+                      border: '2px solid #a855f7',
+                      borderRadius: '16px',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      boxShadow: '0 10px 28px rgba(124, 58, 237, 0.25)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#e9d5ff' }}>
+                        {editingComboId
+                          ? '✏️ কম্বো প্যাক এডিট ও কাস্টমাইজ করুন:'
+                          : '✨ ধাপ ১: কম্বোতে যোগ করার জন্য প্রডাক্ট ট্যাপ করুন:'}
+                      </span>
+                      {comboDraftItems.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={resetComboBuilderForm}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.16)',
+                            color: '#fca5a5',
+                            border: '1px solid rgba(248, 113, 113, 0.35)',
+                            borderRadius: '7px',
+                            height: '25px',
+                            minHeight: '25px',
+                            padding: '0 8px',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          সব ক্লিয়ার
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Search filter for products when building combo */}
+                    {products.length > 5 && (
+                      <input
+                        type="text"
+                        value={comboSearchQuery}
+                        onChange={(e) => setComboSearchQuery(e.target.value)}
+                        placeholder="🔍 প্রডাক্টের নাম বা SKU নাম্বার দিয়ে খুঁজুন..."
+                        style={{
+                          width: '100%',
+                          height: '34px',
+                          minHeight: '34px',
+                          padding: '0 10px',
+                          borderRadius: '9px',
+                          border: '1px solid #334155',
+                          background: '#020617',
+                          color: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    )}
+
+                    {/* Product Picker Grid */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                        gap: '7px',
+                        maxHeight: '210px',
+                        overflowY: 'auto',
+                        padding: '5px',
+                        background: '#020617',
+                        borderRadius: '10px',
+                        border: '1px solid #1e293b',
+                      }}
+                    >
+                      {products
+                        .filter((p, idx) => {
+                          const q = comboSearchQuery.trim().toLowerCase();
+                          if (!q) return true;
+                          const sku = getEffectiveProductSku(p, idx).toLowerCase();
+                          return p.name.toLowerCase().includes(q) || sku.includes(q);
+                        })
+                        .map((p, idx) => {
+                          const selectedItem = comboDraftItems.find((i) => i.productId === p.id);
+                          const sku = getEffectiveProductSku(p, idx);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => handleAddOrIncrementComboDraftProduct(p)}
+                              style={{
+                                background: selectedItem
+                                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(5, 150, 105, 0.2))'
+                                  : '#1e293b',
+                                border: `1.5px solid ${
+                                  selectedItem ? '#10b981' : '#334155'
+                                }`,
+                                borderRadius: '10px',
+                                padding: '7px 8px',
+                                textAlign: 'left',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                color: '#ffffff',
+                              }}
+                            >
+                              {p.imageUrl ? (
+                                <img
+                                  src={p.imageUrl}
+                                  alt={p.name}
+                                  style={{
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '8px',
+                                    objectFit: 'cover',
+                                    flexShrink: 0,
+                                    border: `1.5px solid ${
+                                      selectedItem ? '#34d399' : 'rgba(255, 255, 255, 0.16)'
+                                    }`,
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '8px',
+                                    background: '#0f172a',
+                                    border: '1px solid #334155',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Package size={18} color="#2dd4bf" />
+                                </div>
+                              )}
+
+                              <div
+                                style={{
+                                  minWidth: 0,
+                                  flex: 1,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '2px',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      fontWeight: 900,
+                                      color: '#fde047',
+                                      background: 'rgba(234, 179, 8, 0.18)',
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                    }}
+                                  >
+                                    #{sku}
+                                  </span>
+                                  {selectedItem ? (
+                                    <span
+                                      style={{
+                                        fontSize: '9.5px',
+                                        fontWeight: 900,
+                                        background: '#10b981',
+                                        color: '#ffffff',
+                                        padding: '1px 6px',
+                                        borderRadius: '999px',
+                                      }}
+                                    >
+                                      ✓ {toBengaliNumerals(selectedItem.quantity)} {p.unit}
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>
+                                      + যোগ
+                                    </span>
+                                  )}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: '11.5px',
+                                    fontWeight: 800,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {p.name}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: '10px',
+                                    color: '#a7f3d0',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  <span>দাম: {money(p.sellingPrice)}</span>
+                                  <span style={{ color: '#94a3b8' }}>
+                                    স্টক: {toBengaliNumerals(p.currentStock)}
+                                  </span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                    </div>
+
+                    {/* Selected Combo Products & Quantities */}
+                    {comboDraftItems.length > 0 && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                          background: '#152033',
+                          borderRadius: '11px',
+                          padding: '9px 10px',
+                          border: '1px solid #334155',
+                        }}
+                      >
+                        <div style={{ fontSize: '11.5px', fontWeight: 900, color: '#5eead4' }}>
+                          🛒 কম্বোতে যুক্ত প্রডাক্ট ও পরিমাণ ({toBengaliNumerals(comboDraftItems.length)}টি প্রডাক্ট):
+                        </div>
+                        {comboDraftItems.map((item) => {
+                          const liveProd = products.find((p) => p.id === item.productId);
+                          return (
+                          <div
+                            key={item.productId}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              background: '#0b1120',
+                              padding: '6px 8px',
+                              borderRadius: '8px',
+                              border: '1px solid #1e293b',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                minWidth: 0,
+                                flex: 1,
+                              }}
+                            >
+                              {liveProd?.imageUrl ? (
+                                <img
+                                  src={liveProd.imageUrl}
+                                  alt={item.productName}
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '7px',
+                                    objectFit: 'cover',
+                                    flexShrink: 0,
+                                    border: '1px solid rgba(52, 211, 153, 0.4)',
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '7px',
+                                    background: '#1e293b',
+                                    border: '1px solid #334155',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Package size={15} color="#2dd4bf" />
+                                </div>
+                              )}
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div
+                                  style={{
+                                    fontSize: '12px',
+                                    fontWeight: 800,
+                                    color: '#ffffff',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {item.productName}
+                                </div>
+                                <div style={{ fontSize: '10.5px', color: '#94a3b8' }}>
+                                  রেগুলার: {money(item.sellingPrice)}/{item.unit} • মোট:{' '}
+                                  <b style={{ color: '#34d399' }}>
+                                    {money(item.sellingPrice * item.quantity)}
+                                  </b>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateComboDraftItemQty(
+                                    item.productId,
+                                    String(Math.max(0.5, Number(item.quantity) - 1))
+                                  )
+                                }
+                                style={{
+                                  width: '26px',
+                                  height: '26px',
+                                  minHeight: '26px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #475569',
+                                  background: '#1e293b',
+                                  color: '#ffffff',
+                                  fontWeight: 900,
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                              >
+                                -
+                              </button>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={String(item.quantity)}
+                                onChange={(e) =>
+                                  handleUpdateComboDraftItemQty(item.productId, e.target.value)
+                                }
+                                style={{
+                                  width: '44px',
+                                  height: '26px',
+                                  minHeight: '26px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #38bdf8',
+                                  background: '#020617',
+                                  color: '#ffffff',
+                                  fontSize: '12px',
+                                  fontWeight: 900,
+                                  textAlign: 'center',
+                                  padding: '0 4px',
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateComboDraftItemQty(
+                                    item.productId,
+                                    String(Number(item.quantity) + 1)
+                                  )
+                                }
+                                style={{
+                                  width: '26px',
+                                  height: '26px',
+                                  minHeight: '26px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #10b981',
+                                  background: '#065f46',
+                                  color: '#ffffff',
+                                  fontWeight: 900,
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                              >
+                                +
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveComboDraftItem(item.productId)}
+                                title="কম্বো থেকে বাদ দিন"
+                                style={{
+                                  width: '26px',
+                                  height: '26px',
+                                  minHeight: '26px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #ef4444',
+                                  background: 'rgba(127, 29, 29, 0.5)',
+                                  color: '#fca5a5',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          );
+                        })}
+
+                        {/* Pricing & Custom Combo Price Section */}
+                        <div
+                          style={{
+                            marginTop: '4px',
+                            paddingTop: '8px',
+                            borderTop: '1px dashed #334155',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                          }}
+                        >
+                          {/* Financial Breakdown Pills */}
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(3, 1fr)',
+                              gap: '6px',
+                              textAlign: 'center',
+                            }}
+                          >
+                            <div
+                              style={{
+                                background: '#0b1120',
+                                border: '1px solid #1e293b',
+                                borderRadius: '8px',
+                                padding: '5px 6px',
+                              }}
+                            >
+                              <div style={{ fontSize: '10px', color: '#94a3b8' }}>রেগুলার মোট</div>
+                              <div style={{ fontSize: '12px', fontWeight: 900, color: '#e2e8f0' }}>
+                                {money(comboDraftSummary.regularTotalPrice)}
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                background: '#0b1120',
+                                border: '1px solid #1e293b',
+                                borderRadius: '8px',
+                                padding: '5px 6px',
+                              }}
+                            >
+                              <div style={{ fontSize: '10px', color: '#94a3b8' }}>মোট কেনা খরচ</div>
+                              <div style={{ fontSize: '12px', fontWeight: 900, color: '#fbbf24' }}>
+                                {money(comboDraftSummary.totalCost)}
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                background: '#0b1120',
+                                border: '1px solid #1e293b',
+                                borderRadius: '8px',
+                                padding: '5px 6px',
+                              }}
+                            >
+                              <div style={{ fontSize: '10px', color: '#94a3b8' }}>কম্বো নিট লাভ</div>
+                              <div
+                                style={{
+                                  fontSize: '12px',
+                                  fontWeight: 900,
+                                  color:
+                                    comboDraftSummary.netProfit >= 0 ? '#4ade80' : '#f87171',
+                                }}
+                              >
+                                {comboDraftSummary.netProfit >= 0 ? '+' : ''}
+                                {money(comboDraftSummary.netProfit)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Quick Discount Chips for Combo Price */}
+                          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                            {[
+                              {
+                                label: 'রেগুলার দাম',
+                                calc: () => comboDraftSummary.regularTotalPrice,
+                              },
+                              {
+                                label: '৳১০ ছাড়',
+                                calc: () =>
+                                  Math.max(0, comboDraftSummary.regularTotalPrice - 10),
+                              },
+                              {
+                                label: '৳২০ ছাড়',
+                                calc: () =>
+                                  Math.max(0, comboDraftSummary.regularTotalPrice - 20),
+                              },
+                              {
+                                label: '৳৫০ ছাড়',
+                                calc: () =>
+                                  Math.max(0, comboDraftSummary.regularTotalPrice - 50),
+                              },
+                              {
+                                label: '১০% ছাড়',
+                                calc: () =>
+                                  Math.round(comboDraftSummary.regularTotalPrice * 0.9),
+                              },
+                              {
+                                label: 'কেনা দামে',
+                                calc: () => comboDraftSummary.totalCost,
+                              },
+                            ].map((preset) => (
+                              <button
+                                key={preset.label}
+                                type="button"
+                                onClick={() => setComboPriceInput(String(preset.calc()))}
+                                style={{
+                                  background: '#1e293b',
+                                  color: '#f5d0fe',
+                                  border: '1px solid rgba(216, 180, 254, 0.35)',
+                                  borderRadius: '6px',
+                                  height: '25px',
+                                  minHeight: '25px',
+                                  padding: '0 8px',
+                                  fontSize: '10.5px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Combo Price, Name & Code Inputs */}
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: '8px',
+                            }}
+                          >
+                            <div>
+                              <label
+                                style={{
+                                  display: 'block',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  color: '#fde047',
+                                  marginBottom: '3px',
+                                }}
+                              >
+                                💰 কম্বো বিক্রয় মূল্য (৳):
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={comboPriceInput}
+                                onChange={(e) =>
+                                  setComboPriceInput(bnToEnSkuDigits(e.target.value))
+                                }
+                                placeholder="যেমন: 250"
+                                style={{
+                                  width: '100%',
+                                  height: '36px',
+                                  minHeight: '36px',
+                                  padding: '0 10px',
+                                  borderRadius: '8px',
+                                  border: '1.5px solid #fbbf24',
+                                  background: '#020617',
+                                  color: '#fde047',
+                                  fontSize: '14px',
+                                  fontWeight: 900,
+                                  boxSizing: 'border-box',
+                                }}
+                              />
+                            </div>
+
+                            <div>
+                              <label
+                                style={{
+                                  display: 'block',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  color: '#d8b4fe',
+                                  marginBottom: '3px',
+                                }}
+                              >
+                                🏷️ কম্বো শর্ট কোড (SKU):
+                              </label>
+                              <input
+                                type="text"
+                                value={comboCodeInput}
+                                onChange={(e) =>
+                                  setComboCodeInput(
+                                    bnToEnSkuDigits(e.target.value).toUpperCase()
+                                  )
+                                }
+                                placeholder="যেমন: C1, C2"
+                                style={{
+                                  width: '100%',
+                                  height: '36px',
+                                  minHeight: '36px',
+                                  padding: '0 10px',
+                                  borderRadius: '8px',
+                                  border: '1.5px solid #a855f7',
+                                  background: '#020617',
+                                  color: '#f5d0fe',
+                                  fontSize: '13px',
+                                  fontWeight: 900,
+                                  boxSizing: 'border-box',
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label
+                              style={{
+                                display: 'block',
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                color: '#cbd5e1',
+                                marginBottom: '3px',
+                              }}
+                            >
+                              📝 কম্বোর নাম (ঐচ্ছিক — না লিখলে প্রডাক্টের নাম দিয়ে তৈরি হবে):
+                            </label>
+                            <input
+                              type="text"
+                              value={comboNameInput}
+                              onChange={(e) => setComboNameInput(e.target.value)}
+                              placeholder="যেমন: মেলা স্পেশাল কম্বো প্যাক ১"
+                              style={{
+                                width: '100%',
+                                height: '36px',
+                                minHeight: '36px',
+                                padding: '0 10px',
+                                borderRadius: '8px',
+                                border: '1px solid #475569',
+                                background: '#020617',
+                                color: '#ffffff',
+                                fontSize: '12.5px',
+                                fontWeight: 700,
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+
+                          {/* Action Buttons: Save Preset OR Sell Immediately */}
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: '8px',
+                              marginTop: '2px',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={handleSaveComboPreset}
+                              style={{
+                                height: '40px',
+                                minHeight: '40px',
+                                borderRadius: '10px',
+                                border: '1.5px solid #d8b4fe',
+                                background:
+                                  'linear-gradient(135deg, #7c3aed 0%, #9333ea 100%)',
+                                color: '#ffffff',
+                                fontSize: '12px',
+                                fontWeight: 900,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '5px',
+                              }}
+                            >
+                              <Check size={14} />
+                              <span>
+                                {editingComboId ? 'কম্বো আপডেট করুন' : '💾 কম্বো সেভ রাখুন'}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const built = buildComboObjectFromDraft();
+                                if (!built) return;
+                                // Also save/update so the user has it in their list
+                                const nextList = editingComboId
+                                  ? combos.map((c) => (c.id === editingComboId ? built : c))
+                                  : [built, ...combos.filter((c) => c.code !== built.code)];
+                                setCombos(nextList);
+                                saveProductCombos(nextList, selectedSeller).catch(() => {});
+                                await triggerSaleForCombo(
+                                  built,
+                                  Math.max(1, Math.round(Number(defaultQty) || 1))
+                                );
+                                resetComboBuilderForm();
+                                setShowComboBuilder(false);
+                              }}
+                              style={{
+                                height: '40px',
+                                minHeight: '40px',
+                                borderRadius: '10px',
+                                border: '1.5px solid #6ee7b7',
+                                background:
+                                  'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                color: '#ffffff',
+                                fontSize: '12px',
+                                fontWeight: 900,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '5px',
+                                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                              }}
+                            >
+                              <Zap size={14} />
+                              <span>⚡ সেভ ও এখনই সেল</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* SAVED COMBOS 1-TAP AUTO-SALE LIST */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '12px',
+                      fontWeight: 900,
+                      color: '#e9d5ff',
+                    }}
+                  >
+                    <span>⚡ আপনার সেভ করা কম্বো প্যাক ({toBengaliNumerals(combos.length)}টি):</span>
+                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                      ১-ট্যাপে স্টকের সব প্রডাক্ট অটো অ্যাডজাস্ট হবে
+                    </span>
+                  </div>
+
+                  {combos.length === 0 ? (
+                    <div
+                      style={{
+                        background: '#0f172a',
+                        border: '1px dashed #475569',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        textAlign: 'center',
+                        fontSize: '12px',
+                        color: '#94a3b8',
+                      }}
+                    >
+                      এখনো কোনো কম্বো সেভ করা হয়নি। উপরের বক্স থেকে যেকোনো প্রডাক্ট সিলেক্ট করে আপনার ইচ্ছামতো কম্বো প্যাক তৈরি করুন।
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      {combos.map((combo) => {
+                        const qtyMultiplier = Math.max(1, Math.round(Number(defaultQty) || 1));
+                        // Calculate live cost & stock availability
+                        let liveUnitCost = 0;
+                        let liveRegPrice = 0;
+                        let maxSetsInStock = 999999;
+                        for (const ci of combo.items) {
+                          const p = products.find((prod) => prod.id === ci.productId);
+                          const uCost = p ? Number(p.averageCost) || 0 : Number(ci.unitCost) || 0;
+                          const uPrice = p
+                            ? Number(p.sellingPrice) || 0
+                            : Number(ci.sellingPrice) || 0;
+                          liveUnitCost += uCost * ci.quantity;
+                          liveRegPrice += uPrice * ci.quantity;
+                          if (p && ci.quantity > 0) {
+                            const sets = Math.floor(
+                              Math.max(0, Number(p.currentStock) || 0) / ci.quantity
+                            );
+                            if (sets < maxSetsInStock) maxSetsInStock = sets;
+                          }
+                        }
+                        if (maxSetsInStock === 999999) maxSetsInStock = 0;
+                        const liveProfitPerSet =
+                          Math.round((combo.comboPrice - liveUnitCost) * 100) / 100;
+                        const totalSellForMultiplier =
+                          Math.round(combo.comboPrice * qtyMultiplier * 100) / 100;
+
+                        return (
+                          <div
+                            key={combo.id}
+                            style={{
+                              background: 'linear-gradient(145deg, #1e1b4b 0%, #0f172a 100%)',
+                              border: '1.5px solid rgba(192, 132, 252, 0.45)',
+                              borderRadius: '14px',
+                              padding: '10px 12px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '8px',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '6px',
+                                flexWrap: 'wrap',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  minWidth: 0,
+                                  flex: 1,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    background: '#7c3aed',
+                                    color: '#fde047',
+                                    border: '1px solid #d8b4fe',
+                                    padding: '2px 8px',
+                                    borderRadius: '6px',
+                                    fontSize: '11.5px',
+                                    fontWeight: 900,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  #{combo.code}
+                                </span>
+                                <strong
+                                  style={{
+                                    fontSize: '13.5px',
+                                    color: '#ffffff',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {combo.name}
+                                </strong>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditComboPreset(combo)}
+                                  style={{
+                                    background: 'rgba(56, 189, 248, 0.16)',
+                                    color: '#38bdf8',
+                                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                                    borderRadius: '7px',
+                                    height: '26px',
+                                    minHeight: '26px',
+                                    padding: '0 8px',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  <Edit3 size={11} />
+                                  <span>এডিট</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteComboPreset(combo)}
+                                  title="কম্বো ডিলিট করুন"
+                                  style={{
+                                    background: 'rgba(239, 68, 68, 0.16)',
+                                    color: '#fca5a5',
+                                    border: '1px solid rgba(248, 113, 113, 0.35)',
+                                    borderRadius: '7px',
+                                    width: '26px',
+                                    height: '26px',
+                                    minHeight: '26px',
+                                    padding: 0,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Constituent Items Pills */}
+                            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                              {combo.items.map((ci) => {
+                                const liveProd = products.find((p) => p.id === ci.productId);
+                                return (
+                                  <span
+                                    key={ci.productId}
+                                    style={{
+                                      background: 'rgba(15, 23, 42, 0.85)',
+                                      border: '1px solid #334155',
+                                      color: '#e2e8f0',
+                                      padding: '3px 8px',
+                                      borderRadius: '7px',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                    }}
+                                  >
+                                    {liveProd?.imageUrl ? (
+                                      <img
+                                        src={liveProd.imageUrl}
+                                        alt={liveProd.name}
+                                        style={{
+                                          width: '20px',
+                                          height: '20px',
+                                          borderRadius: '4px',
+                                          objectFit: 'cover',
+                                          flexShrink: 0,
+                                        }}
+                                      />
+                                    ) : (
+                                      <span>🔹</span>
+                                    )}
+                                    <span>{liveProd?.name || ci.productName} ×</span>
+                                    <b style={{ color: '#fde047' }}>
+                                      {toBengaliNumerals(ci.quantity)} {ci.unit}
+                                    </b>
+                                  </span>
+                                );
+                              })}
+                            </div>
+
+                            {/* Price & Instant 1-Tap Combo Auto-Sale Row */}
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                                flexWrap: 'wrap',
+                                paddingTop: '4px',
+                                borderTop: '1px solid rgba(255,255,255,0.08)',
+                              }}
+                            >
+                              <div style={{ fontSize: '11.5px', color: '#cbd5e1' }}>
+                                {liveRegPrice > combo.comboPrice && (
+                                  <>
+                                    রেগুলার: <s style={{ color: '#fca5a5' }}>{money(liveRegPrice)}</s>{' '}
+                                    →{' '}
+                                  </>
+                                )}
+                                কম্বো দাম:{' '}
+                                <b style={{ color: '#fde047', fontSize: '13px' }}>
+                                  {money(combo.comboPrice)}
+                                </b>{' '}
+                                • লাভ:{' '}
+                                <b
+                                  style={{
+                                    color: liveProfitPerSet >= 0 ? '#4ade80' : '#f87171',
+                                  }}
+                                >
+                                  {liveProfitPerSet >= 0 ? '+' : ''}
+                                  {money(liveProfitPerSet)}
+                                </b>{' '}
+                                • স্টকে সম্ভব: {toBengaliNumerals(maxSetsInStock)} সেট
+                              </div>
+
+                              <button
+                                type="button"
+                                disabled={isPostingSale}
+                                onClick={() => triggerSaleForCombo(combo, qtyMultiplier)}
+                                style={{
+                                  background:
+                                    'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                  color: '#ffffff',
+                                  border: '1.5px solid #6ee7b7',
+                                  borderRadius: '9px',
+                                  height: '36px',
+                                  minHeight: '36px',
+                                  padding: '0 14px',
+                                  fontSize: '12px',
+                                  fontWeight: 900,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                                }}
+                              >
+                                <Zap size={14} />
+                                <span>
+                                  ⚡ কম্বো সেল ({toBengaliNumerals(qtyMultiplier)} সেট ={' '}
+                                  {money(totalSellForMultiplier)})
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 5. STATUS BAR (+ AUTO-SCAN LOOP ONLY FOR CAMERA FEATURE) */}

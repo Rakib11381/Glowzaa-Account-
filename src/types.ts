@@ -89,6 +89,30 @@ export interface TrayRefillLogItem {
   notes?: string;
 }
 
+export interface ComboItem {
+  productId: string;
+  productName: string;
+  sku?: string;
+  unit: string;
+  quantity: number;
+  unitCost: number;
+  sellingPrice: number;
+}
+
+export interface ProductCombo {
+  id: string;
+  name: string;
+  code: string; // e.g., 'C1', 'C2'
+  items: ComboItem[];
+  regularTotalPrice: number;
+  totalCost: number;
+  comboPrice: number;
+  active: boolean;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Entry {
   id: string;
   type: RecordType;
@@ -104,6 +128,17 @@ export interface Entry {
   cogsAmount?: number; // Cost of goods sold for sales
   grossProfit?: number; // Sales amount - COGS
   profit?: number; // Direct profit amount (alias for grossProfit)
+  comboId?: string;
+  comboName?: string;
+  comboCode?: string;
+  comboItems?: {
+    productId: string;
+    productName: string;
+    unit?: string;
+    quantity: number;
+    unitCost?: number;
+    sellingPrice?: number;
+  }[];
   category?: string;
   notes?: string;
   receiptImageUrl?: string; // খরচের ভাউচার বা রশিদের ছবি (Mandatory Expense Photo Proof)
