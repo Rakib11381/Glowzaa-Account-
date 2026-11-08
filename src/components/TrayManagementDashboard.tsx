@@ -3,9 +3,11 @@ import {
   Camera,
   Lock,
   Moon,
+  Package,
   RotateCcw,
   Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import type { Product, TrayRefillLogItem } from '../types';
 import { dateLabel, formatBengaliDateTime, money, toBengaliNumerals } from '../accounting';
@@ -160,6 +162,13 @@ export default function TrayManagementDashboard({
   const [undoingLogId, setUndoingLogId] = useState<string | null>(null);
   const [bannerNotice, setBannerNotice] = useState<string>('');
   const [bannerTone, setBannerTone] = useState<'success' | 'danger'>('success');
+  const [previewPhotoModal, setPreviewPhotoModal] = useState<{
+    imageUrl: string;
+    name: string;
+    trayNumber: number;
+    skuCode: string;
+    unitPrice: number;
+  } | null>(null);
 
   // History log filters
   const [logActionFilter, setLogActionFilter] = useState<
@@ -1946,32 +1955,99 @@ export default function TrayManagementDashboard({
                   gap: '10px',
                 }}
               >
-                {/* Card Header: Tray Badge + Product Name + Updated By */}
+                {/* Card Header: Tray Badge + Product Photo + Product Name + Updated By */}
                 <div
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    gap: '8px',
+                    alignItems: 'center',
+                    gap: '10px',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                    {/* Product Thumbnail Photo */}
+                    <div
+                      onClick={() => {
+                        if (row.product.imageUrl) {
+                          setPreviewPhotoModal({
+                            imageUrl: row.product.imageUrl,
+                            name: row.product.name,
+                            trayNumber: row.trayNumber,
+                            skuCode: row.skuCode,
+                            unitPrice: row.unitPrice,
+                          });
+                        }
+                      }}
+                      title={
+                        row.product.imageUrl
+                          ? 'বড় করে প্রডাক্টের ছবি দেখতে ট্যাপ করুন'
+                          : 'প্রডাক্টের ছবি যুক্ত নেই'
+                      }
                       style={{
-                        padding: '4px 9px',
-                        borderRadius: '8px',
-                        background: hasStock ? '#065f46' : '#0f172a',
-                        color: '#5eead4',
-                        fontWeight: 900,
-                        fontSize: '12px',
-                        whiteSpace: 'nowrap',
+                        width: '54px',
+                        height: '54px',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        flexShrink: 0,
+                        border: hasStock ? '2px solid #10b981' : '1.5px solid #cbd5e1',
+                        background: '#f8fafc',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: row.product.imageUrl ? 'pointer' : 'default',
+                        boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)',
+                        position: 'relative',
                       }}
                     >
-                      ট্রে #{toBengaliNumerals(row.trayNumber)}
-                    </span>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: '14.5px', color: '#0f172a' }}>
-                        {row.product.name}
+                      {row.product.imageUrl ? (
+                        <img
+                          src={row.product.imageUrl}
+                          alt={row.product.name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            display: 'block',
+                          }}
+                        />
+                      ) : (
+                        <Package size={24} style={{ color: '#94a3b8' }} />
+                      )}
+                    </div>
+
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          flexWrap: 'wrap',
+                          marginBottom: '2px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '7px',
+                            background: hasStock ? '#065f46' : '#0f172a',
+                            color: '#5eead4',
+                            fontWeight: 900,
+                            fontSize: '11.5px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          ট্রে #{toBengaliNumerals(row.trayNumber)}
+                        </span>
+                        <span
+                          style={{
+                            fontWeight: 800,
+                            fontSize: '15px',
+                            color: '#0f172a',
+                            lineHeight: 1.25,
+                          }}
+                        >
+                          {row.product.name}
+                        </span>
                       </div>
                       <div style={{ fontSize: '11.5px', color: '#64748b' }}>
                         SKU: <b>#{row.skuCode}</b> • দর: {money(row.unitPrice)}/{row.product.unit || 'পিস'}
@@ -2787,6 +2863,47 @@ export default function TrayManagementDashboard({
                     <tr key={row.product.id}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div
+                            onClick={() => {
+                              if (row.product.imageUrl) {
+                                setPreviewPhotoModal({
+                                  imageUrl: row.product.imageUrl,
+                                  name: row.product.name,
+                                  trayNumber: row.trayNumber,
+                                  skuCode: row.skuCode,
+                                  unitPrice: row.unitPrice,
+                                });
+                              }
+                            }}
+                            style={{
+                              width: '38px',
+                              height: '38px',
+                              borderRadius: '8px',
+                              overflow: 'hidden',
+                              flexShrink: 0,
+                              border: '1px solid #cbd5e1',
+                              background: '#f8fafc',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: row.product.imageUrl ? 'pointer' : 'default',
+                            }}
+                          >
+                            {row.product.imageUrl ? (
+                              <img
+                                src={row.product.imageUrl}
+                                alt={row.product.name}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover',
+                                  display: 'block',
+                                }}
+                              />
+                            ) : (
+                              <Package size={18} style={{ color: '#94a3b8' }} />
+                            )}
+                          </div>
                           <span
                             style={{
                               padding: '3px 8px',
@@ -3206,6 +3323,96 @@ export default function TrayManagementDashboard({
           </table>
         </div>
       </section>
+
+      {/* Product Photo Zoom Preview Modal */}
+      {previewPhotoModal && (
+        <div
+          onClick={() => setPreviewPhotoModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(15, 23, 42, 0.78)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#ffffff',
+              borderRadius: '18px',
+              maxWidth: '420px',
+              width: '100%',
+              overflow: 'hidden',
+              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.35)',
+              border: '2px solid #10b981',
+            }}
+          >
+            <div
+              style={{
+                padding: '12px 14px',
+                background: '#0f172a',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px',
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '14.5px', color: '#5eead4' }}>
+                  ট্রে #{toBengaliNumerals(previewPhotoModal.trayNumber)} — {previewPhotoModal.name}
+                </div>
+                <div style={{ fontSize: '11.5px', color: '#cbd5e1' }}>
+                  SKU: #{previewPhotoModal.skuCode} • দর: {money(previewPhotoModal.unitPrice)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewPhotoModal(null)}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  background: 'rgba(239, 68, 68, 0.25)',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div
+              style={{
+                padding: '14px',
+                background: '#f8fafc',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src={previewPhotoModal.imageUrl}
+                alt={previewPhotoModal.name}
+                style={{
+                  width: '100%',
+                  maxHeight: '360px',
+                  objectFit: 'contain',
+                  borderRadius: '12px',
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
