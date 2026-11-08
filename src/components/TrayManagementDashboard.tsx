@@ -2177,6 +2177,35 @@ export default function TrayManagementDashboard({
 
                   <button
                     type="button"
+                    disabled={isRowBusy || row.mainStock <= 0}
+                    onClick={() =>
+                      handleTrayOperation({
+                        row,
+                        actionType: 'scan_refill',
+                        quantity: row.mainStock,
+                        customNote: `মূল স্টকের সম্পূর্ণ (${toBengaliNumerals(row.mainStock)} পিস) এক ক্লিকে ট্রে-তে রাখা হয়েছে`,
+                      })
+                    }
+                    title={`মূল স্টকে থাকা সম্পূর্ণ ${toBengaliNumerals(row.mainStock)} পিস এক ক্লিকে ট্রে-তে রাখুন`}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      borderRadius: '8px',
+                      border: '1px solid #6d28d9',
+                      background: '#f3e8ff',
+                      color: '#5b21b6',
+                      fontWeight: 800,
+                      fontSize: '11.5px',
+                      cursor: row.mainStock <= 0 ? 'not-allowed' : 'pointer',
+                      opacity: row.mainStock <= 0 ? 0.5 : 1,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    📦 সব স্টক রাখুন{row.mainStock > 0 ? ` (+${toBengaliNumerals(row.mainStock)})` : ''}
+                  </button>
+
+                  <button
+                    type="button"
                     disabled={isRowBusy || row.currentTrayStock <= 0}
                     onClick={() =>
                       handleTrayOperation({
@@ -2509,6 +2538,32 @@ export default function TrayManagementDashboard({
                         >
                           ট্রে-তে যোগ
                         </button>
+                        <button
+                          type="button"
+                          disabled={isRowBusy || row.mainStock <= 0}
+                          onClick={() =>
+                            handleTrayOperation({
+                              row,
+                              actionType: 'scan_refill',
+                              quantity: row.mainStock,
+                              customNote: `মূল স্টকের সম্পূর্ণ (${toBengaliNumerals(row.mainStock)} পিস) এক ক্লিকে ট্রে-তে রাখা হয়েছে`,
+                            })
+                          }
+                          style={{
+                            padding: '6px 11px',
+                            borderRadius: '7px',
+                            border: 'none',
+                            background: '#6d28d9',
+                            color: '#ffffff',
+                            fontWeight: 800,
+                            fontSize: '11.5px',
+                            cursor: row.mainStock <= 0 ? 'not-allowed' : 'pointer',
+                            opacity: row.mainStock <= 0 ? 0.5 : 1,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          📦 সব স্টক রাখুন ({toBengaliNumerals(row.mainStock)})
+                        </button>
                       </div>
                     </div>
 
@@ -2826,6 +2881,31 @@ export default function TrayManagementDashboard({
                             }}
                           >
                             📥 +১
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isRowBusy || row.mainStock <= 0}
+                            onClick={() =>
+                              handleTrayOperation({
+                                row,
+                                actionType: 'scan_refill',
+                                quantity: row.mainStock,
+                                customNote: `মূল স্টকের সম্পূর্ণ (${toBengaliNumerals(row.mainStock)} পিস) এক ক্লিকে ট্রে-তে রাখা হয়েছে`,
+                              })
+                            }
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid #6d28d9',
+                              background: '#f3e8ff',
+                              color: '#5b21b6',
+                              fontWeight: 800,
+                              fontSize: '11px',
+                              cursor: row.mainStock <= 0 ? 'not-allowed' : 'pointer',
+                              opacity: row.mainStock <= 0 ? 0.5 : 1,
+                            }}
+                          >
+                            📦 সব রাখুন (+{toBengaliNumerals(row.mainStock)})
                           </button>
                           <button
                             type="button"
