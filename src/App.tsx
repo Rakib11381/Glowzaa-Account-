@@ -60,7 +60,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-import { auth, db, firebaseConfigured, googleProvider, testConnection } from './firebase';
+import { auth, cleanupStorageQuota, db, firebaseConfigured, googleProvider, testConnection } from './firebase';
 import {
   addEntry,
   addInvestor,
@@ -4375,9 +4375,42 @@ export default function App() {
 
         {error && (
           <div className="alert">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertTriangle size={18} />
-              <span>{error}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+              <span>
+                {error.includes('QuotaExceededError') ||
+                error.includes('exceeded the quota') ||
+                error.includes('INTERNAL ASSERTION FAILED') ||
+                error.includes('b815')
+                  ? 'ব্রাউজারের লোকাল মেমোরি (Storage Quota) পূর্ণ হয়ে গিয়েছিল। অপ্রয়োজনীয় ক্যাশ অটো-ক্লিয়ার করা হয়েছে।'
+                  : error}
+              </span>
+              {(error.includes('QuotaExceededError') ||
+                error.includes('exceeded the quota') ||
+                error.includes('INTERNAL ASSERTION FAILED') ||
+                error.includes('b815') ||
+                error.includes('লোকাল মেমোরি')) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    cleanupStorageQuota(true);
+                    setError('');
+                    window.location.reload();
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    background: '#dc2626',
+                    color: '#fff',
+                    border: 'none',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔄 পেজ রিলোড করুন
+                </button>
+              )}
             </div>
             <button onClick={() => setError('')}><XCircle size={16} /></button>
           </div>

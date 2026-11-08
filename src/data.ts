@@ -95,9 +95,29 @@ function readCache<T>(key: string): T[] {
 
 function writeCache<T>(key: string, rows: T[]) {
   try {
-    localStorage.setItem(key, JSON.stringify(rows));
+    const serialized = JSON.stringify(rows);
+    if (serialized.length <= 450000) {
+      localStorage.setItem(key, serialized);
+      return;
+    }
+    // If payload exceeds 450KB (due to base64 photos), store a lightweight copy in localStorage
+    // while Firestore IndexedDB retains full-resolution photos
+    const lightweight = rows.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const copy: Record<string, any> = { ...(item as Record<string, any>) };
+      for (const [k, v] of Object.entries(copy)) {
+        if (typeof v === 'string' && v.startsWith('data:image/') && v.length > 12000) {
+          delete copy[k];
+        }
+      }
+      return copy;
+    });
+    const lightSerialized = JSON.stringify(lightweight);
+    if (lightSerialized.length <= 600000) {
+      localStorage.setItem(key, lightSerialized);
+    }
   } catch {
-    // Ignore quota errors (e.g., if base64 product images exceed storage)
+    // Ignore quota errors
   }
 }
 
@@ -1155,7 +1175,9 @@ export async function getAdminAuthData(): Promise<{
         rakibAvatar: data.rakibAvatar ?? fallback.rakibAvatar ?? '',
         limonAvatar: data.limonAvatar ?? fallback.limonAvatar ?? '',
       };
-      localStorage.setItem('glowzaa_admin_auth', JSON.stringify(res));
+      try {
+        localStorage.setItem('glowzaa_admin_auth', JSON.stringify(res));
+      } catch {}
       return res;
     } else {
       await setDoc(docRef, cleanObject({
@@ -1186,7 +1208,9 @@ export async function updateAdminPasswordInDb(
     limon: admin === 'Limon' ? newPass : current.limon,
   };
 
-  localStorage.setItem('glowzaa_admin_auth', JSON.stringify(updated));
+  try {
+    localStorage.setItem('glowzaa_admin_auth', JSON.stringify(updated));
+  } catch {}
 
   try {
     const d = requireDb();
@@ -1228,7 +1252,9 @@ export async function updateAdminAvatarInDb(
     limonAvatar: admin === 'Limon' ? avatarDataUrl : (current.limonAvatar || ''),
   };
 
-  localStorage.setItem('glowzaa_admin_auth', JSON.stringify(updated));
+  try {
+    localStorage.setItem('glowzaa_admin_auth', JSON.stringify(updated));
+  } catch {}
 
   try {
     const d = requireDb();
