@@ -351,15 +351,11 @@ export function summary(entries: Entry[], products: Product[] = []): AccountingS
       const gp = toPaisa(s.grossProfit);
       const cogs = Math.max(0, toPaisa(s.amount) - gp);
       calculatedCogsPaisa += cogs;
-      if (cogs > 0 || purchasesPaisa === 0) {
-        hasItemizedSales = true;
-      }
+      hasItemizedSales = true;
     } else if (s.cogsAmount !== undefined && !isNaN(Number(s.cogsAmount))) {
       const cogs = toPaisa(s.cogsAmount);
       calculatedCogsPaisa += cogs;
-      if (cogs > 0 || purchasesPaisa === 0) {
-        hasItemizedSales = true;
-      }
+      hasItemizedSales = true;
     } else if (s.productId && s.quantity && prodCostMap.has(s.productId)) {
       const avgCost = prodCostMap.get(s.productId) || 0;
       const cogs = toPaisa(s.quantity * avgCost);
@@ -496,15 +492,11 @@ export function calculateCashBalance(entries: Entry[], products: Product[] = [])
           const gp = toPaisa(e.grossProfit);
           const cogs = Math.max(0, p - gp);
           itemizedCogsPaisa += cogs;
-          if (cogs > 0 || purchasesPaisa === 0) {
-            hasItemizedSales = true;
-          }
+          hasItemizedSales = true;
         } else if (e.cogsAmount !== undefined && !isNaN(Number(e.cogsAmount))) {
           const cogs = toPaisa(e.cogsAmount);
           itemizedCogsPaisa += cogs;
-          if (cogs > 0 || purchasesPaisa === 0) {
-            hasItemizedSales = true;
-          }
+          hasItemizedSales = true;
         } else if (e.productId && e.quantity && prodCostMap.has(e.productId)) {
           const cost = toPaisa(e.quantity * (prodCostMap.get(e.productId) || 0));
           itemizedCogsPaisa += cost;
@@ -670,11 +662,11 @@ export function calculateDailyBreakdowns(
           const gp = toPaisa(e.grossProfit);
           const cogs = Math.max(0, amtPaisa - gp);
           cogsPaisa += cogs;
-          if (cogs > 0 || purchasesPaisa === 0) hasItemizedDaySales = true;
+          hasItemizedDaySales = true;
         } else if (e.cogsAmount !== undefined && !isNaN(Number(e.cogsAmount))) {
           const cogs = toPaisa(e.cogsAmount);
           cogsPaisa += cogs;
-          if (cogs > 0 || purchasesPaisa === 0) hasItemizedDaySales = true;
+          hasItemizedDaySales = true;
         } else if (e.productId && e.quantity && prodCostMap.has(e.productId)) {
           const cogs = toPaisa(e.quantity * (prodCostMap.get(e.productId) || 0));
           cogsPaisa += cogs;
@@ -780,6 +772,7 @@ export function calculateProductProfitabilityReport(
 
   // Helper to check if an entry belongs to a product
   const matchesProduct = (e: Entry, p: Product): boolean => {
+    if (e.category === 'প্রডাক্ট ছাড়া ক্যাশ জমা' || e.category === 'সরাসরি ক্যাশ জমা') return false;
     if (e.productId && e.productId === p.id) return true;
     if (!e.productId && p.name) {
       const titleLower = (e.title || '').toLowerCase();

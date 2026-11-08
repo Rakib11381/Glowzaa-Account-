@@ -145,6 +145,7 @@ import AntiFraudSecurityCenter, {
   ANTI_FRAUD_UPDATED_EVENT,
   type AntiFraudSettings,
 } from './components/AntiFraudSecurityCenter';
+import { DirectCashDepositSettingsCard } from './components/DirectCashDepositSettingsCard';
 import {
   money,
   moneyBn,
@@ -8957,6 +8958,34 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            {/* DIRECT CASH DEPOSIT WITHOUT PRODUCT SALE SETTING CARD */}
+            <DirectCashDepositSettingsCard
+              entries={entries}
+              availableCash={cashSummary.availableCash}
+              totalSales={stats.sales}
+              netProfit={stats.netProfit}
+              currentSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+              isFullAdmin={isFullAdmin}
+              onDepositCash={async (payload) => {
+                const actorUid = currentAdmin ? currentAdmin.username : user?.uid || 'admin';
+                const actorEmail = currentAdmin
+                  ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                  : user?.email || undefined;
+                await addEntry(payload, actorUid, actorEmail);
+                setMessage(
+                  `✅ ${money(payload.amount)} প্রডাক্ট সেল ছাড়া সফলভাবে ক্যাশ জমা দেওয়া হয়েছে!`
+                );
+              }}
+              onDeleteDeposit={async (entryId, entryTitle) => {
+                const actorUid = currentAdmin ? currentAdmin.username : user?.uid || 'admin';
+                const actorEmail = currentAdmin
+                  ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+                  : user?.email || undefined;
+                await removeEntry(entryId, actorUid, actorEmail);
+                setMessage(`🗑️ "${entryTitle}" ক্যাশ জমা এন্ট্রিটি মুছে ফেলা হয়েছে।`);
+              }}
+            />
 
             {/* AI BUSINESS ASSISTANT ON/OFF SETTING CARD */}
             <div
