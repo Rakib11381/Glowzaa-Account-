@@ -76,23 +76,6 @@ interface AdminProfileProps {
 const getTodayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
 
 export function getFridayNightWithdrawalStatus(now: Date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Dhaka',
-    weekday: 'short',
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: false,
-  }).formatToParts(now);
-
-  const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
-  const rawHour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
-  const hour = Number.isFinite(rawHour) ? rawHour % 24 : 0;
-
-  // শুক্রবার সারা রাত: শুক্রবার সন্ধ্যা ৬:০০টা (18:00) থেকে শনিবার ভোর ৬:০০টা (05:59) পর্যন্ত এবং শুক্রবার রাত ১২:০০টা - ভোর ৬:০০টা
-  const isOpen =
-    (weekday === 'Fri' && (hour >= 18 || hour < 6)) ||
-    (weekday === 'Sat' && hour < 6);
-
   const dayTimeBn = new Intl.DateTimeFormat('bn-BD', {
     timeZone: 'Asia/Dhaka',
     weekday: 'long',
@@ -101,10 +84,11 @@ export function getFridayNightWithdrawalStatus(now: Date = new Date()) {
     hour12: true,
   }).format(now);
 
+  // সপ্তাহের যেকোনো দিন ও যেকোনো সময় উত্তোলন খোলা থাকবে
   return {
-    isOpen,
+    isOpen: true,
     dayTimeBn,
-    windowTextBn: 'শুক্রবার সন্ধ্যা ৬:০০টা থেকে সারা রাত (শনিবার ভোর ৬:০০টা পর্যন্ত)',
+    windowTextBn: 'সপ্তাহের যেকোনো দিন ও যেকোনো সময় উত্তোলন করা যাবে',
   };
 }
 
@@ -1085,7 +1069,7 @@ export default function AdminProfile({
           <div className="wallet-strip-info">
             <div className="wallet-strip-label">
               <TrendingUp size={15} style={{ flexShrink: 0 }} />
-              <span>আমার উত্তোলনযোগ্য নিট লাভাংশ (বিনিয়োগের টাকা উত্তোলনযোগ্য নয় • প্রতি শুক্রবার রাতে উত্তোলন)</span>
+              <span>আমার উত্তোলনযোগ্য নিট লাভাংশ (বিনিয়োগের টাকা উত্তোলনযোগ্য নয় • যেকোনো দিন উত্তোলনযোগ্য)</span>
             </div>
             <div className="wallet-strip-amount-row">
               <strong className="wallet-strip-balance">{money(myPartner.withdrawableLimit)}</strong>
@@ -1180,7 +1164,7 @@ export default function AdminProfile({
           <div className="stat-content">
             <span>আমার অর্জিত মোট লাভাংশ</span>
             <strong style={{ color: '#047857' }}>+{money(myPartner.allocatedProfit)}</strong>
-            <small className="stat-sub-meta">প্রতি শুক্রবার রাতে উত্তোলনযোগ্য</small>
+            <small className="stat-sub-meta">সপ্তাহের যেকোনো দিন উত্তোলনযোগ্য</small>
           </div>
         </div>
 
@@ -2961,7 +2945,7 @@ export default function AdminProfile({
                 ) : (
                   <>
                     <ArrowDownLeft size={20} style={{ color: '#0d9488', flexShrink: 0 }} />
-                    <span>লাভাংশ উত্তোলন (Profit Withdraw — শুক্রবার রাত)</span>
+                    <span>লাভাংশ উত্তোলন (Profit Withdraw — যেকোনো দিন)</span>
                   </>
                 )}
               </h2>
@@ -2983,13 +2967,6 @@ export default function AdminProfile({
                     type="button"
                     className={`withdraw-mode-tab ${withdrawMode === 'withdrawal' ? 'active' : ''}`}
                     onClick={() => {
-                      const currentWindow = getFridayNightWithdrawalStatus();
-                      setWithdrawalWindow(currentWindow);
-                      if (!currentWindow.isOpen) {
-                        setShowFridayLockNotice(true);
-                        setShowFridayLockModal(true);
-                        return;
-                      }
                       setWithdrawMode('withdrawal');
                       setWithdrawError(null);
                     }}
@@ -2997,7 +2974,7 @@ export default function AdminProfile({
                     <ArrowDownLeft size={15} />
                     <div>
                       <strong>লাভাংশ উত্তোলন</strong>
-                      <small>প্রতি শুক্রবার সারা রাত • শুধু লাভ</small>
+                      <small>সপ্তাহের যেকোনো দিন • শুধু লাভ</small>
                     </div>
                   </button>
                   <button
@@ -3082,7 +3059,7 @@ export default function AdminProfile({
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 700 }}>
                       <Calendar size={15} style={{ color: '#d97706', flexShrink: 0 }} />
-                      <span>শর্তাবলী: লাভাংশ প্রতি শুক্রবার রাতে উত্তোলন হবে এবং বিনিয়োগের টাকা উত্তোলনযোগ্য নয়।</span>
+                      <span>শর্তাবলী: সপ্তাহের যেকোনো দিন অর্জিত লাভাংশ উত্তোলন করা যাবে এবং বিনিয়োগের টাকা উত্তোলনযোগ্য নয়।</span>
                     </div>
                     <div style={{ color: '#78350f', lineHeight: 1.45 }}>
                       শুধুমাত্র আপনার অর্জিত মুনাফা থেকে অবশিষ্ট লাভাংশ (<b>{money(myPartner.withdrawableLimit)}</b>) উত্তোলন করা যাবে। কোনো লোন থাকলে তা লাভাংশ থেকে স্বয়ংক্রিয়ভাবে সমন্বয় করা হয়েছে।
@@ -3258,7 +3235,7 @@ export default function AdminProfile({
                     placeholder={
                       withdrawMode === 'loan'
                         ? 'উদাঃ জরুরি ব্যক্তিগত প্রয়োজনে বিশেষ লোন (পরবর্তী লাভাংশ থেকে অটো কর্তন হবে)...'
-                        : 'উদাঃ শুক্রবার রাতের সাপ্তাহিক অর্জিত লাভাংশ উত্তোলন...'
+                        : 'উদাঃ অর্জিত লাভাংশ উত্তোলন...'
                     }
                     value={withdrawReason}
                     onChange={(e) => setWithdrawReason(e.target.value)}

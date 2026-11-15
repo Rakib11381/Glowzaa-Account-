@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  ArrowRight,
   Banknote,
   Calendar,
   CheckCircle2,
@@ -7,10 +8,10 @@ import {
   ChevronUp,
   History,
   Package,
-  PlusCircle,
   ShieldCheck,
   Sparkles,
   Trash2,
+  TrendingUp,
   User as UserIcon,
   Wallet,
 } from 'lucide-react';
@@ -177,278 +178,431 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
 
   return (
     <div
-      className="brand-popup-setting-card"
       style={{
-        marginBottom: '20px',
-        border: '2px solid #10b981',
-        background: 'linear-gradient(180deg, #ecfdf5 0%, #ffffff 100%)',
-        boxShadow: '0 8px 24px -8px rgba(16, 185, 129, 0.22)',
+        marginBottom: '22px',
+        borderRadius: '18px',
+        overflow: 'hidden',
+        border: '1.5px solid #0d9488',
+        background: '#ffffff',
+        boxShadow: '0 12px 32px -10px rgba(15, 23, 42, 0.14)',
       }}
     >
-      {/* Top Header */}
-      <div className="brand-popup-setting-top">
-        <div className="brand-popup-setting-info">
-          <div
-            className="brand-popup-setting-icon"
-            style={{
-              background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
-              color: '#ffffff',
-            }}
-          >
-            <Banknote size={24} />
-          </div>
-          <div className="brand-popup-setting-text">
-            <div className="brand-popup-setting-title-row" style={{ flexWrap: 'wrap', gap: '8px' }}>
-              <h3 style={{ color: '#064e3b' }}>
-                💵 বেচা-কেনার পর প্রডাক্ট সেল ছাড়া ক্যাশ জমা (Direct Cash Deposit)
-              </h3>
-              <span
-                className="brand-popup-status-pill is-on"
-                style={{
-                  background: '#d1fae5',
-                  color: '#065f46',
-                  border: '1px solid #6ee7b7',
-                }}
-              >
-                📦 স্টক কমবে না • সরাসরি ক্যাশ জমা
-              </span>
-            </div>
-            <p style={{ color: '#047857' }}>
-              বেচা-কেনার পর আলাদা করে প্রডাক্ট সিলেক্ট বা স্টক কমানো ছাড়াই এককালীন নগদ ক্যাশ টাকা ব্যবসার হিসাবে জমা দিন। এতে{' '}
-              <b>কোনো প্রডাক্টের স্টক ১ পিসও কমবে না</b>, কিন্তু আপনার ক্যাশ ব্যালান্স ও হিসাব সাথে সাথে আপডেট হয়ে যাবে।
-            </p>
-          </div>
-        </div>
-
-        <div className="brand-popup-setting-controls" style={{ flexWrap: 'wrap', gap: '8px' }}>
-          <button
-            type="button"
-            className="brand-preview-trigger-btn"
-            onClick={() => setIsExpanded((prev) => !prev)}
-            style={{
-              background: isExpanded ? '#059669' : '#ecfdf5',
-              color: isExpanded ? '#ffffff' : '#065f46',
-              borderColor: '#10b981',
-              fontWeight: 700,
-            }}
-          >
-            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            <span>{isExpanded ? 'ক্যাশ জমা ফর্ম লুকান' : '+ ক্যাশ জমা দিন'}</span>
-          </button>
-
-          <button
-            type="button"
-            className="brand-preview-trigger-btn"
-            onClick={() => setShowHistory((prev) => !prev)}
-            style={{
-              borderColor: '#a7f3d0',
-              color: '#047857',
-              background: '#ffffff',
-            }}
-          >
-            <History size={16} />
-            <span>জমার তালিকা ({toBengaliNumerals(recentCashDeposits.length)}টি)</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Summary Strip */}
+      {/* Executive Dark-Emerald & Slate Header */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
-          gap: '10px',
-          marginTop: '14px',
-          padding: '12px',
-          borderRadius: '12px',
-          background: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid #a7f3d0',
+          background: 'linear-gradient(135deg, #064e3b 0%, #0f172a 58%, #0f766e 100%)',
+          padding: '16px 18px',
+          color: '#ffffff',
         }}
       >
         <div
           style={{
-            background: '#ffffff',
-            padding: '10px 12px',
-            borderRadius: '10px',
-            border: '1px solid #d1fae5',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: '12px',
+            flexWrap: 'wrap',
           }}
         >
-          <div style={{ fontSize: '0.76rem', color: '#047857', fontWeight: 600 }}>
-            বর্তমান মোট ক্যাশ ব্যালান্স
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flex: '1 1 240px' }}>
+            <div
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                boxShadow: '0 6px 16px rgba(16, 185, 129, 0.35)',
+                border: '1px solid rgba(167, 243, 208, 0.4)',
+              }}
+            >
+              <Banknote size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: '1.02rem',
+                    fontWeight: 900,
+                    color: '#ffffff',
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  বেচা-কেনার পর প্রডাক্ট সেল ছাড়া ক্যাশ জমা
+                </h3>
+                <span
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '999px',
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    background: 'rgba(16, 185, 129, 0.22)',
+                    color: '#6ee7b7',
+                    border: '1px solid rgba(110, 231, 183, 0.38)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  📦 স্টক অপরিবর্তিত • Direct Cash In
+                </span>
+              </div>
+              <p
+                style={{
+                  margin: '5px 0 0',
+                  fontSize: '0.78rem',
+                  color: '#cbd5e1',
+                  lineHeight: 1.45,
+                }}
+              >
+                প্রডাক্ট সিলেক্ট বা স্টক কমানো ছাড়াই এককালীন নগদ ক্যাশ সরাসরি ব্যবসার হিসাবে জমা দিন।
+              </p>
+            </div>
           </div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#064e3b', marginTop: '2px' }}>
-            {money(availableCash)}
+
+          {/* Header Action Pills */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setShowHistory((prev) => !prev)}
+              style={{
+                padding: '7px 12px',
+                borderRadius: '10px',
+                border: '1px solid rgba(148, 163, 184, 0.35)',
+                background: showHistory ? '#ffffff' : 'rgba(255, 255, 255, 0.1)',
+                color: showHistory ? '#0f172a' : '#f8fafc',
+                fontSize: '0.76rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <History size={14} />
+              <span>জমার তালিকা ({toBengaliNumerals(recentCashDeposits.length)}টি)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsExpanded((prev) => !prev)}
+              style={{
+                padding: '7px 12px',
+                borderRadius: '10px',
+                border: '1px solid #34d399',
+                background: isExpanded
+                  ? 'rgba(16, 185, 129, 0.2)'
+                  : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#ffffff',
+                fontSize: '0.76rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              <span>{isExpanded ? 'ফর্ম সংকুচিত করুন' : '+ ক্যাশ জমা ফর্ম'}</span>
+            </button>
           </div>
         </div>
 
+        {/* Compact 3-Column KPI Strip inside Header */}
         <div
           style={{
-            background: '#ffffff',
-            padding: '10px 12px',
-            borderRadius: '10px',
-            border: '1px solid #d1fae5',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: '8px',
+            marginTop: '14px',
           }}
         >
-          <div style={{ fontSize: '0.76rem', color: '#047857', fontWeight: 600 }}>
-            মোট বিক্রয় হিসাব
+          <div
+            style={{
+              background: 'rgba(15, 23, 42, 0.55)',
+              border: '1px solid rgba(148, 163, 184, 0.22)',
+              borderRadius: '11px',
+              padding: '8px 10px',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '0.68rem',
+                color: '#94a3b8',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              বর্তমান ক্যাশ ব্যালান্স
+            </div>
+            <div
+              style={{
+                fontSize: '0.92rem',
+                fontWeight: 900,
+                color: '#34d399',
+                marginTop: '2px',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {money(availableCash)}
+            </div>
           </div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f766e', marginTop: '2px' }}>
-            {money(totalSales)}
-          </div>
-        </div>
 
-        <div
-          style={{
-            background: '#ffffff',
-            padding: '10px 12px',
-            borderRadius: '10px',
-            border: '1px solid #d1fae5',
-          }}
-        >
-          <div style={{ fontSize: '0.76rem', color: '#047857', fontWeight: 600 }}>
-            প্রডাক্ট ছাড়া মোট ক্যাশ জমা ({toBengaliNumerals(recentCashDeposits.length)}টি)
+          <div
+            style={{
+              background: 'rgba(15, 23, 42, 0.55)',
+              border: '1px solid rgba(148, 163, 184, 0.22)',
+              borderRadius: '11px',
+              padding: '8px 10px',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '0.68rem',
+                color: '#94a3b8',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              মোট বিক্রয় হিসাব
+            </div>
+            <div
+              style={{
+                fontSize: '0.92rem',
+                fontWeight: 900,
+                color: '#f8fafc',
+                marginTop: '2px',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {money(totalSales)}
+            </div>
           </div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#059669', marginTop: '2px' }}>
-            {money(totalDepositedWithoutProduct)}
+
+          <div
+            style={{
+              background: 'rgba(16, 185, 129, 0.16)',
+              border: '1px solid rgba(52, 211, 153, 0.35)',
+              borderRadius: '11px',
+              padding: '8px 10px',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '0.68rem',
+                color: '#a7f3d0',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              প্রডাক্ট ছাড়া জমা ({toBengaliNumerals(recentCashDeposits.length)}টি)
+            </div>
+            <div
+              style={{
+                fontSize: '0.92rem',
+                fontWeight: 900,
+                color: '#6ee7b7',
+                marginTop: '2px',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {money(totalDepositedWithoutProduct)}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Expandable Deposit Form */}
+      {/* Expandable Professional Deposit Form Body */}
       {isExpanded && (
         <form
           onSubmit={handleSubmit}
           style={{
-            marginTop: '14px',
-            padding: '16px',
-            borderRadius: '14px',
-            background: '#ffffff',
-            border: '1.5px solid #a7f3d0',
+            padding: '16px 18px',
+            background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
             display: 'flex',
             flexDirection: 'column',
             gap: '14px',
           }}
         >
-          {/* Mode Selector */}
+          {/* 1. Segmented Mode Switcher */}
           <div>
             <div
               style={{
-                fontSize: '0.84rem',
-                fontWeight: 700,
-                color: '#064e3b',
-                marginBottom: '8px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '6px',
               }}
             >
-              ১. ক্যাশ জমার ধরন নির্বাচন করুন:
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f172a' }}>
+                ১. ক্যাশ জমার ধরন নির্বাচন করুন
+              </span>
+              <span style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 700 }}>
+                ✓ স্টক ১ পিসও কমবে না
+              </span>
             </div>
+
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                gap: '10px',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '8px',
+                background: '#e2e8f0',
+                padding: '4px',
+                borderRadius: '12px',
               }}
             >
               <button
                 type="button"
                 onClick={() => setDepositMode('sale_cash')}
                 style={{
-                  textAlign: 'left',
-                  padding: '12px 14px',
-                  borderRadius: '12px',
-                  border:
-                    depositMode === 'sale_cash'
-                      ? '2px solid #059669'
-                      : '1.5px solid #cbd5e1',
+                  padding: '9px 10px',
+                  borderRadius: '9px',
+                  border: 'none',
                   background:
                     depositMode === 'sale_cash'
-                      ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)'
-                      : '#f8fafc',
+                      ? 'linear-gradient(135deg, #059669 0%, #0d9488 100%)'
+                      : 'transparent',
+                  color: depositMode === 'sale_cash' ? '#ffffff' : '#334155',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
                   cursor: 'pointer',
+                  boxShadow:
+                    depositMode === 'sale_cash'
+                      ? '0 4px 10px rgba(5, 150, 105, 0.25)'
+                      : 'none',
+                  transition: 'all 0.15s ease',
                 }}
               >
-                <div
-                  style={{
-                    fontWeight: 800,
-                    fontSize: '0.9rem',
-                    color: depositMode === 'sale_cash' ? '#065f46' : '#1e293b',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <span>🛍️ বেচা-কেনার নগদ ক্যাশ জমা (বিক্রয় ও ব্যালেন্সে যোগ)</span>
-                </div>
-                <div
-                  style={{
-                    fontSize: '0.76rem',
-                    color: depositMode === 'sale_cash' ? '#047857' : '#64748b',
-                    marginTop: '4px',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  প্রডাক্ট স্টক না কমিয়ে মোট বিক্রয় ও ক্যাশ ব্যালেন্সে টাকা জমা হবে।
-                </div>
+                🛍️ বিক্রয় ও ব্যালেন্সে জমা
               </button>
 
               <button
                 type="button"
                 onClick={() => setDepositMode('balance_only')}
                 style={{
-                  textAlign: 'left',
-                  padding: '12px 14px',
-                  borderRadius: '12px',
-                  border:
-                    depositMode === 'balance_only'
-                      ? '2px solid #0284c7'
-                      : '1.5px solid #cbd5e1',
+                  padding: '9px 10px',
+                  borderRadius: '9px',
+                  border: 'none',
                   background:
                     depositMode === 'balance_only'
-                      ? 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)'
-                      : '#f8fafc',
+                      ? 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)'
+                      : 'transparent',
+                  color: depositMode === 'balance_only' ? '#ffffff' : '#334155',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
                   cursor: 'pointer',
+                  boxShadow:
+                    depositMode === 'balance_only'
+                      ? '0 4px 10px rgba(2, 132, 199, 0.25)'
+                      : 'none',
+                  transition: 'all 0.15s ease',
                 }}
               >
-                <div
-                  style={{
-                    fontWeight: 800,
-                    fontSize: '0.9rem',
-                    color: depositMode === 'balance_only' ? '#075985' : '#1e293b',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <span>🏦 শুধু বর্তমান ক্যাশ ব্যালেন্সে জমা (বিক্রয় ছাড়া)</span>
-                </div>
-                <div
-                  style={{
-                    fontSize: '0.76rem',
-                    color: depositMode === 'balance_only' ? '#0369a1' : '#64748b',
-                    marginTop: '4px',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  বিক্রয় বা স্টকে কোনো পরিবর্তন না করে সরাসরি বর্তমান ক্যাশ ব্যালেন্সে টাকা যোগ হবে।
-                </div>
+                🏦 শুধু ক্যাশ ব্যালেন্সে জমা
               </button>
+            </div>
+
+            <div
+              style={{
+                marginTop: '6px',
+                fontSize: '0.74rem',
+                color: depositMode === 'sale_cash' ? '#047857' : '#0369a1',
+                background: depositMode === 'sale_cash' ? '#ecfdf5' : '#f0f9ff',
+                border:
+                  depositMode === 'sale_cash'
+                    ? '1px solid #a7f3d0'
+                    : '1px solid #bae6fd',
+                padding: '6px 10px',
+                borderRadius: '8px',
+                fontWeight: 600,
+              }}
+            >
+              {depositMode === 'sale_cash'
+                ? '💡 এই মোডে টাকা জমা দিলে প্রডাক্টের স্টক না কমিয়ে মোট বিক্রয় এবং বর্তমান ক্যাশ ব্যালেন্সে যোগ হবে।'
+                : '💡 এই মোডে বিক্রয় বা লাভে কোনো পরিবর্তন না করে সরাসরি বর্তমান ক্যাশ ব্যালেন্সে টাকা যোগ হবে।'}
             </div>
           </div>
 
-          {/* Amount + Quick Chips */}
-          <div>
-            <label
+          {/* 2. Banking-Style Currency Input + Quick Chips */}
+          <div
+            style={{
+              background: '#ffffff',
+              border: '1.5px solid #cbd5e1',
+              borderRadius: '14px',
+              padding: '12px',
+              boxShadow: '0 2px 6px rgba(15, 23, 42, 0.03)',
+            }}
+          >
+            <div
               style={{
-                display: 'block',
-                fontSize: '0.86rem',
-                fontWeight: 700,
-                color: '#0f172a',
-                marginBottom: '6px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '8px',
               }}
             >
-              ২. ক্যাশ জমার পরিমাণ (৳) *
-            </label>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <label
+                htmlFor="direct-cash-amount-input"
+                style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}
+              >
+                ২. ক্যাশ জমার পরিমাণ লিখুন (৳) *
+              </label>
+              {amountInput && (
+                <button
+                  type="button"
+                  onClick={() => setAmountInput('')}
+                  style={{
+                    border: 'none',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ✕ মুছুন
+                </button>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                borderRadius: '11px',
+                border: '2px solid #10b981',
+                background: '#f0fdf4',
+                overflow: 'hidden',
+              }}
+            >
+              <span
+                style={{
+                  padding: '10px 14px',
+                  background: '#059669',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: '1.1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ৳
+              </span>
               <input
+                id="direct-cash-amount-input"
                 type="number"
                 min="1"
                 step="any"
@@ -459,57 +613,46 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                   setLocalSuccess('');
                   setAmountInput(e.target.value);
                 }}
-                placeholder="যেমন: 2500"
+                placeholder="০.০০ (যেমন: 2500)"
                 style={{
-                  flex: '1 1 200px',
-                  padding: '11px 14px',
-                  fontSize: '1.05rem',
-                  fontWeight: 800,
-                  borderRadius: '10px',
-                  border: '2px solid #10b981',
-                  background: '#f0fdf4',
+                  width: '100%',
+                  border: 'none',
+                  background: 'transparent',
+                  padding: '10px 12px',
+                  fontSize: '1.15rem',
+                  fontWeight: 900,
                   color: '#064e3b',
+                  outline: 'none',
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               />
-              {amountInput && (
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setAmountInput('')}
-                  style={{ padding: '10px 14px', borderRadius: '10px' }}
-                >
-                  ক্লিয়ার
-                </button>
-              )}
             </div>
 
-            {/* Quick Amount Chips */}
+            {/* 6 Quick Amount Chips in Responsive Grid */}
             <div
               style={{
-                display: 'flex',
-                flexWrap: 'wrap',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(82px, 1fr))',
                 gap: '6px',
-                marginTop: '8px',
-                alignItems: 'center',
+                marginTop: '9px',
               }}
             >
-              <span style={{ fontSize: '0.76rem', color: '#475569', fontWeight: 600 }}>
-                দ্রুত টাকা যোগ করুন:
-              </span>
               {QUICK_AMOUNTS.map((amt) => (
                 <button
                   key={amt}
                   type="button"
                   onClick={() => handleQuickAddAmount(amt)}
                   style={{
-                    padding: '5px 10px',
+                    padding: '6px 8px',
                     borderRadius: '8px',
-                    border: '1px solid #6ee7b7',
+                    border: '1px solid #a7f3d0',
                     background: '#ecfdf5',
                     color: '#065f46',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
                     cursor: 'pointer',
+                    textAlign: 'center',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   +৳{toBengaliNumerals(amt)}
@@ -518,32 +661,32 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
             </div>
           </div>
 
-          {/* Profit Option when sale_cash is selected */}
+          {/* 3. Profit Option when sale_cash is selected */}
           {depositMode === 'sale_cash' && (
             <div
               style={{
-                padding: '12px',
-                borderRadius: '10px',
+                padding: '10px 12px',
+                borderRadius: '12px',
                 background: '#f8fafc',
                 border: '1px solid #e2e8f0',
               }}
             >
               <div
                 style={{
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                  marginBottom: '8px',
+                  fontSize: '0.76rem',
+                  fontWeight: 800,
+                  color: '#334155',
+                  marginBottom: '6px',
                 }}
               >
-                এই জমার টাকা ব্যালেন্স ও লাভে কীভাবে যুক্ত হবে?
+                ব্যালেন্স ও লাভে হিসাব পদ্ধতি:
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                 <button
                   type="button"
                   onClick={() => setProfitMode('full_cash')}
                   style={{
-                    padding: '7px 12px',
+                    padding: '7px 10px',
                     borderRadius: '8px',
                     border:
                       profitMode === 'full_cash'
@@ -551,18 +694,18 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                         : '1px solid #cbd5e1',
                     background: profitMode === 'full_cash' ? '#d1fae5' : '#ffffff',
                     color: profitMode === 'full_cash' ? '#065f46' : '#475569',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
                     cursor: 'pointer',
                   }}
                 >
-                  ✅ পুরো ক্যাশটাই ব্যালেন্স ও লাভে যোগ করুন (১০০%)
+                  ✅ ১০০% ব্যালেন্সে যোগ
                 </button>
                 <button
                   type="button"
                   onClick={() => setProfitMode('custom_profit')}
                   style={{
-                    padding: '7px 12px',
+                    padding: '7px 10px',
                     borderRadius: '8px',
                     border:
                       profitMode === 'custom_profit'
@@ -570,40 +713,31 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                         : '1px solid #cbd5e1',
                     background: profitMode === 'custom_profit' ? '#d1fae5' : '#ffffff',
                     color: profitMode === 'custom_profit' ? '#065f46' : '#475569',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
                     cursor: 'pointer',
                   }}
                 >
-                  ✏️ আলাদা লাভের পরিমাণ উল্লেখ করুন
+                  ✏️ কাস্টম লাভ উল্লেখ
                 </button>
               </div>
 
               {profitMode === 'custom_profit' && (
-                <div style={{ marginTop: '10px' }}>
-                  <label
-                    style={{
-                      display: 'block',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      color: '#334155',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    জমা দেওয়া মোট ক্যাশের মধ্যে নিট লাভ কত টাকা (৳)?
-                  </label>
+                <div style={{ marginTop: '8px' }}>
                   <input
                     type="number"
                     min="0"
                     step="any"
                     value={customProfitInput}
                     onChange={(e) => setCustomProfitInput(e.target.value)}
-                    placeholder="যেমন: 800 (খালি রাখলে ০ ধরা হবে)"
+                    placeholder="এই ক্যাশের মধ্যে নিট লাভ কত টাকা (৳)?"
                     style={{
-                      maxWidth: '280px',
-                      padding: '8px 12px',
+                      width: '100%',
+                      padding: '8px 11px',
                       borderRadius: '8px',
                       border: '1px solid #94a3b8',
+                      fontSize: '0.82rem',
+                      background: '#ffffff',
                     }}
                   />
                 </div>
@@ -611,34 +745,31 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
             </div>
           )}
 
-          {/* Seller, Date, and Title */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '12px',
-            }}
-          >
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
-              জমা দানকারী / বিক্রেতা
+          {/* 4. Side-by-Side 2-Column Seller & Date */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <label style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
+              জমা দানকারী
               <select
                 value={sellerInput}
                 onChange={(e) => setSellerInput(e.target.value)}
                 style={{
                   width: '100%',
                   marginTop: '4px',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
+                  padding: '8px 10px',
+                  borderRadius: '9px',
                   border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
                 }}
               >
-                <option value="Rakib">রাকিব (Rakib)</option>
-                <option value="Limon">লিমন (Limon)</option>
+                <option value="Rakib">👤 রাকিব (Rakib)</option>
+                <option value="Limon">👤 লিমন (Limon)</option>
               </select>
             </label>
 
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
-              তারিখ
+            <label style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
+              জমার তারিখ
               <input
                 type="date"
                 value={dateInput}
@@ -646,17 +777,21 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                 style={{
                   width: '100%',
                   marginTop: '4px',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
+                  padding: '8px 10px',
+                  borderRadius: '9px',
                   border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
                 }}
               />
             </label>
           </div>
 
+          {/* 5. Title & Quick Presets */}
           <div>
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
-              ক্যাশ জমার বিবরণ / শিরোনাম
+            <label style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
+              বিবরণ / নোট
               <input
                 type="text"
                 value={titleInput}
@@ -665,13 +800,15 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                 style={{
                   width: '100%',
                   marginTop: '4px',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
+                  padding: '8px 11px',
+                  borderRadius: '9px',
                   border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  fontSize: '0.82rem',
                 }}
               />
             </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '6px' }}>
               {TITLE_PRESETS.map((preset) => (
                 <button
                   key={preset}
@@ -679,11 +816,13 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                   onClick={() => setTitleInput(preset)}
                   style={{
                     padding: '4px 8px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    background: titleInput === preset ? '#e2e8f0' : '#f8fafc',
-                    color: '#334155',
-                    fontSize: '0.73rem',
+                    borderRadius: '999px',
+                    border:
+                      titleInput === preset ? '1px solid #059669' : '1px solid #cbd5e1',
+                    background: titleInput === preset ? '#ecfdf5' : '#f8fafc',
+                    color: titleInput === preset ? '#065f46' : '#475569',
+                    fontSize: '0.7rem',
+                    fontWeight: titleInput === preset ? 700 : 500,
                     cursor: 'pointer',
                   }}
                 >
@@ -693,60 +832,67 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
             </div>
           </div>
 
-          {/* Live Preview before submitting */}
+          {/* Live Impact Preview Bar */}
           {parsedAmount > 0 && (
             <div
               style={{
-                padding: '12px 14px',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
-                border: '1px solid #86efac',
+                padding: '10px 12px',
+                borderRadius: '11px',
+                background: 'linear-gradient(135deg, #064e3b 0%, #0f172a 100%)',
+                color: '#ffffff',
                 display: 'flex',
                 flexWrap: 'wrap',
                 justifyContent: 'space-between',
-                gap: '10px',
                 alignItems: 'center',
+                gap: '8px',
               }}
             >
               <div>
-                <div style={{ fontSize: '0.78rem', color: '#166534', fontWeight: 700 }}>
+                <div style={{ fontSize: '0.7rem', color: '#a7f3d0', fontWeight: 700 }}>
                   জমার পর নতুন ক্যাশ ব্যালান্স হবে:
                 </div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#14532d' }}>
-                  {money(availableCash)} + {money(balanceAddition)} ={' '}
-                  {money(availableCash + balanceAddition)}
+                <div
+                  style={{
+                    fontSize: '0.96rem',
+                    fontWeight: 900,
+                    color: '#34d399',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginTop: '2px',
+                  }}
+                >
+                  <span>{money(availableCash)}</span>
+                  <ArrowRight size={14} />
+                  <span>{money(availableCash + balanceAddition)}</span>
                 </div>
               </div>
-              <div
+              <span
                 style={{
-                  padding: '6px 10px',
-                  borderRadius: '8px',
-                  background: '#ffffff',
-                  border: '1px solid #86efac',
-                  fontSize: '0.76rem',
-                  fontWeight: 700,
-                  color: '#15803d',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
+                  padding: '4px 9px',
+                  borderRadius: '999px',
+                  background: 'rgba(16, 185, 129, 0.2)',
+                  border: '1px solid rgba(52, 211, 153, 0.4)',
+                  fontSize: '0.7rem',
+                  fontWeight: 800,
+                  color: '#6ee7b7',
                 }}
               >
-                <Package size={15} />
-                <span>স্টক পরিবর্তন: ০ পিস (কোনো প্রডাক্ট কমবে না)</span>
-              </div>
+                📦 স্টক পরিবর্তন: ০ পিস
+              </span>
             </div>
           )}
 
           {localError && (
             <div
               style={{
-                padding: '10px 12px',
-                borderRadius: '8px',
+                padding: '9px 12px',
+                borderRadius: '9px',
                 background: '#fef2f2',
                 border: '1px solid #fecaca',
                 color: '#b91c1c',
-                fontSize: '0.84rem',
-                fontWeight: 600,
+                fontSize: '0.8rem',
+                fontWeight: 700,
               }}
             >
               {localError}
@@ -756,12 +902,12 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
           {localSuccess && (
             <div
               style={{
-                padding: '10px 12px',
-                borderRadius: '8px',
+                padding: '9px 12px',
+                borderRadius: '9px',
                 background: '#ecfdf5',
                 border: '1px solid #6ee7b7',
                 color: '#065f46',
-                fontSize: '0.84rem',
+                fontSize: '0.8rem',
                 fontWeight: 700,
               }}
             >
@@ -769,30 +915,32 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              type="submit"
-              className="primary"
-              disabled={submitting || parsedAmount <= 0}
-              style={{
-                background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
-                padding: '12px 22px',
-                fontSize: '0.95rem',
-                fontWeight: 800,
-                borderRadius: '10px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <CheckCircle2 size={18} />
-              <span>
-                {submitting
-                  ? 'ক্যাশ জমা হচ্ছে…'
-                  : `প্রডাক্ট সেল ছাড়া ${parsedAmount > 0 ? money(parsedAmount) : ''} ক্যাশ জমা দিন`}
-              </span>
-            </button>
-          </div>
+          {/* Submit CTA */}
+          <button
+            type="submit"
+            className="primary"
+            disabled={submitting || parsedAmount <= 0}
+            style={{
+              width: '100%',
+              background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
+              padding: '12px 18px',
+              fontSize: '0.92rem',
+              fontWeight: 900,
+              borderRadius: '11px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              boxShadow: '0 6px 16px -4px rgba(5, 150, 105, 0.4)',
+            }}
+          >
+            <CheckCircle2 size={18} />
+            <span>
+              {submitting
+                ? 'ক্যাশ জমা হচ্ছে…'
+                : `প্রডাক্ট সেল ছাড়া ${parsedAmount > 0 ? money(parsedAmount) : ''} ক্যাশ জমা কনফার্ম করুন`}
+            </span>
+          </button>
         </form>
       )}
 
@@ -800,11 +948,9 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
       {showHistory && (
         <div
           style={{
-            marginTop: '14px',
-            padding: '14px',
-            borderRadius: '12px',
-            background: '#ffffff',
-            border: '1px solid #a7f3d0',
+            padding: '14px 18px',
+            background: '#f8fafc',
+            borderTop: '1px solid #e2e8f0',
           }}
         >
           <div
@@ -815,7 +961,7 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
               marginBottom: '10px',
             }}
           >
-            <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#064e3b' }}>
+            <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
               📋 প্রডাক্ট ছাড়া জমা দেওয়া ক্যাশের তালিকা ({toBengaliNumerals(recentCashDeposits.length)}টি)
             </h4>
             <button
@@ -823,9 +969,12 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
               onClick={() => setShowHistory(false)}
               style={{
                 border: 'none',
-                background: 'transparent',
-                color: '#64748b',
-                fontSize: '0.78rem',
+                background: '#e2e8f0',
+                color: '#334155',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                fontSize: '0.73rem',
+                fontWeight: 700,
                 cursor: 'pointer',
               }}
             >
@@ -836,18 +985,27 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
           {recentCashDeposits.length === 0 ? (
             <div
               style={{
-                padding: '18px',
+                padding: '16px',
                 textAlign: 'center',
                 color: '#64748b',
-                fontSize: '0.84rem',
-                background: '#f8fafc',
-                borderRadius: '8px',
+                fontSize: '0.8rem',
+                background: '#ffffff',
+                borderRadius: '10px',
+                border: '1px dashed #cbd5e1',
               }}
             >
               এখনো প্রডাক্ট ছাড়া সরাসরি কোনো ক্যাশ জমা দেওয়া হয়নি।
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '7px',
+                maxHeight: '260px',
+                overflowY: 'auto',
+              }}
+            >
               {recentCashDeposits.map((item) => (
                 <div
                   key={item.id}
@@ -855,19 +1013,19 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '10px 12px',
+                    padding: '9px 12px',
                     borderRadius: '10px',
-                    background: '#f8fafc',
+                    background: '#ffffff',
                     border: '1px solid #e2e8f0',
                     gap: '10px',
                     flexWrap: 'wrap',
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#0f172a' }}>
+                    <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a' }}>
                       {item.title}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
                       📅 {dateLabel(item.date)} • 👤{' '}
                       {item.seller === 'Limon'
                         ? 'লিমন (Limon)'
@@ -875,14 +1033,21 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                         ? 'রাকিব (Rakib)'
                         : item.seller || 'অ্যাডমিন'}{' '}
                       •{' '}
-                      <span style={{ color: '#059669', fontWeight: 600 }}>
+                      <span style={{ color: '#059669', fontWeight: 700 }}>
                         {item.type === 'sale' ? 'বিক্রয় ও ব্যালেন্সে জমা' : 'শুধু ক্যাশ ব্যালেন্সে জমা'}
                       </span>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#059669' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      style={{
+                        fontWeight: 900,
+                        fontSize: '0.9rem',
+                        color: '#059669',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
                       +{money(item.amount)}
                     </span>
                     {isFullAdmin && onDeleteDeposit && (
@@ -891,7 +1056,7 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                         onClick={() => onDeleteDeposit(item.id, item.title)}
                         title="মুছে ফেলুন"
                         style={{
-                          padding: '5px 8px',
+                          padding: '5px 7px',
                           borderRadius: '6px',
                           border: '1px solid #fecaca',
                           background: '#fef2f2',
@@ -901,7 +1066,7 @@ export const DirectCashDepositSettingsCard: React.FC<DirectCashDepositSettingsCa
                           alignItems: 'center',
                         }}
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={13} />
                       </button>
                     )}
                   </div>

@@ -6902,7 +6902,7 @@ export default function App() {
                         </td>
                         <td>
                           <b style={{ color: '#0d9488' }}>{money(p.withdrawableLimit)}</b>
-                          <span className="cell-sub">প্রতি শুক্রবার রাতে উত্তোলনযোগ্য</span>
+                          <span className="cell-sub">যেকোনো দিন উত্তোলনযোগ্য</span>
                         </td>
                         <td>
                           <button className="action-btn" onClick={() => setViewPartnerModal(p)}>
@@ -10435,15 +10435,13 @@ export default function App() {
                     <div
                       className="full note"
                       style={{
-                        background: fw.isOpen ? '#ecfdf5' : '#fef2f2',
-                        borderColor: fw.isOpen ? '#6ee7b7' : '#fecaca',
-                        color: fw.isOpen ? '#065f46' : '#991b1b',
+                        background: '#ecfdf5',
+                        borderColor: '#6ee7b7',
+                        color: '#065f46',
                         fontWeight: 600,
                       }}
                     >
-                      {fw.isOpen
-                        ? `✅ শুক্রবার রাতের উত্তোলন চালু আছে (${fw.dayTimeBn}) — শুক্রবার সারা রাত লাভাংশ উত্তোলন করা যাবে।`
-                        : `🔒 শুক্রবার সারা রাত ছাড়া উত্তোলন বাটন কাজ করবে না! (${fw.windowTextBn} উত্তোলন খোলা থাকে — বর্তমান সময়: ${fw.dayTimeBn})`}
+                      {`✅ সপ্তাহের যেকোনো দিন ও যেকোনো সময় অর্জিত লাভাংশ উত্তোলন করা যাবে (${fw.dayTimeBn})।`}
                     </div>
                   )}
                   {pAcc && (
