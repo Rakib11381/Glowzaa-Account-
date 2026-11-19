@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Product, TrayRefillLogItem } from '../types';
+import { resolveProductImageUrl, saveLocalProductNote, updateProduct } from '../data';
 import { dateLabel, formatBengaliDateTime, money, toBengaliNumerals } from '../accounting';
 import { getEffectiveProductSku } from './CameraAutoSaleModal';
 import {
@@ -163,12 +164,20 @@ export default function TrayManagementDashboard({
   const [bannerNotice, setBannerNotice] = useState<string>('');
   const [bannerTone, setBannerTone] = useState<'success' | 'danger'>('success');
   const [previewPhotoModal, setPreviewPhotoModal] = useState<{
+    productId: string;
     imageUrl: string;
     name: string;
     trayNumber: number;
     skuCode: string;
+    unit: string;
+    unitCost: number;
     unitPrice: number;
+    currentTrayStock: number;
+    mainStock: number;
+    customNote?: string;
   } | null>(null);
+  const [trayNoteDraft, setTrayNoteDraft] = useState<string>('');
+  const [isSavingTrayNote, setIsSavingTrayNote] = useState<boolean>(false);
 
   // History log filters
   const [logActionFilter, setLogActionFilter] = useState<
@@ -1966,54 +1975,62 @@ export default function TrayManagementDashboard({
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                     {/* Product Thumbnail Photo */}
-                    <div
-                      onClick={() => {
-                        if (row.product.imageUrl) {
-                          setPreviewPhotoModal({
-                            imageUrl: row.product.imageUrl,
-                            name: row.product.name,
-                            trayNumber: row.trayNumber,
-                            skuCode: row.skuCode,
-                            unitPrice: row.unitPrice,
-                          });
-                        }
-                      }}
-                      title={
-                        row.product.imageUrl
-                          ? 'বড় করে প্রডাক্টের ছবি দেখতে ট্যাপ করুন'
-                          : 'প্রডাক্টের ছবি যুক্ত নেই'
-                      }
-                      style={{
-                        width: '54px',
-                        height: '54px',
-                        borderRadius: '12px',
-                        overflow: 'hidden',
-                        flexShrink: 0,
-                        border: hasStock ? '2px solid #10b981' : '1.5px solid #cbd5e1',
-                        background: '#f8fafc',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: row.product.imageUrl ? 'pointer' : 'default',
-                        boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)',
-                        position: 'relative',
-                      }}
-                    >
-                      {row.product.imageUrl ? (
-                        <img
-                          src={row.product.imageUrl}
-                          alt={row.product.name}
+                    {(() => {
+                      const resolvedPhotoUrl = resolveProductImageUrl(row.product, products);
+                      const openTrayPhotoPopup = (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        setTrayNoteDraft(row.product.customNote || '');
+                        setPreviewPhotoModal({
+                          productId: row.product.id,
+                          imageUrl: resolvedPhotoUrl || '',
+                          name: row.product.name,
+                          trayNumber: row.trayNumber,
+                          skuCode: row.skuCode,
+                          unit: row.product.unit || 'পিস',
+                          unitCost: row.unitCost,
+                          unitPrice: row.unitPrice,
+                          currentTrayStock: row.currentTrayStock,
+                          mainStock: row.mainStock,
+                          customNote: row.product.customNote || '',
+                        });
+                      };
+                      return (
+                        <div
+                          onClick={openTrayPhotoPopup}
+                          title="বড় করে প্রডাক্টের ছবি, ক্রয়-বিক্রয় মূল্য ও নোট দেখতে ট্যাপ করুন"
                           style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
-                            display: 'block',
+                            width: '54px',
+                            height: '54px',
+                            borderRadius: '12px',
+                            overflow: 'hidden',
+                            flexShrink: 0,
+                            border: hasStock ? '2px solid #10b981' : '1.5px solid #cbd5e1',
+                            background: '#f8fafc',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'zoom-in',
+                            boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)',
+                            position: 'relative',
                           }}
-                        />
-                      ) : (
-                        <Package size={24} style={{ color: '#94a3b8' }} />
-                      )}
-                    </div>
+                        >
+                          {resolvedPhotoUrl ? (
+                            <img
+                              src={resolvedPhotoUrl}
+                              alt={row.product.name}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                display: 'block',
+                              }}
+                            />
+                          ) : (
+                            <Package size={24} style={{ color: '#94a3b8' }} />
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     <div style={{ minWidth: 0 }}>
                       <div
@@ -2052,6 +2069,44 @@ export default function TrayManagementDashboard({
                       <div style={{ fontSize: '11.5px', color: '#64748b' }}>
                         SKU: <b>#{row.skuCode}</b> • দর: {money(row.unitPrice)}/{row.product.unit || 'পিস'}
                       </div>
+                      {row.product.customNote && (
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const resolvedPhotoUrl = resolveProductImageUrl(row.product, products);
+                            setTrayNoteDraft(row.product.customNote || '');
+                            setPreviewPhotoModal({
+                              productId: row.product.id,
+                              imageUrl: resolvedPhotoUrl || '',
+                              name: row.product.name,
+                              trayNumber: row.trayNumber,
+                              skuCode: row.skuCode,
+                              unit: row.product.unit || 'পিস',
+                              unitCost: row.unitCost,
+                              unitPrice: row.unitPrice,
+                              currentTrayStock: row.currentTrayStock,
+                              mainStock: row.mainStock,
+                              customNote: row.product.customNote || '',
+                            });
+                          }}
+                          style={{
+                            marginTop: '3px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 7px',
+                            borderRadius: '6px',
+                            background: '#ecfdf5',
+                            border: '1px solid #6ee7b7',
+                            color: '#065f46',
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          📝 {row.product.customNote}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2863,47 +2918,58 @@ export default function TrayManagementDashboard({
                     <tr key={row.product.id}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div
-                            onClick={() => {
-                              if (row.product.imageUrl) {
-                                setPreviewPhotoModal({
-                                  imageUrl: row.product.imageUrl,
-                                  name: row.product.name,
-                                  trayNumber: row.trayNumber,
-                                  skuCode: row.skuCode,
-                                  unitPrice: row.unitPrice,
-                                });
-                              }
-                            }}
-                            style={{
-                              width: '38px',
-                              height: '38px',
-                              borderRadius: '8px',
-                              overflow: 'hidden',
-                              flexShrink: 0,
-                              border: '1px solid #cbd5e1',
-                              background: '#f8fafc',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: row.product.imageUrl ? 'pointer' : 'default',
-                            }}
-                          >
-                            {row.product.imageUrl ? (
-                              <img
-                                src={row.product.imageUrl}
-                                alt={row.product.name}
-                                style={{
-                                  width: '100%',
-                                  height: '100%',
-                                  objectFit: 'cover',
-                                  display: 'block',
+                          {(() => {
+                            const resolvedTablePhoto = resolveProductImageUrl(row.product, products);
+                            return (
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTrayNoteDraft(row.product.customNote || '');
+                                  setPreviewPhotoModal({
+                                    productId: row.product.id,
+                                    imageUrl: resolvedTablePhoto || '',
+                                    name: row.product.name,
+                                    trayNumber: row.trayNumber,
+                                    skuCode: row.skuCode,
+                                    unit: row.product.unit || 'পিস',
+                                    unitCost: row.unitCost,
+                                    unitPrice: row.unitPrice,
+                                    currentTrayStock: row.currentTrayStock,
+                                    mainStock: row.mainStock,
+                                    customNote: row.product.customNote || '',
+                                  });
                                 }}
-                              />
-                            ) : (
-                              <Package size={18} style={{ color: '#94a3b8' }} />
-                            )}
-                          </div>
+                                style={{
+                                  width: '38px',
+                                  height: '38px',
+                                  borderRadius: '8px',
+                                  overflow: 'hidden',
+                                  flexShrink: 0,
+                                  border: '1px solid #cbd5e1',
+                                  background: '#f8fafc',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'zoom-in',
+                                }}
+                              >
+                                {resolvedTablePhoto ? (
+                                  <img
+                                    src={resolvedTablePhoto}
+                                    alt={row.product.name}
+                                    style={{
+                                      width: '100%',
+                                      height: '100%',
+                                      objectFit: 'cover',
+                                      display: 'block',
+                                    }}
+                                  />
+                                ) : (
+                                  <Package size={18} style={{ color: '#94a3b8' }} />
+                                )}
+                              </div>
+                            );
+                          })()}
                           <span
                             style={{
                               padding: '3px 8px',
@@ -3324,95 +3390,559 @@ export default function TrayManagementDashboard({
         </div>
       </section>
 
-      {/* Product Photo Zoom Preview Modal */}
-      {previewPhotoModal && (
-        <div
-          onClick={() => setPreviewPhotoModal(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9999,
-            background: 'rgba(15, 23, 42, 0.78)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: '#ffffff',
-              borderRadius: '18px',
-              maxWidth: '420px',
-              width: '100%',
-              overflow: 'hidden',
-              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.35)',
-              border: '2px solid #10b981',
-            }}
-          >
+      {/* Product Photo, Pricing & Manual Note Zoom Preview Modal */}
+      {previewPhotoModal &&
+        (() => {
+          const liveProduct = products.find((p) => p.id === previewPhotoModal.productId);
+          const unitLabel = liveProduct?.unit || previewPhotoModal.unit || 'পিস';
+          const purchaseCostVal = Number(
+            liveProduct?.averageCost ?? previewPhotoModal.unitCost ?? 0
+          );
+          const sellingPriceVal = Number(
+            liveProduct?.sellingPrice ?? previewPhotoModal.unitPrice ?? 0
+          );
+          const unitProfitVal = Math.round((sellingPriceVal - purchaseCostVal) * 100) / 100;
+          const profitMarginPct =
+            purchaseCostVal > 0
+              ? Math.round(((sellingPriceVal - purchaseCostVal) / purchaseCostVal) * 100)
+              : sellingPriceVal > 0
+              ? 100
+              : 0;
+          const savedNoteText = (
+            liveProduct?.customNote ??
+            previewPhotoModal.customNote ??
+            ''
+          ).trim();
+          const effectiveImg =
+            (liveProduct ? resolveProductImageUrl(liveProduct, products) : undefined) ||
+            previewPhotoModal.imageUrl ||
+            '';
+
+          const quickNotePresets = [
+            '🔥 এই প্রডাক্টটা খুব বিক্রি হচ্ছে',
+            '⭐ এটা অনেক চাহিদা',
+            '⚡ দ্রুত স্টক শেষ হয়ে যায়',
+            '💎 কাস্টমারের প্রথম পছন্দ',
+            '📦 পরের বাজারে বেশি আনতে হবে',
+            '🐢 ধীরে বিক্রি হচ্ছে',
+          ];
+
+          const handleSaveTrayProductNote = async (noteToSave: string) => {
+            const cleaned = noteToSave.trim();
+            setTrayNoteDraft(cleaned);
+            setPreviewPhotoModal((prev) =>
+              prev ? { ...prev, customNote: cleaned } : null
+            );
+            setIsSavingTrayNote(true);
+            try {
+              saveLocalProductNote(previewPhotoModal.productId, cleaned);
+              await updateProduct(
+                previewPhotoModal.productId,
+                { customNote: cleaned },
+                lockedOperator,
+                `${lockedOperator.toLowerCase()}@glowzaa.shop`
+              );
+              showNotice(
+                cleaned
+                  ? `✅ "${previewPhotoModal.name}"-এর নোট সেভ হয়েছে: "${cleaned}"`
+                  : `🗑️ "${previewPhotoModal.name}"-এর নোট মুছে ফেলা হয়েছে।`,
+                'success'
+              );
+            } catch {
+              showNotice('নোট সংরক্ষণ করতে সমস্যা হয়েছে', 'danger');
+            } finally {
+              setIsSavingTrayNote(false);
+            }
+          };
+
+          return (
             <div
+              className="profit-image-preview-backdrop"
+              onClick={() => setPreviewPhotoModal(null)}
               style={{
-                padding: '12px 14px',
-                background: '#0f172a',
-                color: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '10px',
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 900, fontSize: '14.5px', color: '#5eead4' }}>
-                  ট্রে #{toBengaliNumerals(previewPhotoModal.trayNumber)} — {previewPhotoModal.name}
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#cbd5e1' }}>
-                  SKU: #{previewPhotoModal.skuCode} • দর: {money(previewPhotoModal.unitPrice)}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreviewPhotoModal(null)}
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(239, 68, 68, 0.25)',
-                  color: '#ffffff',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div
-              style={{
-                padding: '14px',
-                background: '#f8fafc',
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: '100vw',
+                height: '100vh',
+                zIndex: 999999,
+                background: 'rgba(15, 23, 42, 0.86)',
+                backdropFilter: 'blur(6px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                padding: '12px',
               }}
             >
-              <img
-                src={previewPhotoModal.imageUrl}
-                alt={previewPhotoModal.name}
+              <div
+                className="profit-image-preview-card"
+                onClick={(e) => e.stopPropagation()}
                 style={{
+                  background: '#ffffff',
+                  borderRadius: '22px',
+                  maxWidth: '450px',
                   width: '100%',
-                  maxHeight: '360px',
-                  objectFit: 'contain',
-                  borderRadius: '12px',
+                  maxHeight: '90vh',
+                  overflow: 'hidden',
+                  boxShadow: '0 28px 60px -12px rgba(0, 0, 0, 0.65)',
+                  border: '2px solid #10b981',
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
-              />
+              >
+                {/* Header */}
+                <div
+                  style={{
+                    padding: '13px 16px',
+                    background: 'linear-gradient(135deg, #0f172a 0%, #065f46 60%, #0d9488 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '7px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span
+                        style={{
+                          padding: '2.5px 9px',
+                          borderRadius: '7px',
+                          background: 'rgba(16, 185, 129, 0.25)',
+                          border: '1px solid rgba(110, 231, 183, 0.5)',
+                          color: '#5eead4',
+                          fontSize: '12px',
+                          fontWeight: 900,
+                        }}
+                      >
+                        ট্রে #{toBengaliNumerals(previewPhotoModal.trayNumber)}
+                      </span>
+                      <span style={{ fontWeight: 900, fontSize: '16.5px', color: '#ffffff' }}>
+                        {previewPhotoModal.name}
+                      </span>
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: '999px',
+                          background: 'rgba(56, 189, 248, 0.22)',
+                          color: '#bae6fd',
+                          fontSize: '11.5px',
+                          fontWeight: 800,
+                        }}
+                      >
+                        SKU #{previewPhotoModal.skuCode}
+                      </span>
+                    </div>
+                    {savedNoteText && (
+                      <div
+                        style={{
+                          marginTop: '6px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '3px 9px',
+                          borderRadius: '7px',
+                          background: 'rgba(250, 204, 21, 0.18)',
+                          border: '1px solid rgba(253, 224, 71, 0.45)',
+                          color: '#fef08a',
+                          fontSize: '11.5px',
+                          fontWeight: 800,
+                        }}
+                      >
+                        📝 {savedNoteText}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPhotoModal(null)}
+                    style={{
+                      width: '34px',
+                      height: '34px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      background: 'rgba(239, 68, 68, 0.32)',
+                      color: '#ffffff',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Scrollable Middle Body */}
+                <div
+                  style={{
+                    flex: '1 1 auto',
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  {/* Image Showcase (Strictly Contained) */}
+                  <div
+                    style={{
+                      padding: '12px',
+                      background: 'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '236px',
+                      minHeight: '236px',
+                      maxHeight: '236px',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                      position: 'relative',
+                    }}
+                  >
+                    {effectiveImg ? (
+                      <img
+                        src={effectiveImg}
+                        alt={previewPhotoModal.name}
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '212px',
+                          width: 'auto',
+                          height: 'auto',
+                          objectFit: 'contain',
+                          borderRadius: '12px',
+                          boxShadow: '0 10px 26px rgba(0, 0, 0, 0.45)',
+                          background: '#ffffff',
+                          display: 'block',
+                          margin: '0 auto',
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '8px',
+                          color: '#94a3b8',
+                          padding: '20px',
+                        }}
+                      >
+                        <Package size={44} style={{ color: '#38bdf8' }} />
+                        <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#e2e8f0' }}>
+                          এই প্রডাক্টের ছবি যুক্ত নেই
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Financial Pricing Cards (ক্রয়মূল্য, বিক্রয়মূল্য ও লাভ) */}
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      background: '#f8fafc',
+                      borderTop: '1px solid #e2e8f0',
+                      borderBottom: '1px solid #e2e8f0',
+                      display: 'grid',
+                      gridTemplateColumns: isEmployee
+                        ? 'repeat(2, minmax(0, 1fr))'
+                        : 'repeat(3, minmax(0, 1fr))',
+                      gap: '8px',
+                      flexShrink: 0,
+                      position: 'relative',
+                      zIndex: 2,
+                    }}
+                  >
+                    {!isEmployee && (
+                      <div
+                        style={{
+                          background: 'linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)',
+                          border: '1.5px solid #bae6fd',
+                          borderRadius: '11px',
+                          padding: '9px 8px',
+                          textAlign: 'center',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                          gap: '2px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            color: '#0369a1',
+                            lineHeight: 1.25,
+                          }}
+                        >
+                          📥 ক্রয়মূল্য (গড়)
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '15px',
+                            fontWeight: 900,
+                            color: '#0c4a6e',
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {money(purchaseCostVal)}
+                        </div>
+                        <div style={{ fontSize: '9.5px', color: '#0284c7', fontWeight: 700 }}>
+                          প্রতি {unitLabel}
+                        </div>
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+                        border: '1.5px solid #6ee7b7',
+                        borderRadius: '11px',
+                        padding: '9px 8px',
+                        textAlign: 'center',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        gap: '2px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '10.5px',
+                          fontWeight: 800,
+                          color: '#047857',
+                          lineHeight: 1.25,
+                        }}
+                      >
+                        🏷️ বিক্রয়মূল্য
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '15.5px',
+                          fontWeight: 900,
+                          color: '#064e3b',
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {money(sellingPriceVal)}
+                      </div>
+                      <div style={{ fontSize: '9.5px', color: '#059669', fontWeight: 700 }}>
+                        প্রতি {unitLabel}
+                      </div>
+                    </div>
+
+                    {!isEmployee ? (
+                      <div
+                        style={{
+                          background: 'linear-gradient(135deg, #fefce8 0%, #fef08a 100%)',
+                          border: '1.5px solid #fde047',
+                          borderRadius: '11px',
+                          padding: '9px 8px',
+                          textAlign: 'center',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                          gap: '2px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            color: '#854d0e',
+                            lineHeight: 1.25,
+                          }}
+                        >
+                          💰 প্রতি {unitLabel} লাভ
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '15px',
+                            fontWeight: 900,
+                            color: '#713f12',
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          +{money(unitProfitVal)}
+                        </div>
+                        <div style={{ fontSize: '9.5px', color: '#a16207', fontWeight: 800 }}>
+                          মার্জিন: {toBengaliNumerals(profitMarginPct)}%
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          background: '#faf5ff',
+                          border: '1.5px solid #d8b4fe',
+                          borderRadius: '11px',
+                          padding: '9px 8px',
+                          textAlign: 'center',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                          gap: '2px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            color: '#6d28d9',
+                            lineHeight: 1.25,
+                          }}
+                        >
+                          🍱 ট্রে / স্টক
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '14px',
+                            fontWeight: 900,
+                            color: '#4c1d95',
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          ট্রে: {toBengaliNumerals(previewPhotoModal.currentTrayStock)} | স্টক:{' '}
+                          {toBengaliNumerals(previewPhotoModal.mainStock)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Manual Product Note Editor */}
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      background: '#ffffff',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#0f172a' }}>
+                      📝 প্রডাক্টের ম্যানুয়াল নোট / চাহিদা স্ট্যাটাস
+                    </div>
+
+                    {savedNoteText && (
+                      <div
+                        style={{
+                          padding: '8px 11px',
+                          borderRadius: '10px',
+                          background: '#ecfdf5',
+                          border: '1.5px solid #34d399',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                        }}
+                      >
+                        <span style={{ fontSize: '12.5px', fontWeight: 800, color: '#065f46' }}>
+                          “{savedNoteText}”
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveTrayProductNote('')}
+                          disabled={isSavingTrayNote}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #fca5a5',
+                            background: '#fef2f2',
+                            color: '#dc2626',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          🗑️ মুছুন
+                        </button>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                      {quickNotePresets.map((preset) => {
+                        const isSelected =
+                          trayNoteDraft.trim() === preset || savedNoteText === preset;
+                        return (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => handleSaveTrayProductNote(preset)}
+                            style={{
+                              padding: '4px 9px',
+                              borderRadius: '999px',
+                              border: isSelected ? '1.5px solid #0d9488' : '1px solid #cbd5e1',
+                              background: isSelected ? '#ccfbf1' : '#f8fafc',
+                              color: isSelected ? '#0f766e' : '#334155',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {preset}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={trayNoteDraft}
+                        onChange={(e) => setTrayNoteDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveTrayProductNote(trayNoteDraft);
+                          }
+                        }}
+                        placeholder="যেমন: এই প্রডাক্টটা খুব বিক্রি হচ্ছে / অনেক চাহিদা..."
+                        style={{
+                          flex: 1,
+                          padding: '8px 11px',
+                          borderRadius: '10px',
+                          border: '1.5px solid #cbd5e1',
+                          fontSize: '12.5px',
+                          fontWeight: 600,
+                          color: '#0f172a',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={isSavingTrayNote}
+                        onClick={() => handleSaveTrayProductNote(trayNoteDraft)}
+                        style={{
+                          padding: '8px 13px',
+                          borderRadius: '10px',
+                          border: 'none',
+                          background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
+                          color: '#ffffff',
+                          fontWeight: 800,
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {isSavingTrayNote ? 'সেভ হচ্ছে...' : '💾 নোট সেভ'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
     </div>
   );
 }

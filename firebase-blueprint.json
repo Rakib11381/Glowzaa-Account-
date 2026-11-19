@@ -70,6 +70,7 @@
         "averageCost": { "type": "number" },
         "sellingPrice": { "type": "number" },
         "imageUrl": { "type": "string" },
+        "customNote": { "type": "string", "maxLength": 500 },
         "demo": { "type": "boolean" },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }

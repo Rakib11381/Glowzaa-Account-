@@ -59,6 +59,7 @@ export interface Product {
   lastTrayUpdatedBy?: 'Rakib' | 'Limon' | string;
   lastTrayUpdatedAt?: string;
   imageUrl?: string;
+  customNote?: string;
   demo?: boolean;
   createdAt?: any;
   updatedAt?: any;

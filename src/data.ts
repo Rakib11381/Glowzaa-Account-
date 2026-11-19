@@ -95,26 +95,33 @@ function readCache<T>(key: string): T[] {
 
 function writeCache<T>(key: string, rows: T[]) {
   try {
-    const serialized = JSON.stringify(rows);
-    if (serialized.length <= 450000) {
-      localStorage.setItem(key, serialized);
-      return;
-    }
-    // If payload exceeds 450KB (due to base64 photos), store a lightweight copy in localStorage
-    // while Firestore IndexedDB retains full-resolution photos
-    const lightweight = rows.map((item) => {
-      if (!item || typeof item !== 'object') return item;
-      const copy: Record<string, any> = { ...(item as Record<string, any>) };
-      for (const [k, v] of Object.entries(copy)) {
-        if (typeof v === 'string' && v.startsWith('data:image/') && v.length > 12000) {
-          delete copy[k];
-        }
+    // Always preserve product photos in glowzaa_products_cache_v1 so thumbnails & popups render immediately
+    if (key === CACHE_KEYS.products) {
+      const serializedProducts = JSON.stringify(rows);
+      try {
+        localStorage.setItem(key, serializedProducts);
+        return;
+      } catch {
+        // Free non-product log caches and retry saving full product cache with photos
+        try {
+          localStorage.removeItem(CACHE_KEYS.auditLogs);
+          localStorage.removeItem(CACHE_KEYS.entries);
+          localStorage.setItem(key, serializedProducts);
+          return;
+        } catch {}
       }
-      return copy;
-    });
-    const lightSerialized = JSON.stringify(lightweight);
-    if (lightSerialized.length <= 600000) {
-      localStorage.setItem(key, lightSerialized);
+    }
+
+    // For non-product caches (entries, auditLogs, distributions), cap array length to save quota for product photos
+    const cappedRows =
+      key === CACHE_KEYS.auditLogs
+        ? rows.slice(0, 120)
+        : key === CACHE_KEYS.entries
+        ? rows.slice(0, 350)
+        : rows;
+    const serialized = JSON.stringify(cappedRows);
+    if (serialized.length <= 650000) {
+      localStorage.setItem(key, serialized);
     }
   } catch {
     // Ignore quota errors
@@ -129,8 +136,87 @@ export function getCachedInvestors(): Investor[] {
   return readCache<Investor>(CACHE_KEYS.investors);
 }
 
+export function resolveProductImageUrl(
+  product: Pick<Product, 'id' | 'name' | 'imageUrl'> | null | undefined,
+  allProducts?: Product[]
+): string | undefined {
+  if (!product) return undefined;
+  const direct = typeof product.imageUrl === 'string' ? product.imageUrl.trim() : '';
+  if (direct) return direct;
+
+  if (!allProducts || allProducts.length === 0) return undefined;
+
+  const targetName = String(product.name || '').trim().toLowerCase();
+  if (!targetName) return undefined;
+
+  // 1. Exact product name match with another SKU that has an uploaded photo (e.g., multiple "কাকড়া", "ক্লিপ", "খোপা" SKUs)
+  const exactMatch = allProducts.find(
+    (p) =>
+      p.id !== product.id &&
+      typeof p.imageUrl === 'string' &&
+      p.imageUrl.trim().length > 0 &&
+      String(p.name || '').trim().toLowerCase() === targetName
+  );
+  if (exactMatch?.imageUrl) return exactMatch.imageUrl.trim();
+
+  // 2. Base product keyword match (e.g., "কাকড়া সেট" -> "কাকড়া", "ক্লিপ সেট" -> "ক্লিপ")
+  const firstWord = targetName.split(/\s+/)[0];
+  if (firstWord && firstWord.length >= 2) {
+    const keywordMatch = allProducts.find(
+      (p) =>
+        p.id !== product.id &&
+        typeof p.imageUrl === 'string' &&
+        p.imageUrl.trim().length > 0 &&
+        (String(p.name || '').trim().toLowerCase() === firstWord ||
+          String(p.name || '').trim().toLowerCase().startsWith(`${firstWord} `))
+    );
+    if (keywordMatch?.imageUrl) return keywordMatch.imageUrl.trim();
+  }
+
+  return undefined;
+}
+
+const PRODUCT_NOTES_STORAGE_KEY = 'glowzaa_product_custom_notes_v1';
+
+export function getLocalProductNotesMap(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(PRODUCT_NOTES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalProductNote(productId: string, note: string): void {
+  try {
+    const map = getLocalProductNotesMap();
+    const trimmed = note.trim();
+    if (trimmed) {
+      map[productId] = trimmed;
+    } else {
+      delete map[productId];
+    }
+    localStorage.setItem(PRODUCT_NOTES_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function getCachedProducts(): Product[] {
-  return readCache<Product>(CACHE_KEYS.products);
+  const raw = readCache<Product>(CACHE_KEYS.products);
+  const localNotes = getLocalProductNotesMap();
+  return raw.map((p) => {
+    const resolved = resolveProductImageUrl(p, raw);
+    const effectiveNote =
+      typeof p.customNote === 'string' ? p.customNote : localNotes[p.id] || undefined;
+    return {
+      ...p,
+      ...(resolved && !p.imageUrl ? { imageUrl: resolved } : {}),
+      ...(effectiveNote !== undefined ? { customNote: effectiveNote } : {}),
+    };
+  });
 }
 
 export function getCachedDistributions(): ProfitDistribution[] {
@@ -194,9 +280,23 @@ export function watchProducts(cb: (rows: Product[]) => void, error: (e: Error) =
   return onSnapshot(
     collection(d, path),
     (s) => {
-      const rows = s.docs
+      const rawRows = s.docs
         .map((x) => ({ id: x.id, ...(x.data() as Omit<Product, 'id'>) }))
         .sort((a, b) => a.name.localeCompare(b.name, 'bn'));
+      const localNotes = getLocalProductNotesMap();
+      const rows = rawRows.map((p) => {
+        const resolved = resolveProductImageUrl(p, rawRows);
+        const effectiveNote =
+          typeof p.customNote === 'string' ? p.customNote : localNotes[p.id] || undefined;
+        if (typeof p.customNote === 'string') {
+          saveLocalProductNote(p.id, p.customNote);
+        }
+        return {
+          ...p,
+          ...(resolved && !p.imageUrl ? { imageUrl: resolved } : {}),
+          ...(effectiveNote !== undefined ? { customNote: effectiveNote } : {}),
+        };
+      });
       writeCache(CACHE_KEYS.products, rows);
       cb(rows);
     },

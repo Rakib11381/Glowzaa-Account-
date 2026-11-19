@@ -6332,6 +6332,8 @@ td b {
   align-items: center;
   justify-content: center;
   max-height: 70vh;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .profit-image-preview-body img {

@@ -39,17 +39,13 @@ export interface FirestoreErrorInfo {
   };
 }
 
-// Non-essential cache keys that can be safely evicted whenever localStorage nears its 5MB quota
+// Non-essential log/history cache keys that can be safely evicted if localStorage nears its 5MB quota
+// IMPORTANT: Never evict glowzaa_products_cache_v1 or custom product photo caches so product photos always display instantly!
 const EVICTABLE_CACHE_KEYS = [
-  'glowzaa_products_cache_v1',
-  'glowzaa_entries_cache_v1',
   'glowzaa_audit_logs_cache_v1',
+  'glowzaa_entries_cache_v1',
   'glowzaa_distributions_cache_v1',
-  'glowzaa_investors_cache_v1',
   'glowzaa_approval_requests_cache',
-  'glowzaa_custom_trending_photos_v1',
-  'glowzaa_google_verified_photos_v1',
-  'glowzaa_auto_live_trending_items_v3',
   'glowzaa_email_notification_logs_v1',
 ];
 
@@ -79,23 +75,6 @@ export function cleanupStorageQuota(aggressive = false): void {
     });
 
     if (aggressive) {
-      for (const k of EVICTABLE_CACHE_KEYS) {
-        try {
-          window.localStorage.removeItem(k);
-        } catch {}
-      }
-      return;
-    }
-
-    // Check total localStorage usage; if > 2.2M chars (~4.4MB UTF-16), evict heavy caches proactively
-    let totalChars = 0;
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const k = window.localStorage.key(i);
-      if (!k) continue;
-      const val = window.localStorage.getItem(k);
-      totalChars += k.length + (val ? val.length : 0);
-    }
-    if (totalChars > 1800000) {
       for (const k of EVICTABLE_CACHE_KEYS) {
         try {
           window.localStorage.removeItem(k);
