@@ -148,6 +148,7 @@ import AntiFraudSecurityCenter, {
   type AntiFraudSettings,
 } from './components/AntiFraudSecurityCenter';
 import { DirectCashDepositSettingsCard } from './components/DirectCashDepositSettingsCard';
+import FastBulkTallyPadModal from './components/FastBulkTallyPadModal';
 import {
   money,
   moneyBn,
@@ -461,6 +462,7 @@ export default function App() {
   const [showDrawingSaleModal, setShowDrawingSaleModal] = useState(false);
   const [showSpecialOfferSaleModal, setShowSpecialOfferSaleModal] = useState(false);
   const [showComboSaleModal, setShowComboSaleModal] = useState(false);
+  const [showFastBulkTallyModal, setShowFastBulkTallyModal] = useState(false);
   const [showQrCodeSaleModal, setShowQrCodeSaleModal] = useState(false);
   const [qrModalInitialTab, setQrModalInitialTab] = useState<'scanner' | 'stickers'>('scanner');
   const [showTrayRefillModal, setShowTrayRefillModal] = useState(false);
@@ -4728,6 +4730,14 @@ export default function App() {
                           <Layers size={15} /> 📦 কম্বো অটো-সেল
                         </button>
 
+                        <button
+                          type="button"
+                          className="emp-ops-action-btn emerald"
+                          onClick={() => setShowFastBulkTallyModal(true)}
+                        >
+                          <Zap size={15} /> ⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০৳)
+                        </button>
+
                         {settings.enableTrayRefillFeature !== false && (
                           <button
                             type="button"
@@ -4864,6 +4874,20 @@ export default function App() {
                           <Plus size={15} /> নতুন হিসাব যোগ
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        className="dash-cmd-btn tint-teal"
+                        style={{
+                          background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
+                          color: '#ffffff',
+                          borderColor: '#059669',
+                          fontWeight: 900,
+                        }}
+                        onClick={() => setShowFastBulkTallyModal(true)}
+                      >
+                        <Zap size={15} /> ⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০৳)
+                      </button>
 
                       <button
                         type="button"
@@ -6201,6 +6225,18 @@ export default function App() {
                     <PenTool size={16} /> ড্রইং প্যাড সেল
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #0d9488, #0284c7)',
+                    border: 'none',
+                    fontWeight: 800,
+                  }}
+                  onClick={() => setShowFastBulkTallyModal(true)}
+                >
+                  <Zap size={16} /> ⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০৳)
+                </button>
                 {admin && (
                   <button
                     type="button"
@@ -7177,6 +7213,19 @@ export default function App() {
                     )}
                   </>
                 )}
+                <button
+                  type="button"
+                  className="primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #059669, #0d9488)',
+                    borderColor: '#059669',
+                    boxShadow: '0 2px 8px rgba(5, 150, 105, 0.28)',
+                  }}
+                  onClick={() => setShowFastBulkTallyModal(true)}
+                >
+                  <Zap size={16} />
+                  <span>⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০ টাকার প্রডাক্ট)</span>
+                </button>
                 {settings.enableQrCodeAutoSale !== false && (
                   <button
                     type="button"
@@ -15131,6 +15180,81 @@ export default function App() {
               imageUrl: suggestion.imageUrl || '',
             });
             setShowProductModal(true);
+          }}
+        />
+      )}
+
+      {/* FAST BULK TALLY PAD MODAL (২০/৩০/৫০ টাকার প্রডাক্ট এক ক্লিকে টালি ও রাতের হিসাব মেলানো) */}
+      {showFastBulkTallyModal && (
+        <FastBulkTallyPadModal
+          isOpen={showFastBulkTallyModal}
+          onClose={() => setShowFastBulkTallyModal(false)}
+          products={products}
+          initialSeller={currentAdmin?.username === 'Limon' ? 'Limon' : 'Rakib'}
+          isEmployee={isEmployee}
+          todayStr={today()}
+          onSubmitBulkTally={async (payload) => {
+            const actorId = payload.seller || currentAdmin?.username || 'Rakib';
+            const actorEmail = `${actorId.toLowerCase()}@glowzaa.shop`;
+            const actorDisplay =
+              actorId === 'Limon'
+                ? 'লিমন (Limon)'
+                : actorId === 'Rakib'
+                ? 'রাকিব (Rakib)'
+                : `${currentAdmin?.displayName || actorId} (${actorId})`;
+
+            const avgUnitPrice =
+              payload.totalQuantity > 0
+                ? Math.round((payload.totalAmount / payload.totalQuantity) * 100) / 100
+                : payload.totalAmount;
+            const avgUnitCost =
+              payload.totalQuantity > 0
+                ? Math.round((payload.cogsAmount / payload.totalQuantity) * 100) / 100
+                : 0;
+
+            const createdId = await addEntry(
+              {
+                type: 'sale',
+                title: payload.title,
+                amount: payload.totalAmount,
+                date: payload.date || today(),
+                status: 'posted',
+                quantity: payload.totalQuantity,
+                unitPrice: avgUnitPrice,
+                unitCost: avgUnitCost,
+                cogsAmount: payload.cogsAmount,
+                grossProfit: payload.grossProfit,
+                profit: payload.grossProfit,
+                comboItems: payload.comboItems,
+                category: payload.category,
+                notes: `${payload.notes} (${actorDisplay})`,
+                demo: false,
+              },
+              actorId,
+              actorEmail,
+              actorDisplay
+            );
+
+            setMessage(
+              `⚡ ফাস্ট বাল্ক টালি সেল সম্পন্ন: মোট ${toBengaliNumerals(
+                payload.totalQuantity
+              )} পিস — ${money(payload.totalAmount)}${
+                isEmployee
+                  ? ''
+                  : ` (লাভ: ${payload.grossProfit >= 0 ? '+' : ''}${money(payload.grossProfit)})`
+              }`
+            );
+            return createdId;
+          }}
+          onUndoBulkTally={async (entryId, summaryTitle) => {
+            const actorId = currentAdmin?.username || user?.uid || 'admin';
+            const actorEmail = currentAdmin
+              ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
+              : user?.email || '';
+            await removeEntry(entryId, actorId, actorEmail);
+            setMessage(
+              `↩️ বাল্ক টালি সেল বাতিল করা হয়েছে: ${summaryTitle} (স্টক ও ক্যাশ পুনঃসমন্বয় হয়েছে)`
+            );
           }}
         />
       )}
