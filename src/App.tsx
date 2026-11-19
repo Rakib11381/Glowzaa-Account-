@@ -265,7 +265,7 @@ function compressImage(file: File): Promise<string> {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxDim = 400;
+        const maxDim = 1200;
         let width = img.width;
         let height = img.height;
 
@@ -288,8 +288,27 @@ function compressImage(file: File): Promise<string> {
           resolve(event.target?.result as string);
           return;
         }
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        let dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        // Ensure Firestore 1MB document limit safety while keeping high definition
+        if (dataUrl.length > 780_000) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        }
+        if (dataUrl.length > 780_000) {
+          const fallbackCanvas = document.createElement('canvas');
+          const scale = 900 / Math.max(width, height);
+          fallbackCanvas.width = Math.round(width * scale);
+          fallbackCanvas.height = Math.round(height * scale);
+          const fCtx = fallbackCanvas.getContext('2d');
+          if (fCtx) {
+            fCtx.imageSmoothingEnabled = true;
+            fCtx.imageSmoothingQuality = 'high';
+            fCtx.drawImage(img, 0, 0, fallbackCanvas.width, fallbackCanvas.height);
+            dataUrl = fallbackCanvas.toDataURL('image/jpeg', 0.86);
+          }
+        }
         resolve(dataUrl);
       };
       img.onerror = (err) => reject(err);
@@ -15358,37 +15377,55 @@ export default function App() {
                     flexDirection: 'column',
                   }}
                 >
-                  {/* 2. Studio Product Image Canvas (Strictly Contained) */}
+                  {/* 2. Full-Bleed Edge-to-Edge HD Product Image Showcase (Zero Empty Margin) */}
                   <div
                     style={{
-                      padding: '12px',
-                      background: 'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)',
+                      padding: 0,
+                      margin: 0,
+                      background: '#0f172a',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      height: '236px',
-                      minHeight: '236px',
-                      maxHeight: '236px',
+                      width: '100%',
+                      height: '330px',
+                      minHeight: '330px',
+                      maxHeight: '330px',
                       overflow: 'hidden',
                       flexShrink: 0,
                       position: 'relative',
                     }}
                   >
+                    <svg
+                      width="0"
+                      height="0"
+                      style={{ position: 'absolute', pointerEvents: 'none' }}
+                      aria-hidden="true"
+                    >
+                      <defs>
+                        <filter id="hd-product-sharpen" colorInterpolationFilters="sRGB">
+                          <feConvolveMatrix
+                            order="3"
+                            kernelMatrix="0 -0.26 0 -0.26 2.04 -0.26 0 -0.26 0"
+                            preserveAlpha="true"
+                          />
+                        </filter>
+                      </defs>
+                    </svg>
                     {effectiveImg ? (
                       <img
                         src={effectiveImg}
                         alt={previewProductPhotoModal.name}
                         style={{
-                          maxWidth: '100%',
-                          maxHeight: '212px',
-                          width: 'auto',
-                          height: 'auto',
-                          objectFit: 'contain',
-                          borderRadius: '12px',
-                          boxShadow: '0 10px 26px rgba(0, 0, 0, 0.45)',
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          objectPosition: 'center',
+                          borderRadius: '0px',
                           background: '#ffffff',
                           display: 'block',
-                          margin: '0 auto',
+                          margin: 0,
+                          filter: 'url(#hd-product-sharpen) contrast(1.04) saturate(1.04)',
+                          imageRendering: 'auto',
                         }}
                       />
                     ) : (
@@ -15402,6 +15439,8 @@ export default function App() {
                           color: '#94a3b8',
                           padding: '20px 16px',
                           textAlign: 'center',
+                          width: '100%',
+                          height: '100%',
                         }}
                       >
                         <Package size={44} style={{ color: '#38bdf8' }} />

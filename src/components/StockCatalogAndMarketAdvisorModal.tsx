@@ -976,7 +976,7 @@ function compressUploadedSuggestionImage(file: File): Promise<string> {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxDim = 420;
+        const maxDim = 1200;
         let width = img.width;
         let height = img.height;
         if (width > height) {
@@ -995,8 +995,14 @@ function compressUploadedSuggestionImage(file: File): Promise<string> {
           resolve(event.target?.result as string);
           return;
         }
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.82));
+        let dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        if (dataUrl.length > 780_000) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        }
+        resolve(dataUrl);
       };
       img.onerror = (err) => reject(err);
     };

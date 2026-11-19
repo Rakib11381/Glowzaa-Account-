@@ -3595,37 +3595,55 @@ export default function TrayManagementDashboard({
                     flexDirection: 'column',
                   }}
                 >
-                  {/* Image Showcase (Strictly Contained) */}
+                  {/* Full-Bleed Edge-to-Edge HD Image Showcase (Zero Empty Margin) */}
                   <div
                     style={{
-                      padding: '12px',
-                      background: 'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)',
+                      padding: 0,
+                      margin: 0,
+                      background: '#0f172a',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      height: '236px',
-                      minHeight: '236px',
-                      maxHeight: '236px',
+                      width: '100%',
+                      height: '330px',
+                      minHeight: '330px',
+                      maxHeight: '330px',
                       overflow: 'hidden',
                       flexShrink: 0,
                       position: 'relative',
                     }}
                   >
+                    <svg
+                      width="0"
+                      height="0"
+                      style={{ position: 'absolute', pointerEvents: 'none' }}
+                      aria-hidden="true"
+                    >
+                      <defs>
+                        <filter id="hd-tray-product-sharpen" colorInterpolationFilters="sRGB">
+                          <feConvolveMatrix
+                            order="3"
+                            kernelMatrix="0 -0.26 0 -0.26 2.04 -0.26 0 -0.26 0"
+                            preserveAlpha="true"
+                          />
+                        </filter>
+                      </defs>
+                    </svg>
                     {effectiveImg ? (
                       <img
                         src={effectiveImg}
                         alt={previewPhotoModal.name}
                         style={{
-                          maxWidth: '100%',
-                          maxHeight: '212px',
-                          width: 'auto',
-                          height: 'auto',
-                          objectFit: 'contain',
-                          borderRadius: '12px',
-                          boxShadow: '0 10px 26px rgba(0, 0, 0, 0.45)',
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          objectPosition: 'center',
+                          borderRadius: '0px',
                           background: '#ffffff',
                           display: 'block',
-                          margin: '0 auto',
+                          margin: 0,
+                          filter: 'url(#hd-tray-product-sharpen) contrast(1.04) saturate(1.04)',
+                          imageRendering: 'auto',
                         }}
                       />
                     ) : (
@@ -3634,9 +3652,12 @@ export default function TrayManagementDashboard({
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
+                          justifyContent: 'center',
                           gap: '8px',
                           color: '#94a3b8',
                           padding: '20px',
+                          width: '100%',
+                          height: '100%',
                         }}
                       >
                         <Package size={44} style={{ color: '#38bdf8' }} />

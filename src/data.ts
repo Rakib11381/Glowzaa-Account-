@@ -136,13 +136,24 @@ export function getCachedInvestors(): Investor[] {
   return readCache<Investor>(CACHE_KEYS.investors);
 }
 
+function upgradeImageUrlToHd(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.startsWith('data:')) return trimmed;
+  if (trimmed.includes('images.unsplash.com')) {
+    return trimmed
+      .replace(/([?&])w=\d+/g, '$1w=1200')
+      .replace(/([?&])q=\d+/g, '$1q=95');
+  }
+  return trimmed;
+}
+
 export function resolveProductImageUrl(
   product: Pick<Product, 'id' | 'name' | 'imageUrl'> | null | undefined,
   allProducts?: Product[]
 ): string | undefined {
   if (!product) return undefined;
   const direct = typeof product.imageUrl === 'string' ? product.imageUrl.trim() : '';
-  if (direct) return direct;
+  if (direct) return upgradeImageUrlToHd(direct);
 
   if (!allProducts || allProducts.length === 0) return undefined;
 
@@ -157,7 +168,7 @@ export function resolveProductImageUrl(
       p.imageUrl.trim().length > 0 &&
       String(p.name || '').trim().toLowerCase() === targetName
   );
-  if (exactMatch?.imageUrl) return exactMatch.imageUrl.trim();
+  if (exactMatch?.imageUrl) return upgradeImageUrlToHd(exactMatch.imageUrl);
 
   // 2. Base product keyword match (e.g., "কাকড়া সেট" -> "কাকড়া", "ক্লিপ সেট" -> "ক্লিপ")
   const firstWord = targetName.split(/\s+/)[0];
@@ -170,7 +181,7 @@ export function resolveProductImageUrl(
         (String(p.name || '').trim().toLowerCase() === firstWord ||
           String(p.name || '').trim().toLowerCase().startsWith(`${firstWord} `))
     );
-    if (keywordMatch?.imageUrl) return keywordMatch.imageUrl.trim();
+    if (keywordMatch?.imageUrl) return upgradeImageUrlToHd(keywordMatch.imageUrl);
   }
 
   return undefined;
