@@ -4735,7 +4735,7 @@ export default function App() {
                           className="emp-ops-action-btn emerald"
                           onClick={() => setShowFastBulkTallyModal(true)}
                         >
-                          <Zap size={15} /> ⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০৳)
+                          <Zap size={15} /> 💵 মোট ক্যাশ বসিয়ে অটো হিসাব
                         </button>
 
                         {settings.enableTrayRefillFeature !== false && (
@@ -4886,7 +4886,7 @@ export default function App() {
                         }}
                         onClick={() => setShowFastBulkTallyModal(true)}
                       >
-                        <Zap size={15} /> ⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০৳)
+                        <Zap size={15} /> 💵 মোট ক্যাশ বসিয়ে অটো হিসাব (৩৮% লাভ)
                       </button>
 
                       <button
@@ -6235,7 +6235,7 @@ export default function App() {
                   }}
                   onClick={() => setShowFastBulkTallyModal(true)}
                 >
-                  <Zap size={16} /> ⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০৳)
+                  <Zap size={16} /> 💵 মোট ক্যাশ বসিয়ে অটো হিসাব (৩৮% লাভ)
                 </button>
                 {admin && (
                   <button
@@ -7224,7 +7224,7 @@ export default function App() {
                   onClick={() => setShowFastBulkTallyModal(true)}
                 >
                   <Zap size={16} />
-                  <span>⚡ ফাস্ট বাল্ক টালি প্যাড (২০/৩০/৫০ টাকার প্রডাক্ট)</span>
+                  <span>💵 মোট ক্যাশ বসিয়ে অটো হিসাব (৩৮% লাভ)</span>
                 </button>
                 {settings.enableQrCodeAutoSale !== false && (
                   <button
