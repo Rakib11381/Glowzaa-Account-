@@ -11323,39 +11323,57 @@ tr.inv-row-out-of-stock td:first-child {
 
 /* 1. Dashboard Top Action Command Bar (Compact Side-by-Side Grid) */
 .dash-command-bar {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 12px;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
 }
 
 .dash-compact-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
   align-items: stretch;
 }
 
 .dash-cmd-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 8px 11px;
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 12.8px;
+  font-weight: 800;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  border: 1.5px solid transparent;
+  text-align: left;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.dash-cmd-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 9px 12px;
-  min-height: 40px;
-  border-radius: 10px;
-  font-size: 12.5px;
-  font-weight: 800;
-  line-height: 1.2;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border: 1.5px solid transparent;
-  text-align: center;
+  flex-shrink: 0;
+  transition: transform 0.16s ease;
+}
+
+.dash-cmd-label {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  word-break: keep-all;
+  line-height: 1.22;
 }
 
 .dash-cmd-btn svg {
@@ -11366,26 +11384,57 @@ tr.inv-row-out-of-stock td:first-child {
   transform: translateY(-1px);
 }
 
+.dash-cmd-btn:hover .dash-cmd-icon {
+  transform: scale(1.05);
+}
+
+.dash-cmd-btn:active {
+  transform: translateY(0);
+}
+
 .dash-cmd-btn:disabled {
   opacity: 0.65;
   cursor: wait;
 }
 
 .dash-cmd-btn.primary-teal {
-  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
-  border-color: #0d9488;
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+  border-color: #0f766e;
   color: #ffffff;
-  box-shadow: 0 3px 10px rgba(13, 148, 136, 0.24);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.24);
+}
+
+.dash-cmd-btn.primary-teal .dash-cmd-icon {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.dash-cmd-btn.primary-emerald {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  border-color: #059669;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.24);
+}
+
+.dash-cmd-btn.primary-emerald .dash-cmd-icon {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
 }
 
 .dash-cmd-btn.outline-slate {
-  background: #f8fafc;
+  background: #ffffff;
   border-color: #cbd5e1;
   color: #1e293b;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.dash-cmd-btn.outline-slate .dash-cmd-icon {
+  background: #f1f5f9;
+  color: #334155;
 }
 
 .dash-cmd-btn.outline-slate:hover {
-  background: #f1f5f9;
+  background: #f8fafc;
   border-color: #94a3b8;
 }
 
@@ -11393,6 +11442,12 @@ tr.inv-row-out-of-stock td:first-child {
   background: #f0fdfa;
   border-color: #5eead4;
   color: #0f766e;
+  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.06);
+}
+
+.dash-cmd-btn.tint-teal .dash-cmd-icon {
+  background: #ccfbf1;
+  color: #0d9488;
 }
 
 .dash-cmd-btn.tint-teal:hover {
@@ -11410,6 +11465,12 @@ tr.inv-row-out-of-stock td:first-child {
   background: #ecfdf5;
   border-color: #6ee7b7;
   color: #047857;
+  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.06);
+}
+
+.dash-cmd-btn.tint-emerald .dash-cmd-icon {
+  background: #d1fae5;
+  color: #059669;
 }
 
 .dash-cmd-btn.tint-emerald:hover {
@@ -11421,6 +11482,12 @@ tr.inv-row-out-of-stock td:first-child {
   background: #eef2ff;
   border-color: #a5b4fc;
   color: #4338ca;
+  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.06);
+}
+
+.dash-cmd-btn.tint-indigo .dash-cmd-icon {
+  background: #e0e7ff;
+  color: #4f46e5;
 }
 
 .dash-cmd-btn.tint-indigo:hover {
@@ -11428,31 +11495,40 @@ tr.inv-row-out-of-stock td:first-child {
   border-color: #6366f1;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .dash-command-bar {
     padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 14px;
+    margin-bottom: 12px;
+    border-radius: 16px;
   }
 
   .dash-compact-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 7px;
+    gap: 8px;
   }
 
-  /* When 5 (or odd) buttons exist, make the primary 1st button span full width on top, leaving a clean 2x2 grid below */
+  /* When an odd number of buttons exist, make the primary 1st button span full width on top */
   .dash-compact-grid > .dash-cmd-btn:first-child:nth-last-child(odd) {
     grid-column: 1 / -1;
-    min-height: 41px;
-    font-size: 13px;
+    justify-content: center;
+  }
+
+  .dash-compact-grid > .dash-cmd-btn:first-child:nth-last-child(odd) .dash-cmd-label {
+    flex: initial;
   }
 
   .dash-cmd-btn {
-    padding: 8px 10px;
-    min-height: 38px;
+    padding: 7px 9px;
+    min-height: 42px;
     font-size: 12px;
-    border-radius: 10px;
-    gap: 6px;
+    border-radius: 11px;
+    gap: 7px;
+  }
+
+  .dash-cmd-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
   }
 }
 

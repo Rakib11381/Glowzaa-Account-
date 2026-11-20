@@ -4735,7 +4735,7 @@ export default function App() {
                           className="emp-ops-action-btn emerald"
                           onClick={() => setShowFastBulkTallyModal(true)}
                         >
-                          <Zap size={15} /> 💵 মোট ক্যাশ বসিয়ে অটো হিসাব
+                          <Zap size={15} /> মোট ক্যাশ অটো হিসাব
                         </button>
 
                         {settings.enableTrayRefillFeature !== false && (
@@ -4871,22 +4871,22 @@ export default function App() {
                             setShowEntryModal(true);
                           }}
                         >
-                          <Plus size={15} /> নতুন হিসাব যোগ
+                          <span className="dash-cmd-icon">
+                            <Plus size={15} strokeWidth={2.5} />
+                          </span>
+                          <span className="dash-cmd-label">নতুন হিসাব যোগ</span>
                         </button>
                       )}
 
                       <button
                         type="button"
-                        className="dash-cmd-btn tint-teal"
-                        style={{
-                          background: 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
-                          color: '#ffffff',
-                          borderColor: '#059669',
-                          fontWeight: 900,
-                        }}
+                        className="dash-cmd-btn primary-emerald"
                         onClick={() => setShowFastBulkTallyModal(true)}
                       >
-                        <Zap size={15} /> 💵 মোট ক্যাশ বসিয়ে অটো হিসাব (৩৮% লাভ)
+                        <span className="dash-cmd-icon">
+                          <Zap size={15} strokeWidth={2.4} />
+                        </span>
+                        <span className="dash-cmd-label">মোট ক্যাশ অটো হিসাব</span>
                       </button>
 
                       <button
@@ -4895,7 +4895,12 @@ export default function App() {
                         onClick={handleDownloadPdf}
                         disabled={isPdfLoading}
                       >
-                        <Download size={15} /> {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
+                        <span className="dash-cmd-icon">
+                          <Download size={15} strokeWidth={2.2} />
+                        </span>
+                        <span className="dash-cmd-label">
+                          {isPdfLoading ? 'প্রস্তুত হচ্ছে…' : 'পিডিএফ রিপোর্ট'}
+                        </span>
                       </button>
 
                       <button
@@ -4903,7 +4908,10 @@ export default function App() {
                         className="dash-cmd-btn tint-teal"
                         onClick={() => setShowProfitabilityModal(true)}
                       >
-                        <PieChart size={15} /> লাভ ও স্টক রিপোর্ট
+                        <span className="dash-cmd-icon">
+                          <PieChart size={15} strokeWidth={2.2} />
+                        </span>
+                        <span className="dash-cmd-label">লাভ ও স্টক রিপোর্ট</span>
                       </button>
 
                       <button
@@ -4911,7 +4919,10 @@ export default function App() {
                         className="dash-cmd-btn tint-emerald"
                         onClick={() => setShowBlindCashModal(true)}
                       >
-                        <Lock size={15} /> ব্লাইন্ড ক্যাশ কাউন্ট
+                        <span className="dash-cmd-icon">
+                          <Lock size={15} strokeWidth={2.2} />
+                        </span>
+                        <span className="dash-cmd-label">ব্লাইন্ড ক্যাশ কাউন্ট</span>
                       </button>
 
                       <button
@@ -4919,7 +4930,10 @@ export default function App() {
                         className="dash-cmd-btn tint-indigo"
                         onClick={() => setShowShiftHandoverModal(true)}
                       >
-                        <Users size={15} /> শিফট হ্যান্ডওভার লক
+                        <span className="dash-cmd-icon">
+                          <Users size={15} strokeWidth={2.2} />
+                        </span>
+                        <span className="dash-cmd-label">শিফট হ্যান্ডওভার লক</span>
                       </button>
                     </div>
                   </div>
@@ -6235,7 +6249,7 @@ export default function App() {
                   }}
                   onClick={() => setShowFastBulkTallyModal(true)}
                 >
-                  <Zap size={16} /> 💵 মোট ক্যাশ বসিয়ে অটো হিসাব (৩৮% লাভ)
+                  <Zap size={16} /> মোট ক্যাশ অটো হিসাব
                 </button>
                 {admin && (
                   <button
@@ -7224,7 +7238,7 @@ export default function App() {
                   onClick={() => setShowFastBulkTallyModal(true)}
                 >
                   <Zap size={16} />
-                  <span>💵 মোট ক্যাশ বসিয়ে অটো হিসাব (৩৮% লাভ)</span>
+                  <span>মোট ক্যাশ অটো হিসাব</span>
                 </button>
                 {settings.enableQrCodeAutoSale !== false && (
                   <button
@@ -15184,7 +15198,7 @@ export default function App() {
         />
       )}
 
-      {/* FAST BULK TALLY PAD MODAL (২০/৩০/৫০ টাকার প্রডাক্ট এক ক্লিকে টালি ও রাতের হিসাব মেলানো) */}
+      {/* FAST BULK TALLY PAD MODAL (মোট ক্যাশ + ৩৮% লাভ + প্রতিদিনের খরচ লাভাংশ থেকে বাদ) */}
       {showFastBulkTallyModal && (
         <FastBulkTallyPadModal
           isOpen={showFastBulkTallyModal}
@@ -15203,57 +15217,112 @@ export default function App() {
                 ? 'রাকিব (Rakib)'
                 : `${currentAdmin?.displayName || actorId} (${actorId})`;
 
-            const avgUnitPrice =
-              payload.totalQuantity > 0
-                ? Math.round((payload.totalAmount / payload.totalQuantity) * 100) / 100
-                : payload.totalAmount;
-            const avgUnitCost =
-              payload.totalQuantity > 0
-                ? Math.round((payload.cogsAmount / payload.totalQuantity) * 100) / 100
-                : 0;
+            let saleEntryId: string | undefined;
+            let expenseEntryId: string | undefined;
 
-            const createdId = await addEntry(
-              {
-                type: 'sale',
-                title: payload.title,
-                amount: payload.totalAmount,
-                date: payload.date || today(),
-                status: 'posted',
-                quantity: payload.totalQuantity,
-                unitPrice: avgUnitPrice,
-                unitCost: avgUnitCost,
-                cogsAmount: payload.cogsAmount,
-                grossProfit: payload.grossProfit,
-                profit: payload.grossProfit,
-                comboItems: payload.comboItems,
-                category: payload.category,
-                notes: `${payload.notes} (${actorDisplay})`,
-                demo: false,
-              },
-              actorId,
-              actorEmail,
-              actorDisplay
-            );
+            if (payload.totalAmount > 0) {
+              const avgUnitPrice =
+                payload.totalQuantity > 0
+                  ? Math.round((payload.totalAmount / payload.totalQuantity) * 100) / 100
+                  : payload.totalAmount;
+              const avgUnitCost =
+                payload.totalQuantity > 0
+                  ? Math.round((payload.cogsAmount / payload.totalQuantity) * 100) / 100
+                  : payload.cogsAmount;
 
-            setMessage(
-              `⚡ ফাস্ট বাল্ক টালি সেল সম্পন্ন: মোট ${toBengaliNumerals(
-                payload.totalQuantity
-              )} পিস — ${money(payload.totalAmount)}${
-                isEmployee
-                  ? ''
-                  : ` (লাভ: ${payload.grossProfit >= 0 ? '+' : ''}${money(payload.grossProfit)})`
-              }`
-            );
-            return createdId;
+              saleEntryId = await addEntry(
+                {
+                  type: 'sale',
+                  title: payload.title,
+                  amount: payload.totalAmount,
+                  date: payload.date || today(),
+                  status: 'posted',
+                  quantity: payload.totalQuantity,
+                  unitPrice: avgUnitPrice,
+                  unitCost: avgUnitCost,
+                  cogsAmount: payload.cogsAmount,
+                  grossProfit: payload.grossProfit,
+                  profit: payload.grossProfit,
+                  comboItems: payload.comboItems,
+                  category: payload.category,
+                  notes: `${payload.notes} (${actorDisplay})`,
+                  demo: false,
+                },
+                actorId,
+                actorEmail,
+                actorDisplay
+              );
+            }
+
+            const expenseAmt = Number(payload.totalExpenseAmount || 0);
+            if (expenseAmt > 0) {
+              expenseEntryId = await addEntry(
+                {
+                  type: 'expense',
+                  title: payload.expenseTitle || '🧾 প্রতিদিনের দোকান খরচ (লাভাংশ থেকে বাদ)',
+                  amount: expenseAmt,
+                  date: payload.date || today(),
+                  status: 'posted',
+                  category: 'দৈনিক দোকান খরচ (লাভাংশ থেকে কর্তন)',
+                  notes: `${payload.expenseNotes || payload.notes} (${actorDisplay})`,
+                  demo: false,
+                },
+                actorId,
+                actorEmail,
+                actorDisplay
+              );
+            }
+
+            const finalNetProfit =
+              Math.round((payload.grossProfit - expenseAmt) * 100) / 100;
+
+            if (payload.totalAmount > 0 && expenseAmt > 0) {
+              setMessage(
+                `💵 মোট বিক্রি ${money(payload.totalAmount)} ও খরচ ${money(
+                  expenseAmt
+                )} সেভ হয়েছে!${
+                  isEmployee
+                    ? ''
+                    : ` (৬২% আসল অক্ষত: ${money(payload.cogsAmount)} | ৩৮% লাভ: +${money(
+                        payload.grossProfit
+                      )} − খরচ ${money(expenseAmt)} = চূড়ান্ত নিট ${
+                        finalNetProfit >= 0 ? 'লাভ +' : 'লস '
+                      }${money(finalNetProfit)})`
+                }`
+              );
+            } else if (payload.totalAmount > 0) {
+              setMessage(
+                `💵 মোট ক্যাশ বিক্রি সেভ হয়েছে: ${money(payload.totalAmount)}${
+                  isEmployee
+                    ? ''
+                    : ` (৬২% আসল: ${money(payload.cogsAmount)} | ৩৮% নিট লাভ: +${money(
+                        payload.grossProfit
+                      )})`
+                }`
+              );
+            } else if (expenseAmt > 0) {
+              setMessage(
+                `🧾 প্রতিদিনের দোকান খরচ সেভ হয়েছে: -${money(
+                  expenseAmt
+                )} (সম্পূর্ণ খরচ ৩৮% লাভাংশ থেকে কর্তন হয়েছে, ৬২% আসল মূলধন অক্ষত আছে)`
+              );
+            }
+
+            return { saleEntryId, expenseEntryId };
           }}
-          onUndoBulkTally={async (entryId, summaryTitle) => {
+          onUndoBulkTally={async (result, summaryTitle) => {
             const actorId = currentAdmin?.username || user?.uid || 'admin';
             const actorEmail = currentAdmin
               ? `${currentAdmin.username.toLowerCase()}@glowzaa.shop`
               : user?.email || '';
-            await removeEntry(entryId, actorId, actorEmail);
+            if (result.saleEntryId) {
+              await removeEntry(result.saleEntryId, actorId, actorEmail);
+            }
+            if (result.expenseEntryId) {
+              await removeEntry(result.expenseEntryId, actorId, actorEmail);
+            }
             setMessage(
-              `↩️ বাল্ক টালি সেল বাতিল করা হয়েছে: ${summaryTitle} (স্টক ও ক্যাশ পুনঃসমন্বয় হয়েছে)`
+              `↩️ হিসাব বাতিল করা হয়েছে: ${summaryTitle} (বিক্রি, খরচ ও ক্যাশ পুনঃসমন্বয় হয়েছে)`
             );
           }}
         />

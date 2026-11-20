@@ -6,8 +6,6 @@ import {
   Package,
   Calendar,
   Banknote,
-  TrendingUp,
-  Wallet,
 } from 'lucide-react';
 import { Product } from '../types';
 
@@ -18,6 +16,11 @@ export interface BulkTallyComboItem {
   quantity: number;
   unitCost: number;
   sellingPrice: number;
+}
+
+export interface BulkTallyExpenseItem {
+  label: string;
+  amount: number;
 }
 
 export interface BulkTallySubmitPayload {
@@ -31,6 +34,15 @@ export interface BulkTallySubmitPayload {
   notes: string;
   category: string;
   comboItems?: BulkTallyComboItem[];
+  totalExpenseAmount?: number;
+  expenseTitle?: string;
+  expenseNotes?: string;
+  expenseBreakdown?: BulkTallyExpenseItem[];
+}
+
+export interface BulkTallySubmitResult {
+  saleEntryId?: string;
+  expenseEntryId?: string;
 }
 
 interface FastBulkTallyPadModalProps {
@@ -40,18 +52,31 @@ interface FastBulkTallyPadModalProps {
   initialSeller: 'Rakib' | 'Limon';
   isEmployee?: boolean;
   todayStr: string;
-  onSubmitBulkTally: (payload: BulkTallySubmitPayload) => Promise<string | undefined>;
-  onUndoBulkTally?: (entryId: string, summaryTitle: string) => Promise<void>;
+  onSubmitBulkTally: (payload: BulkTallySubmitPayload) => Promise<BulkTallySubmitResult | undefined>;
+  onUndoBulkTally?: (result: BulkTallySubmitResult, summaryTitle: string) => Promise<void>;
 }
 
 interface PersistedCashTallyDraft {
   totalCashAmountInput: string;
   profitMarginPct: number;
   deductStockFromInventory: boolean;
+  directTotalExpenseInput: string;
+  categoryExpenses: Record<string, string>;
+  expenseMode: 'quick_total' | 'itemized';
 }
 
-const STORAGE_KEY = 'glowzaa_total_cash_auto_calc_38_v1';
+const STORAGE_KEY = 'glowzaa_total_cash_auto_calc_38_v2';
 const FIXED_DEFAULT_PROFIT_PCT = 38;
+
+const DAILY_EXPENSE_CATEGORIES = [
+  { id: 'tea_snacks', label: '☕ চা-নাস্তা' },
+  { id: 'lunch_food', label: '🍱 খাবার/টিফিন' },
+  { id: 'transport', label: '🚗 যাতায়াত ভাড়া' },
+  { id: 'poly_bag', label: '🛍️ ব্যাগ/পলিথিন' },
+  { id: 'utility_bill', label: '💡 বিদ্যুৎ/বিল' },
+  { id: 'staff_wage', label: '👷 কর্মচারী হাজিরা' },
+  { id: 'other_misc', label: '🧹 অন্যান্য খরচ' },
+];
 
 function toBengaliNumerals(n: number | string): string {
   const englishToBengali: Record<string, string> = {
@@ -71,10 +96,12 @@ function toBengaliNumerals(n: number | string): string {
 
 function formatMoney(n: number): string {
   const val = Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
-  return `৳${val.toLocaleString('en-IN', {
-    minimumFractionDigits: val % 1 === 0 ? 0 : 2,
+  const absVal = Math.abs(val);
+  const formatted = `৳${absVal.toLocaleString('en-IN', {
+    minimumFractionDigits: absVal % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
+  return val < 0 ? `-${formatted}` : formatted;
 }
 
 export default function FastBulkTallyPadModal({
@@ -90,22 +117,28 @@ export default function FastBulkTallyPadModal({
   const [totalCashAmountInput, setTotalCashAmountInput] = useState<string>('');
   const [profitMarginPct, setProfitMarginPct] = useState<number>(FIXED_DEFAULT_PROFIT_PCT);
   const [deductStockFromInventory, setDeductStockFromInventory] = useState<boolean>(false);
+  const [expenseMode, setExpenseMode] = useState<'quick_total' | 'itemized'>('quick_total');
+  const [directTotalExpenseInput, setDirectTotalExpenseInput] = useState<string>('');
+  const [categoryExpenses, setCategoryExpenses] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [seller, setSeller] = useState<'Rakib' | 'Limon'>(initialSeller);
   const [customNoteInput, setCustomNoteInput] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [recentSubmissions, setRecentSubmissions] = useState<
     Array<{
-      id: string;
+      key: string;
+      result: BulkTallySubmitResult;
       title: string;
-      amount: number;
-      cost: number;
-      profit: number;
+      salesAmount: number;
+      costAmount: number;
+      grossProfit: number;
+      expenseAmount: number;
+      netProfitAfterExpense: number;
       time: string;
     }>
   >([]);
 
-  // Load persisted draft on mount (always defaulting profitMarginPct to 38%)
+  // Load persisted draft on mount
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -127,6 +160,15 @@ export default function FastBulkTallyPadModal({
       if (typeof parsed.deductStockFromInventory === 'boolean') {
         setDeductStockFromInventory(parsed.deductStockFromInventory);
       }
+      if (typeof parsed.directTotalExpenseInput === 'string') {
+        setDirectTotalExpenseInput(parsed.directTotalExpenseInput);
+      }
+      if (parsed.categoryExpenses && typeof parsed.categoryExpenses === 'object') {
+        setCategoryExpenses(parsed.categoryExpenses);
+      }
+      if (parsed.expenseMode === 'quick_total' || parsed.expenseMode === 'itemized') {
+        setExpenseMode(parsed.expenseMode);
+      }
     } catch {
       // ignore invalid storage
     }
@@ -139,14 +181,23 @@ export default function FastBulkTallyPadModal({
         totalCashAmountInput,
         profitMarginPct,
         deductStockFromInventory,
+        directTotalExpenseInput,
+        categoryExpenses,
+        expenseMode,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
     } catch {
       // ignore storage quota errors
     }
-  }, [totalCashAmountInput, profitMarginPct, deductStockFromInventory]);
+  }, [
+    totalCashAmountInput,
+    profitMarginPct,
+    deductStockFromInventory,
+    directTotalExpenseInput,
+    categoryExpenses,
+    expenseMode,
+  ]);
 
-  // Average product selling price from inventory for estimating piece count
   const avgSellingPrice = useMemo(() => {
     let totalRetail = 0;
     let totalWeight = 0;
@@ -161,7 +212,6 @@ export default function FastBulkTallyPadModal({
     return totalWeight > 0 ? Math.max(10, Math.round(totalRetail / totalWeight)) : 30;
   }, [products]);
 
-  // Strictly calculate 38% Profit & 62% Cost (or active margin %) from total cash entered
   const calculation = useMemo(() => {
     const totalSales = Math.max(0, Math.round((Number(totalCashAmountInput) || 0) * 100) / 100);
     const activePct =
@@ -170,14 +220,38 @@ export default function FastBulkTallyPadModal({
         : FIXED_DEFAULT_PROFIT_PCT;
     const costPct = Math.round((100 - activePct) * 100) / 100;
 
-    // Exact 38% profit and 62% cost (COGS)
+    // 38% Gross Profit & 62% Protected Asol (Cost)
     const grossProfit = Math.round(totalSales * (activePct / 100) * 100) / 100;
     const totalCogs = Math.max(0, Math.round((totalSales - grossProfit) * 100) / 100);
+
+    // Calculate Daily Expenses (either quick total or itemized categories)
+    const expenseBreakdown: BulkTallyExpenseItem[] = [];
+    let totalExpenses = 0;
+
+    if (expenseMode === 'quick_total') {
+      const directExp = Math.max(0, Math.round((Number(directTotalExpenseInput) || 0) * 100) / 100);
+      if (directExp > 0) {
+        totalExpenses = directExp;
+        expenseBreakdown.push({ label: 'প্রতিদিনের মোট দোকান খরচ', amount: directExp });
+      }
+    } else {
+      for (const cat of DAILY_EXPENSE_CATEGORIES) {
+        const val = Math.max(0, Math.round((Number(categoryExpenses[cat.id]) || 0) * 100) / 100);
+        if (val > 0) {
+          totalExpenses += val;
+          expenseBreakdown.push({ label: cat.label, amount: val });
+        }
+      }
+      totalExpenses = Math.round(totalExpenses * 100) / 100;
+    }
+
+    // All expenses are deducted strictly from the 38% profit share (Asol 62% is NEVER touched)
+    const netProfitAfterExpense = Math.round((grossProfit - totalExpenses) * 100) / 100;
+    const netCashRemainingInDrawer = Math.round((totalSales - totalExpenses) * 100) / 100;
 
     const comboItems: BulkTallyComboItem[] = [];
     let totalPieces = totalSales > 0 ? Math.max(1, Math.round(totalSales / avgSellingPrice)) : 0;
 
-    // Optional proportional stock deduction from stocked products if user toggles it ON
     if (deductStockFromInventory && totalSales > 0 && products.length > 0) {
       const stockedProds = products
         .filter((p) => (Number(p.currentStock) || 0) > 0 && (Number(p.sellingPrice) || 0) > 0)
@@ -221,12 +295,19 @@ export default function FastBulkTallyPadModal({
       costPct,
       grossProfit,
       totalCogs,
+      totalExpenses,
+      expenseBreakdown,
+      netProfitAfterExpense,
+      netCashRemainingInDrawer,
       totalPieces,
       comboItems,
     };
   }, [
     totalCashAmountInput,
     profitMarginPct,
+    expenseMode,
+    directTotalExpenseInput,
+    categoryExpenses,
     avgSellingPrice,
     deductStockFromInventory,
     products,
@@ -234,27 +315,65 @@ export default function FastBulkTallyPadModal({
 
   const handleReset = () => {
     setTotalCashAmountInput('');
+    setDirectTotalExpenseInput('');
+    setCategoryExpenses({});
     setCustomNoteInput('');
   };
 
+  const canSubmit = (calculation.totalSales > 0 || calculation.totalExpenses > 0) && !isSubmitting;
+
   const handleSubmit = async () => {
-    if (calculation.totalSales <= 0 || isSubmitting) return;
+    if (!canSubmit) return;
     setIsSubmitting(true);
     try {
       const noteSuffix = customNoteInput.trim() ? ` | নোট: ${customNoteInput.trim()}` : '';
-      const title = `💵 মোট ক্যাশ থেকে অটো-হিসাব বিক্রয় (লাভ ${toBengaliNumerals(
-        calculation.activePct
-      )}%)`;
+      const expenseSummaryText =
+        calculation.expenseBreakdown.length > 0
+          ? calculation.expenseBreakdown
+              .map((item) => `${item.label}: ৳${toBengaliNumerals(item.amount)}`)
+              .join(', ')
+          : '';
 
-      const notes = `মোট ক্যাশ বসিয়ে অটো হিসাব — মোট বিক্রয়: ৳${toBengaliNumerals(
+      const title =
+        calculation.totalSales > 0
+          ? `💵 মোট ক্যাশ বিক্রয় (লাভ ${toBengaliNumerals(calculation.activePct)}% = ৳${toBengaliNumerals(
+              calculation.grossProfit
+            )})`
+          : `🧾 প্রতিদিনের এককালীন দোকান খরচ (${
+              calculation.expenseBreakdown.map((e) => e.label).join(', ') || 'দৈনিক খরচ'
+            })`;
+
+      const notes = `মোট ক্যাশ অটো হিসাব — বিক্রয়: ৳${toBengaliNumerals(
         calculation.totalSales
       )} | আসল (${toBengaliNumerals(calculation.costPct)}%): ৳${toBengaliNumerals(
         calculation.totalCogs
-      )} | নিট লাভ (${toBengaliNumerals(calculation.activePct)}%): +৳${toBengaliNumerals(
+      )} | বিক্রয় লভ্যাংশ (${toBengaliNumerals(calculation.activePct)}%): +৳${toBengaliNumerals(
         calculation.grossProfit
-      )}${noteSuffix}`;
+      )}${
+        calculation.totalExpenses > 0
+          ? ` | প্রতিদিনের খরচ (লাভাংশ থেকে বাদ): -৳${toBengaliNumerals(
+              calculation.totalExpenses
+            )} (${expenseSummaryText}) | খরচ বাদে চূড়ান্ত নিট ${
+              calculation.netProfitAfterExpense >= 0 ? 'লাভ' : 'লস'
+            }: ৳${toBengaliNumerals(calculation.netProfitAfterExpense)}`
+          : ''
+      }${noteSuffix}`;
 
-      const createdId = await onSubmitBulkTally({
+      const expenseTitle =
+        calculation.totalExpenses > 0
+          ? `🧾 প্রতিদিনের দোকান খরচ (লাভাংশ থেকে বাদ): ${
+              calculation.expenseBreakdown
+                .map((e) => `${e.label} ৳${toBengaliNumerals(e.amount)}`)
+                .join(' + ') || `৳${toBengaliNumerals(calculation.totalExpenses)}`
+            }`
+          : undefined;
+
+      const expenseNotes =
+        calculation.totalExpenses > 0
+          ? `প্রতিদিনের এককালীন খরচ (৩৮% বিক্রয় লভ্যাংশ থেকে কর্তনকৃত, ৬২% আসল মূলধন অপরিবর্তিত) — বিবরণ: ${expenseSummaryText}${noteSuffix}`
+          : undefined;
+
+      const result = await onSubmitBulkTally({
         title,
         totalAmount: calculation.totalSales,
         totalQuantity: calculation.totalPieces,
@@ -265,20 +384,27 @@ export default function FastBulkTallyPadModal({
         notes,
         category: 'মোট ক্যাশ অটো-হিসাব সেল (৩৮% লাভ)',
         comboItems: calculation.comboItems.length > 0 ? calculation.comboItems : undefined,
+        totalExpenseAmount: calculation.totalExpenses,
+        expenseTitle,
+        expenseNotes,
+        expenseBreakdown: calculation.expenseBreakdown,
       });
 
-      if (createdId) {
+      if (result && (result.saleEntryId || result.expenseEntryId)) {
         const nowTime = new Date().toLocaleTimeString('bn-BD', {
           hour: '2-digit',
           minute: '2-digit',
         });
         setRecentSubmissions((prev) => [
           {
-            id: createdId,
+            key: `${result.saleEntryId || ''}_${result.expenseEntryId || ''}_${Date.now()}`,
+            result,
             title,
-            amount: calculation.totalSales,
-            cost: calculation.totalCogs,
-            profit: calculation.grossProfit,
+            salesAmount: calculation.totalSales,
+            costAmount: calculation.totalCogs,
+            grossProfit: calculation.grossProfit,
+            expenseAmount: calculation.totalExpenses,
+            netProfitAfterExpense: calculation.netProfitAfterExpense,
             time: nowTime,
           },
           ...prev.slice(0, 4),
@@ -293,6 +419,9 @@ export default function FastBulkTallyPadModal({
 
   if (!isOpen) return null;
 
+  const hasAnyValue =
+    calculation.totalSales > 0 || calculation.totalExpenses > 0 || customNoteInput.trim().length > 0;
+
   return (
     <div
       onClick={onClose}
@@ -300,33 +429,33 @@ export default function FastBulkTallyPadModal({
         position: 'fixed',
         inset: 0,
         zIndex: 99999,
-        background: 'rgba(15, 23, 42, 0.84)',
-        backdropFilter: 'blur(6px)',
+        background: 'rgba(15, 23, 42, 0.82)',
+        backdropFilter: 'blur(5px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '10px',
+        padding: '6px',
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#ffffff',
-          borderRadius: '22px',
+          borderRadius: '18px',
           maxWidth: '520px',
           width: '100%',
-          maxHeight: '92vh',
+          maxHeight: '95vh',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          border: '2px solid #059669',
-          boxShadow: '0 24px 60px -12px rgba(0, 0, 0, 0.65)',
+          border: '1.5px solid #059669',
+          boxShadow: '0 22px 50px -12px rgba(0, 0, 0, 0.65)',
         }}
       >
-        {/* 1. Header */}
+        {/* 1. Single-Row Sleek Header */}
         <div
           style={{
-            padding: '12px 15px',
+            padding: '9px 12px',
             background: 'linear-gradient(135deg, #0f172a 0%, #065f46 55%, #059669 100%)',
             color: '#ffffff',
             display: 'flex',
@@ -336,46 +465,62 @@ export default function FastBulkTallyPadModal({
             flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
             <span
               style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '9px',
+                width: '28px',
+                height: '28px',
+                borderRadius: '8px',
                 background: 'rgba(16, 185, 129, 0.25)',
-                border: '1px solid rgba(110, 231, 183, 0.5)',
+                border: '1px solid rgba(110, 231, 183, 0.4)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#6ee7b7',
                 flexShrink: 0,
               }}
             >
-              <Banknote size={17} />
+              <Banknote size={16} style={{ color: '#6ee7b7' }} />
             </span>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flexWrap: 'wrap',
+                }}
+              >
                 <span
                   style={{
-                    fontSize: '15.5px',
+                    fontSize: '14px',
                     fontWeight: 900,
                     color: '#ffffff',
+                    lineHeight: 1.2,
                   }}
                 >
-                  💵 শুধু মোট ক্যাশ বসিয়ে অটো হিসাব
+                  মোট ক্যাশ ও দৈনিক খরচ হিসাব
                 </span>
                 <span
                   style={{
-                    padding: '2px 8px',
+                    padding: '1.5px 7px',
                     borderRadius: '999px',
                     background: 'rgba(250, 204, 21, 0.22)',
                     border: '1px solid rgba(253, 224, 71, 0.55)',
                     color: '#fef08a',
-                    fontSize: '11px',
+                    fontSize: '10px',
                     fontWeight: 900,
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  লাভ {toBengaliNumerals(calculation.activePct)}% সেট করা
+                  লাভ {toBengaliNumerals(calculation.activePct)}%
                 </span>
               </div>
             </div>
@@ -386,9 +531,9 @@ export default function FastBulkTallyPadModal({
             onClick={onClose}
             aria-label="বন্ধ করুন"
             style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '9px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
               border: '1px solid rgba(255, 255, 255, 0.25)',
               background: 'rgba(239, 68, 68, 0.35)',
               color: '#ffffff',
@@ -399,41 +544,40 @@ export default function FastBulkTallyPadModal({
               flexShrink: 0,
             }}
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
 
-        {/* 2. Date, Seller & Optional Stock Sync Toolbar */}
+        {/* 2. Compact Single-Line Toolbar: Date + Seller + Stock Toggle + Reset */}
         <div
           style={{
-            padding: '8px 12px',
+            padding: '6px 10px',
             background: '#f8fafc',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: '6px',
-            flexWrap: 'wrap',
+            gap: '5px',
             flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <label
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
-                padding: '4px 8px',
-                borderRadius: '8px',
+                gap: '3px',
+                padding: '3px 6px',
+                borderRadius: '7px',
                 background: '#ffffff',
                 border: '1px solid #cbd5e1',
-                fontSize: '11.5px',
+                fontSize: '11px',
                 fontWeight: 800,
                 color: '#334155',
                 margin: 0,
               }}
             >
-              <Calendar size={12} style={{ color: '#059669', flexShrink: 0 }} />
+              <Calendar size={11} style={{ color: '#059669', flexShrink: 0 }} />
               <input
                 type="date"
                 value={selectedDate}
@@ -441,12 +585,12 @@ export default function FastBulkTallyPadModal({
                 style={{
                   border: 'none',
                   background: 'transparent',
-                  fontSize: '11.5px',
+                  fontSize: '10.8px',
                   fontWeight: 800,
                   color: '#0f172a',
                   padding: 0,
                   outline: 'none',
-                  width: '98px',
+                  width: '90px',
                 }}
               />
             </label>
@@ -454,7 +598,7 @@ export default function FastBulkTallyPadModal({
             <div
               style={{
                 display: 'inline-flex',
-                borderRadius: '8px',
+                borderRadius: '7px',
                 overflow: 'hidden',
                 border: '1px solid #cbd5e1',
                 background: '#ffffff',
@@ -464,11 +608,11 @@ export default function FastBulkTallyPadModal({
                 type="button"
                 onClick={() => setSeller('Rakib')}
                 style={{
-                  padding: '4px 9px',
+                  padding: '3px 7px',
                   border: 'none',
                   background: seller === 'Rakib' ? '#059669' : 'transparent',
                   color: seller === 'Rakib' ? '#ffffff' : '#475569',
-                  fontSize: '11px',
+                  fontSize: '10.8px',
                   fontWeight: 800,
                   cursor: 'pointer',
                 }}
@@ -479,11 +623,11 @@ export default function FastBulkTallyPadModal({
                 type="button"
                 onClick={() => setSeller('Limon')}
                 style={{
-                  padding: '4px 9px',
+                  padding: '3px 7px',
                   border: 'none',
                   background: seller === 'Limon' ? '#0284c7' : 'transparent',
                   color: seller === 'Limon' ? '#ffffff' : '#475569',
-                  fontSize: '11px',
+                  fontSize: '10.8px',
                   fontWeight: 800,
                   cursor: 'pointer',
                 }}
@@ -493,118 +637,155 @@ export default function FastBulkTallyPadModal({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setDeductStockFromInventory((v) => !v)}
-            style={{
-              padding: '4px 9px',
-              borderRadius: '8px',
-              border: deductStockFromInventory ? '1.5px solid #059669' : '1px solid #cbd5e1',
-              background: deductStockFromInventory ? '#ecfdf5' : '#ffffff',
-              color: deductStockFromInventory ? '#047857' : '#475569',
-              fontSize: '11px',
-              fontWeight: 800,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            <Package size={12} />
-            {deductStockFromInventory ? '✓ অটো স্টক কমানো: চালু' : 'শুধু ক্যাশ ও ৩৮% লাভ হিসাব'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              type="button"
+              onClick={() => setDeductStockFromInventory((v) => !v)}
+              style={{
+                padding: '3px 7px',
+                borderRadius: '7px',
+                border: deductStockFromInventory ? '1.5px solid #059669' : '1px solid #cbd5e1',
+                background: deductStockFromInventory ? '#ecfdf5' : '#ffffff',
+                color: deductStockFromInventory ? '#047857' : '#475569',
+                fontSize: '10.2px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                whiteSpace: 'nowrap',
+              }}
+              title="চাইলে বিক্রির টাকার অনুপাতে স্টকও কমাতে পারেন"
+            >
+              <Package size={11} />
+              {deductStockFromInventory ? '✓ স্টক কমবে' : 'শুধু ক্যাশ হিসাব'}
+            </button>
+
+            {hasAnyValue && (
+              <button
+                type="button"
+                onClick={handleReset}
+                title="সব ঘর রিসেট করুন"
+                style={{
+                  padding: '3px 6px',
+                  borderRadius: '7px',
+                  border: '1px solid #fecdd3',
+                  background: '#fff1f2',
+                  color: '#be123c',
+                  fontSize: '10.2px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <RotateCcw size={11} />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* 3. Scrollable Main Body */}
+        {/* 3. Main Body — Ultra Clean & Compact so Steps 1, 2, and 3 all fit in one view */}
         <div
           style={{
             flex: '1 1 auto',
             minHeight: 0,
             overflowY: 'auto',
-            padding: '12px 14px',
-            background: '#f8fafc',
-            display: 'block',
+            padding: '8px 10px',
+            background: '#f1f5f9',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '7px',
           }}
         >
-          {/* Main Cash Input Card */}
+          {/* STEP 1: TOTAL CASH SALES INPUT CARD */}
           <div
             style={{
               background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 100%)',
-              border: '2px solid #10b981',
-              borderRadius: '16px',
-              padding: '14px',
+              border: '1.5px solid #10b981',
+              borderRadius: '12px',
+              padding: '8px 10px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '11px',
+              gap: '6px',
             }}
           >
             <div
               style={{
-                fontSize: '12px',
-                fontWeight: 700,
-                color: '#065f46',
-                lineHeight: 1.4,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '6px',
               }}
             >
-              💡 সারাদিন কয়টা ২০৳ বা ৫০৳ টাকার মাল বিক্রি হয়েছে তা মনে রাখার দরকার নেই। রাতে শুধু <strong>মোট কত টাকা ক্যাশ বিক্রি হয়েছে</strong> নিচে লিখুন—সিস্টেম <strong>{toBengaliNumerals(calculation.activePct)}% লাভ</strong> এবং <strong>{toBengaliNumerals(calculation.costPct)}% আসল (ক্রয়মূল্য)</strong> ধরে অটো হিসাব করে দেবে।
-            </div>
-
-            {/* Big Cash Input Box */}
-            <div>
-              <label
+              <span
                 style={{
-                  display: 'block',
-                  fontSize: '13px',
+                  fontSize: '12.2px',
                   fontWeight: 900,
-                  color: '#0f172a',
-                  marginBottom: '5px',
+                  color: '#064e3b',
                 }}
               >
-                আজকের মোট ক্যাশ বিক্রির টাকা লিখুন (৳):
-              </label>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <span
-                  style={{
-                    position: 'absolute',
-                    left: '14px',
-                    fontSize: '20px',
-                    fontWeight: 900,
-                    color: '#059669',
-                  }}
-                >
-                  ৳
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  placeholder="যেমন: 3500 বা 6500..."
-                  value={totalCashAmountInput}
-                  onChange={(e) => setTotalCashAmountInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && calculation.totalSales > 0) {
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px 12px 34px',
-                    borderRadius: '12px',
-                    border: '2px solid #059669',
-                    background: '#ffffff',
-                    fontSize: '20px',
-                    fontWeight: 900,
-                    color: '#064e3b',
-                    boxShadow: '0 4px 12px rgba(5, 150, 105, 0.12)',
-                  }}
-                />
-              </div>
+                💵 ১. আজকের মোট ক্যাশ বিক্রি (৳)
+              </span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  color: '#047857',
+                  background: '#d1fae5',
+                  border: '1px solid #6ee7b7',
+                  padding: '1.5px 7px',
+                  borderRadius: '999px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                আসল {toBengaliNumerals(calculation.costPct)}% • লাভ {toBengaliNumerals(calculation.activePct)}%
+              </span>
             </div>
 
-            {/* Quick Cash Add Buttons */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-              {[500, 1000, 1500, 2000, 3000, 5000, 8000, 10000].map((amt) => (
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <span
+                style={{
+                  position: 'absolute',
+                  left: '10px',
+                  fontSize: '16px',
+                  fontWeight: 900,
+                  color: '#059669',
+                }}
+              >
+                ৳
+              </span>
+              <input
+                type="number"
+                min="0"
+                inputMode="numeric"
+                placeholder="মোট ক্যাশ বিক্রি লিখুন (যেমন: 5000)..."
+                value={totalCashAmountInput}
+                onChange={(e) => setTotalCashAmountInput(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px 6px 26px',
+                  borderRadius: '9px',
+                  border: '1.5px solid #059669',
+                  background: '#ffffff',
+                  fontSize: '15.5px',
+                  fontWeight: 900,
+                  color: '#064e3b',
+                  height: '36px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            {/* Single-Row 5 Equal Quick Cash Chips */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+                gap: '4px',
+              }}
+            >
+              {[500, 1000, 2000, 5000, 10000].map((amt) => (
                 <button
                   key={amt}
                   type="button"
@@ -614,49 +795,304 @@ export default function FastBulkTallyPadModal({
                     )
                   }
                   style={{
-                    padding: '5px 10px',
-                    borderRadius: '8px',
+                    padding: '3.5px 2px',
+                    borderRadius: '6px',
                     border: '1px solid #6ee7b7',
                     background: '#ffffff',
                     color: '#047857',
-                    fontSize: '11.5px',
+                    fontSize: '10.5px',
                     fontWeight: 900,
                     cursor: 'pointer',
+                    textAlign: 'center',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   +৳{toBengaliNumerals(amt)}
                 </button>
               ))}
             </div>
+          </div>
 
-            {/* 38% Profit Margin Control Bar (Admin Only) */}
-            {!isEmployee && (
+          {/* STEP 2: DAILY EXPENSES ENTRY CARD (Deducted Strictly from 38% Profit Share) */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #fff1f2 0%, #fff7ed 100%)',
+              border: '1.5px solid #fb7185',
+              borderRadius: '12px',
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '6px',
+              }}
+            >
+              <span style={{ fontSize: '12.2px', fontWeight: 900, color: '#9f1239' }}>
+                🧾 ২. প্রতিদিনের খরচ (লাভাংশ থেকে বাদ)
+              </span>
+
+              {/* Compact Segmented Mode Switch */}
               <div
                 style={{
+                  display: 'inline-flex',
+                  borderRadius: '7px',
+                  overflow: 'hidden',
+                  border: '1px solid #fda4af',
                   background: '#ffffff',
-                  borderRadius: '11px',
-                  border: '1.5px solid #a7f3d0',
-                  padding: '8px 11px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '8px',
-                  flexWrap: 'wrap',
+                  flexShrink: 0,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <TrendingUp size={15} style={{ color: '#059669', flexShrink: 0 }} />
-                  <div>
-                    <div style={{ fontSize: '12px', fontWeight: 900, color: '#0f172a' }}>
-                      লাভের হার: {toBengaliNumerals(calculation.activePct)}% (আসল: {toBengaliNumerals(calculation.costPct)}%)
-                    </div>
-                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>
-                      প্রতি ৳১০০ বিক্রয়ে ৳{toBengaliNumerals(calculation.activePct)} লাভ এবং ৳{toBengaliNumerals(calculation.costPct)} আসল
-                    </div>
+                <button
+                  type="button"
+                  onClick={() => setExpenseMode('quick_total')}
+                  style={{
+                    padding: '2.5px 7px',
+                    border: 'none',
+                    background: expenseMode === 'quick_total' ? '#e11d48' : 'transparent',
+                    color: expenseMode === 'quick_total' ? '#ffffff' : '#9f1239',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  একবারে মোট
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExpenseMode('itemized')}
+                  style={{
+                    padding: '2.5px 7px',
+                    border: 'none',
+                    background: expenseMode === 'itemized' ? '#e11d48' : 'transparent',
+                    color: expenseMode === 'itemized' ? '#ffffff' : '#9f1239',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  খাতওয়ারী
+                </button>
+              </div>
+            </div>
+
+            {expenseMode === 'quick_total' ? (
+              <>
+                {/* Side-by-Side Expense Amount & Optional Note to save vertical space */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1.15fr 1fr',
+                    gap: '6px',
+                  }}
+                >
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        left: '9px',
+                        fontSize: '15px',
+                        fontWeight: 900,
+                        color: '#e11d48',
+                      }}
+                    >
+                      ৳
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      placeholder="মোট খরচ (যেমন: 300)"
+                      value={directTotalExpenseInput}
+                      onChange={(e) => setDirectTotalExpenseInput(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '5px 8px 5px 23px',
+                        borderRadius: '9px',
+                        border: '1.5px solid #e11d48',
+                        background: '#ffffff',
+                        fontSize: '14.5px',
+                        fontWeight: 900,
+                        color: '#881337',
+                        height: '35px',
+                        boxSizing: 'border-box',
+                      }}
+                    />
                   </div>
+
+                  <input
+                    type="text"
+                    placeholder="খরচের নোট (চা, ব্যাগ...)"
+                    value={customNoteInput}
+                    onChange={(e) => setCustomNoteInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '5px 8px',
+                      borderRadius: '9px',
+                      border: '1px solid #fda4af',
+                      background: '#ffffff',
+                      fontSize: '11.2px',
+                      fontWeight: 700,
+                      color: '#0f172a',
+                      height: '35px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                {/* Single-Row 5 Equal Quick Expense Chips */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+                    gap: '4px',
+                  }}
+                >
+                  {[20, 50, 100, 200, 500].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() =>
+                        setDirectTotalExpenseInput((prev) =>
+                          String((Math.round(Number(prev) || 0) || 0) + amt)
+                        )
+                      }
+                      style={{
+                        padding: '3px 2px',
+                        borderRadius: '6px',
+                        border: '1px solid #fda4af',
+                        background: '#ffffff',
+                        color: '#be123c',
+                        fontSize: '10.5px',
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      +৳{toBengaliNumerals(amt)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: '5px',
+                  }}
+                >
+                  {DAILY_EXPENSE_CATEGORIES.map((cat) => {
+                    const val = categoryExpenses[cat.id] || '';
+                    return (
+                      <div
+                        key={cat.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '4px',
+                          background: '#ffffff',
+                          padding: '4px 6px',
+                          borderRadius: '7px',
+                          border: Number(val) > 0 ? '1.5px solid #e11d48' : '1px solid #fecdd3',
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            color: '#881337',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {cat.label}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          inputMode="numeric"
+                          placeholder="৳0"
+                          value={val}
+                          onChange={(e) =>
+                            setCategoryExpenses((prev) => ({
+                              ...prev,
+                              [cat.id]: e.target.value,
+                            }))
+                          }
+                          style={{
+                            width: '56px',
+                            padding: '2.5px 4px',
+                            borderRadius: '5px',
+                            border: '1px solid #fda4af',
+                            fontSize: '11.5px',
+                            fontWeight: 900,
+                            textAlign: 'center',
+                            color: '#9f1239',
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <input
+                  type="text"
+                  placeholder="ঐচ্ছিক নোট (যেমন: রাতের গল্লা ও খরচের বিবরণ)..."
+                  value={customNoteInput}
+                  onChange={(e) => setCustomNoteInput(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '5px 8px',
+                    borderRadius: '7px',
+                    border: '1px solid #fda4af',
+                    background: '#ffffff',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#0f172a',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </>
+            )}
+          </div>
+
+          {/* STEP 3: LIVE PROFIT / LOSS & CASH BREAKDOWN (All visible without scrolling!) */}
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '12px',
+              border: '1.5px solid #cbd5e1',
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '6px',
+              }}
+            >
+              <span style={{ fontSize: '11.8px', fontWeight: 900, color: '#0f172a' }}>
+                📊 ৩. আজকের লাভ-লস হিসাব (খরচ লাভাংশ থেকে বাদ)
+              </span>
+              {!isEmployee && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#475569' }}>
+                    লাভ%:
+                  </span>
                   <input
                     type="number"
                     min="1"
@@ -669,203 +1105,268 @@ export default function FastBulkTallyPadModal({
                       }
                     }}
                     style={{
-                      width: '60px',
-                      padding: '4px 6px',
-                      borderRadius: '7px',
-                      border: '1.5px solid #059669',
-                      fontSize: '13px',
+                      width: '40px',
+                      padding: '1px 3px',
+                      borderRadius: '5px',
+                      border: '1px solid #059669',
+                      fontSize: '11px',
                       fontWeight: 900,
                       textAlign: 'center',
-                      color: '#064e3b',
                     }}
                   />
-                  <span style={{ fontSize: '12px', fontWeight: 900, color: '#047857' }}>%</span>
-                  {profitMarginPct !== FIXED_DEFAULT_PROFIT_PCT && (
-                    <button
-                      type="button"
-                      onClick={() => setProfitMarginPct(FIXED_DEFAULT_PROFIT_PCT)}
-                      style={{
-                        padding: '4px 7px',
-                        borderRadius: '6px',
-                        border: '1px solid #059669',
-                        background: '#ecfdf5',
-                        color: '#047857',
-                        fontSize: '10.5px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ৩৮% রিসেট
-                    </button>
-                  )}
                 </div>
-              </div>
-            )}
-
-            {/* Optional Note Field */}
-            <div>
-              <input
-                type="text"
-                placeholder="ঐচ্ছিক নোট (যেমন: রাতের গল্লা মিলকরণ / সারাদিনের খুচরা বিক্রি)..."
-                value={customNoteInput}
-                onChange={(e) => setCustomNoteInput(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 11px',
-                  borderRadius: '9px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#0f172a',
-                }}
-              />
+              )}
             </div>
-          </div>
 
-          {/* Live 3-Column Financial Breakdown Preview */}
-          <div
-            style={{
-              marginTop: '10px',
-              display: 'grid',
-              gridTemplateColumns: isEmployee
-                ? 'repeat(1, minmax(0, 1fr))'
-                : 'repeat(3, minmax(0, 1fr))',
-              gap: '8px',
-            }}
-          >
+            {/* 2x2 Compact Horizontal KPI Cards — super clear on mobile */}
             <div
               style={{
-                background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
-                border: '1.5px solid #6ee7b7',
-                borderRadius: '12px',
-                padding: '10px 8px',
-                textAlign: 'center',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: '5px',
               }}
             >
-              <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#047857' }}>
-                💵 মোট ক্যাশ বিক্রয় (১০০%)
+              {/* 1. Total Sales */}
+              <div
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  borderRadius: '8px',
+                  padding: '5px 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '4px',
+                }}
+              >
+                <span style={{ fontSize: '10.2px', fontWeight: 800, color: '#166534' }}>
+                  ১. মোট বিক্রি (১০০%)
+                </span>
+                <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#14532d' }}>
+                  {formatMoney(calculation.totalSales)}
+                </span>
               </div>
-              <div style={{ fontSize: '16px', fontWeight: 900, color: '#064e3b', marginTop: '2px' }}>
-                {formatMoney(calculation.totalSales)}
+
+              {!isEmployee && (
+                <>
+                  {/* 2. Protected Asol (62%) */}
+                  <div
+                    style={{
+                      background: '#eff6ff',
+                      border: '1px solid #93c5fd',
+                      borderRadius: '8px',
+                      padding: '5px 8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ fontSize: '10.2px', fontWeight: 800, color: '#1e40af' }}>
+                      ২. আসল ({toBengaliNumerals(calculation.costPct)}% অক্ষত)
+                    </span>
+                    <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#1e3a8a' }}>
+                      {formatMoney(calculation.totalCogs)}
+                    </span>
+                  </div>
+
+                  {/* 3. Gross Profit (38%) */}
+                  <div
+                    style={{
+                      background: '#ecfdf5',
+                      border: '1px solid #6ee7b7',
+                      borderRadius: '8px',
+                      padding: '5px 8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ fontSize: '10.2px', fontWeight: 800, color: '#047857' }}>
+                      ৩. বিক্রয় লাভ ({toBengaliNumerals(calculation.activePct)}%)
+                    </span>
+                    <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#065f46' }}>
+                      +{formatMoney(calculation.grossProfit)}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {/* 4. Daily Expenses */}
+              <div
+                style={{
+                  background: '#fff1f2',
+                  border: '1px solid #fda4af',
+                  borderRadius: '8px',
+                  padding: '5px 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '4px',
+                }}
+              >
+                <span style={{ fontSize: '10.2px', fontWeight: 800, color: '#9f1239' }}>
+                  ৪. আজকের খরচ
+                </span>
+                <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#be123c' }}>
+                  -{formatMoney(calculation.totalExpenses)}
+                </span>
               </div>
             </div>
 
-            {!isEmployee && (
-              <>
-                <div
-                  style={{
-                    background: 'linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)',
-                    border: '1.5px solid #bae6fd',
-                    borderRadius: '12px',
-                    padding: '10px 8px',
-                    textAlign: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#0369a1' }}>
-                    📥 আসল / ক্রয়মূল্য ({toBengaliNumerals(calculation.costPct)}%)
+            {/* Final Net Profit/Loss & Net Cash Summary Banner */}
+            {!isEmployee ? (
+              <div
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: '9px',
+                  background:
+                    calculation.netProfitAfterExpense >= 0
+                      ? 'linear-gradient(135deg, #fefce8 0%, #fef08a 100%)'
+                      : 'linear-gradient(135deg, #ffe4e6 0%, #fecdd3 100%)',
+                  border:
+                    calculation.netProfitAfterExpense >= 0
+                      ? '1.5px solid #eab308'
+                      : '1.5px solid #f43f5e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: '11.5px',
+                      fontWeight: 900,
+                      color: calculation.netProfitAfterExpense >= 0 ? '#713f12' : '#881337',
+                    }}
+                  >
+                    {calculation.netProfitAfterExpense >= 0
+                      ? '💰 খরচ বাদে আজকের চূড়ান্ত নিট লাভ:'
+                      : '⚠️ খরচ বাদে আজকের চূড়ান্ত নিট লস:'}
                   </div>
                   <div
                     style={{
-                      fontSize: '16px',
-                      fontWeight: 900,
-                      color: '#0c4a6e',
-                      marginTop: '2px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: calculation.netProfitAfterExpense >= 0 ? '#854d0e' : '#9f1239',
                     }}
                   >
-                    {formatMoney(calculation.totalCogs)}
+                    লাভ {formatMoney(calculation.grossProfit)} − খরচ{' '}
+                    {formatMoney(calculation.totalExpenses)} | হাতে নগদ:{' '}
+                    <strong>{formatMoney(calculation.netCashRemainingInDrawer)}</strong>
                   </div>
                 </div>
 
                 <div
                   style={{
-                    background: 'linear-gradient(135deg, #fefce8 0%, #fef08a 100%)',
-                    border: '1.5px solid #fde047',
-                    borderRadius: '12px',
-                    padding: '10px 8px',
-                    textAlign: 'center',
+                    fontSize: '16px',
+                    fontWeight: 900,
+                    color: calculation.netProfitAfterExpense >= 0 ? '#15803d' : '#be123c',
+                    background: '#ffffff',
+                    padding: '3px 9px',
+                    borderRadius: '8px',
+                    border:
+                      calculation.netProfitAfterExpense >= 0
+                        ? '1.5px solid #86efac'
+                        : '1.5px solid #fda4af',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
                   }}
                 >
-                  <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#854d0e' }}>
-                    💰 নিট লাভ ({toBengaliNumerals(calculation.activePct)}%)
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '16px',
-                      fontWeight: 900,
-                      color: '#713f12',
-                      marginTop: '2px',
-                    }}
-                  >
-                    +{formatMoney(calculation.grossProfit)}
-                  </div>
+                  {calculation.netProfitAfterExpense >= 0 ? '+' : ''}
+                  {formatMoney(calculation.netProfitAfterExpense)}
                 </div>
-              </>
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '8px',
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  color: '#166534',
+                }}
+              >
+                <span>💵 খরচ বাদে ক্যাশবাক্সে নগদ থাকবে:</span>
+                <strong style={{ fontSize: '14px' }}>
+                  {formatMoney(calculation.netCashRemainingInDrawer)}
+                </strong>
+              </div>
             )}
           </div>
 
-          {/* Recent Session Submissions with 1-Click Undo */}
+          {/* RECENT SUBMISSIONS (WITH 1-CLICK UNDO) */}
           {recentSubmissions.length > 0 && (
             <div
               style={{
-                marginTop: '10px',
                 background: '#ffffff',
-                borderRadius: '12px',
-                border: '1px solid #a7f3d0',
-                padding: '9px 11px',
+                borderRadius: '10px',
+                padding: '7px 10px',
+                border: '1px solid #cbd5e1',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '6px',
+                gap: '5px',
               }}
             >
-              <div style={{ fontSize: '11.5px', fontWeight: 900, color: '#047857' }}>
-                ✅ এইমাত্র সেভ করা ক্যাশ সেল হিসাব:
+              <div style={{ fontSize: '10.5px', fontWeight: 900, color: '#0f766e' }}>
+                ✅ এইমাত্র সেভ করা হিসাব (ভুল হলে বাতিল করুন):
               </div>
-              {recentSubmissions.map((item) => (
+              {recentSubmissions.map((sub) => (
                 <div
-                  key={item.id}
+                  key={sub.key}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: '6px',
-                    padding: '6px 9px',
-                    borderRadius: '8px',
-                    background: '#f0fdf4',
-                    fontSize: '11.5px',
+                    padding: '5px 8px',
+                    borderRadius: '7px',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
                   }}
                 >
-                  <div style={{ fontWeight: 700, color: '#064e3b' }}>
-                    বিক্রয়: <strong>{formatMoney(item.amount)}</strong>
+                  <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#0f172a' }}>
+                    বিক্রি: {formatMoney(sub.salesAmount)} | খরচ: {formatMoney(sub.expenseAmount)}
                     {!isEmployee && (
-                      <>
-                        {' '}
-                        • আসল: <strong>{formatMoney(item.cost)}</strong> • লাভ:{' '}
-                        <strong style={{ color: '#059669' }}>+{formatMoney(item.profit)}</strong>
-                      </>
-                    )}{' '}
-                    ({item.time})
+                      <span
+                        style={{
+                          color: sub.netProfitAfterExpense >= 0 ? '#059669' : '#e11d48',
+                          marginLeft: '5px',
+                        }}
+                      >
+                        (নিট {sub.netProfitAfterExpense >= 0 ? 'লাভ +' : 'লস '}
+                        {formatMoney(sub.netProfitAfterExpense)})
+                      </span>
+                    )}
                   </div>
                   {onUndoBulkTally && (
                     <button
                       type="button"
                       onClick={async () => {
-                        await onUndoBulkTally(item.id, item.title);
-                        setRecentSubmissions((prev) => prev.filter((r) => r.id !== item.id));
+                        await onUndoBulkTally(sub.result, sub.title);
+                        setRecentSubmissions((prev) => prev.filter((x) => x.key !== sub.key));
                       }}
                       style={{
-                        padding: '3px 8px',
+                        padding: '3px 7px',
                         borderRadius: '6px',
                         border: '1px solid #fca5a5',
                         background: '#fef2f2',
                         color: '#dc2626',
-                        fontSize: '10.5px',
+                        fontSize: '10px',
                         fontWeight: 800,
                         cursor: 'pointer',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      ↩️ বাতিল
+                      বাতিল
                     </button>
                   )}
                 </div>
@@ -874,74 +1375,50 @@ export default function FastBulkTallyPadModal({
           )}
         </div>
 
-        {/* 4. Sticky Footer Action Bar */}
+        {/* 4. Sticky Bottom Action Bar */}
         <div
           style={{
-            padding: '10px 14px',
+            padding: '8px 10px',
             background: '#ffffff',
-            borderTop: '2px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
+            borderTop: '1.5px solid #cbd5e1',
             flexShrink: 0,
           }}
         >
-          {calculation.totalSales > 0 && (
-            <button
-              type="button"
-              onClick={handleReset}
-              style={{
-                padding: '10px 12px',
-                borderRadius: '10px',
-                border: '1px solid #fca5a5',
-                background: '#fef2f2',
-                color: '#dc2626',
-                fontSize: '12px',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                flexShrink: 0,
-              }}
-            >
-              <RotateCcw size={14} /> রিসেট
-            </button>
-          )}
-
           <button
             type="button"
-            disabled={calculation.totalSales <= 0 || isSubmitting}
+            disabled={!canSubmit}
             onClick={handleSubmit}
             style={{
-              flex: 1,
-              padding: '11px 16px',
+              width: '100%',
+              padding: '10px 12px',
               borderRadius: '11px',
               border: 'none',
-              background:
-                calculation.totalSales > 0
-                  ? 'linear-gradient(135deg, #059669 0%, #0d9488 100%)'
-                  : '#cbd5e1',
+              background: canSubmit
+                ? 'linear-gradient(135deg, #059669 0%, #0d9488 100%)'
+                : '#cbd5e1',
               color: '#ffffff',
-              fontSize: '13.5px',
+              fontSize: '13px',
               fontWeight: 900,
-              cursor: calculation.totalSales > 0 ? 'pointer' : 'not-allowed',
+              cursor: canSubmit ? 'pointer' : 'not-allowed',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '7px',
-              boxShadow:
-                calculation.totalSales > 0 ? '0 6px 18px rgba(5, 150, 105, 0.32)' : 'none',
+              gap: '6px',
+              boxShadow: canSubmit ? '0 6px 16px -4px rgba(5, 150, 105, 0.5)' : 'none',
             }}
           >
             <CheckCircle2 size={16} />
             {isSubmitting
               ? 'হিসাব সেভ হচ্ছে...'
+              : calculation.totalSales > 0 && calculation.totalExpenses > 0
+              ? `বিক্রি (${formatMoney(calculation.totalSales)}) ও খরচ (${formatMoney(
+                  calculation.totalExpenses
+                )}) সেভ করুন`
               : calculation.totalSales > 0
-              ? `সেল সেভ করুন — বিক্রয় ${formatMoney(calculation.totalSales)} (লাভ +${formatMoney(
-                  calculation.grossProfit
-                )})`
-              : 'মোট ক্যাশ টাকা লিখে সেভ করুন'}
+              ? `মোট বিক্রি (${formatMoney(calculation.totalSales)}) সেভ করুন`
+              : calculation.totalExpenses > 0
+              ? `আজকের খরচ (${formatMoney(calculation.totalExpenses)}) সেভ করুন`
+              : 'মোট ক্যাশ বিক্রি বা আজকের খরচ লিখে সেভ করুন'}
           </button>
         </div>
       </div>
